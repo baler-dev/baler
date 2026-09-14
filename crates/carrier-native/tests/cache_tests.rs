@@ -3,7 +3,11 @@ use carrier_native::cache::clear_module_cache;
 #[test]
 fn clear_module_cache_behavior() {
     let tmp = tempfile::tempdir().unwrap();
-    std::env::set_var("CARRIER_CACHE_DIR", tmp.path());
+    // SAFETY: this file has exactly one #[test] fn, so no other test
+    // in this binary can race on CARRIER_CACHE_DIR while this runs.
+    unsafe {
+        std::env::set_var("CARRIER_CACHE_DIR", tmp.path());
+    }
 
     // Removes an existing module's cache entries, all triples/versions/hashes included.
     let module_dir = tmp.path().join("mystats").join("x86_64-pc-linux-gnu").join("4.4");
@@ -25,5 +29,8 @@ fn clear_module_cache_behavior() {
     assert!(!tmp.path().join("mystats").exists());
     assert!(tmp.path().join("otherstats").exists());
 
-    std::env::remove_var("CARRIER_CACHE_DIR");
+    // SAFETY: see the comment on set_var above — same single-test file.
+    unsafe {
+        std::env::remove_var("CARRIER_CACHE_DIR");
+    }
 }
