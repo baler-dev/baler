@@ -2,6 +2,8 @@
 
 # Development version
 
+# v0.2.3
+
 ## Breaking Changes
 
 -  `carrier compile --clean` flag now evicts a module's cached compiled native codes from `~/.carrier/native-cache/` before compiling, so a stale cache hit can't mask a real rebuild. 
