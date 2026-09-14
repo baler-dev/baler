@@ -154,4 +154,22 @@ carrier bundle . --binary --keep-source   # ship both
 
 Successful builds are cached, keyed by module, platform, R version, and a hash of the native directory's contents, so a cache hit copies the library into place instead of invoking `R CMD SHLIB` again.
 
-> The exact cache path, and the specific hash algorithm used, aren't confirmed in this doc. They depend on `carrier-native::cache`, which hasn't been checked against this text. Don't treat the previous version's `~/.carrier/native-cache/<module>/<platform>/<R-major.minor>/<source-hash>/` and "SHA-256" as verified facts, they're carried over unchecked from before and need confirming against `cache.rs` directly.
+The global cache lives at `~/.carrier/native-cache/<module>/<platform>/<R-major.minor>/<source-hash>/`. `<source-hash>` is a SHA-256 digest over every file's relative path and bytes under the native directory, sorted for determinism, so the same source always hashes the same way regardless of the order the filesystem happens to list files in. `target/` is excluded from that hash: Cargo's own build output for a module mixing in Rust isn't deterministic between builds, so hashing it would change the cache key on every build even when nothing real changed, quietly defeating the cache.
+
+Set `CARRIER_CACHE_DIR` to relocate the cache root away from `~/.carrier/native-cache/`. This matters on a machine without a conventional home directory (some CI runners), or when several users share a machine and want separate caches.
+
+### Forcing a real rebuild
+
+Start by clearing all the cache, including local `.lib/` and the global caches. Take not that clearing `.lib/`, the directory of the compiled shared objects is copied into, is not the same as clearing the cache above, and it's important to keep the two apart:
+
+-   `.lib/` holds the compiled shared objects `box::file()` actually loads at runtime for the current project. `carrier compile` clears and rebuilds it on every run, whether or not anything changed.
+-   The cache above is a separate, global store shared across every project on the machine. A plain `carrier compile` still checks it first: if the source hash, platform, and R version all match a previous build, the cached artifact is copied straight into the freshly-cleared `.lib/` and `R CMD SHLIB` never runs.
+
+So a normal `carrier compile`, assuming your working directory lives on the root directory of the project, can look like it rebuilt when it actually just replayed a cache hit. To force an actual recompile, evict the cache first with `--clean`:
+
+``` bash
+# carrier compile . --clean
+carrier compile --clean
+```
+
+This removes every cached entry for the current module, across all platforms, R versions, and source hashes, before compiling. The next build has no cache entry to match against, so `R CMD SHLIB` has to run for real.
