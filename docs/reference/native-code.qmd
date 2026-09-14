@@ -158,18 +158,33 @@ The global cache lives at `~/.carrier/native-cache/<module>/<platform>/<R-major.
 
 Set `CARRIER_CACHE_DIR` to relocate the cache root away from `~/.carrier/native-cache/`. This matters on a machine without a conventional home directory (some CI runners), or when several users share a machine and want separate caches.
 
-### Forcing a real rebuild
+### Cleaning, or forcing a rebuild
 
-Start by clearing all the cache, including local `.lib/` and the global caches. Take not that clearing `.lib/`, the directory of the compiled shared objects is copied into, is not the same as clearing the cache above, and it's important to keep the two apart:
+Clearing `.lib/`, the directory a finished artifact is copied into, is not the same as clearing the cache above, and it's important to keep the two apart:
 
 -   `.lib/` holds the compiled shared objects `box::file()` actually loads at runtime for the current project. `carrier compile` clears and rebuilds it on every run, whether or not anything changed.
 -   The cache above is a separate, global store shared across every project on the machine. A plain `carrier compile` still checks it first: if the source hash, platform, and R version all match a previous build, the cached artifact is copied straight into the freshly-cleared `.lib/` and `R CMD SHLIB` never runs.
 
-So a normal `carrier compile`, assuming your working directory lives on the root directory of the project, can look like it rebuilt when it actually just replayed a cache hit. To force an actual recompile, evict the cache first with `--clean`:
+So a normal `carrier compile`, assuming your working directory lives at the root of the project, can look like it rebuilt when it actually just replayed a cache hit.
+
+To remove the caches, both locally and globally, without rebuilding, pass `--clean`:
 
 ``` bash
 # carrier compile . --clean
+# Not the same as 
+# `carrier compile` only 
 carrier compile --clean
 ```
 
-This removes every cached entry for the current module, across all platforms, R versions, and source hashes, before compiling. The next build has no cache entry to match against, so `R CMD SHLIB` has to run for real.
+This removes every cached entry for the current module, across all platforms, R versions, and source hashes, and clears `.lib/`, then stops. Nothing gets compiled. Think of this as what you did with `devtools::clean()` and/or `pkgbuild::clean_dll()`.
+
+To force an actual recompile instead, pass `--rebuild`:
+
+``` bash
+# carrier compile . --rebuild
+carrier compile --rebuild
+```
+
+This evicts the same cache entries first, then compiles anyway. The next build has no cache entry to match against, so `R CMD SHLIB` has to run for real, even if the source hasn't changed since the last build.
+
+`--clean` and `--rebuild` conflict with each other. Passing both is a hard error at the CLI level, not a runtime choice between them.
