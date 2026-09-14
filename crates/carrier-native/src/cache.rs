@@ -48,6 +48,9 @@ pub fn source_hash(native_dir: &Path) -> Result<String> {
 /// lookup is a pure path check.
 /// No index file to keep in sync.
 pub fn cache_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("CARRIER_CACHE_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
     let home = dirs::home_dir()
         .context("Could not determine home directory for the native build cache")?;
     Ok(home.join(".carrier").join("native-cache"))
