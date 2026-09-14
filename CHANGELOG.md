@@ -10,6 +10,8 @@
 
     -  Note: `.lib/` was already cleared on every compile call regardless. `--clean` closes the remaining gap where the global cache could quietly repopulate it with the same binary.
 
+-  `carrier compile --rebuild` flag: evicts this module's cache first, then compiles, so a cache hit can't mask the fact that `R CMD SHLIB` actually ran again. `--clean` and `--rebuild` conflict with each other; passing both is a hard error.
+
 -  As of this version, `carrier compile` is the only command that doesn't need `<path>` to be supplied. 
 
     -  You are allowed to run either `carrier compile .` or just `carrier compile`, given the current directory is the root directory of the project where `carrier.toml` lives. 
