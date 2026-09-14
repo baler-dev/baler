@@ -48,7 +48,28 @@ pub fn source_hash(native_dir: &Path) -> Result<String> {
 /// lookup is a pure path check.
 /// No index file to keep in sync.
 pub fn cache_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("CARRIER_CACHE_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
     let home = dirs::home_dir()
         .context("Could not determine home directory for the native build cache")?;
     Ok(home.join(".carrier").join("native-cache"))
+}
+
+/// New option: Removing global cached native compiled binaries
+///
+/// Remove every cached artifact under `<cache_dir>/<cache_key_name>/`,
+/// across all target triples, R versions, and source hashes for that
+/// module. Used by `carrier compile --clean` to force a real rebuild
+/// instead of a cache hit on the next `build()` call.
+///
+/// A missing directory is not an error: nothing has been built for
+/// this module yet, which is already the state the caller wants.
+pub fn clear_module_cache(cache_key_name: &str) -> Result<()> {
+    let module_cache = cache_dir()?.join(cache_key_name);
+    if module_cache.exists() {
+        std::fs::remove_dir_all(&module_cache)
+            .with_context(|| format!("Failed to clear cache at {}", module_cache.display()))?;
+    }
+    Ok(())
 }
