@@ -7,31 +7,24 @@ use crate::ops::resolve;
 use crate::paths::resolve_r_lib_dir;
 use crate::version::VersionSpec;
 
-/// Compile a module's native code in place, directly into its own
-/// source directory. This tries to mirror `devtools::load_all()`'s
-/// convention of building `src/*.so` right where the source lives, for fast
-/// dev-loop iteration against a running R session.
-///
-/// Unlike `install`'s `build_native_if_present`, this never deletes
-/// the native source dir afterward: the whole point of `carrier
-/// compile` is to keep iterating on that source. Each artifact lands at
-/// `<native_dir_parent>/lib/<native_dir_name><dynlib_ext>`, exactly
-/// where `box::file()` in the scaffolded hook already expects it, so
-/// no change to `r_glue.rs` is required.
-///
-/// Uses `resolve_native_dirs()`, not a raw scan, so an explicit
-/// `[native].path`/`paths` override in carrier.toml is respected the
-/// same way `install` and `bundle` already respect it.
-///
-/// Excluding this dev-built `lib/` from a plain source bundle is a
-/// separate, still-open concern in `formats/tar.rs` and `formats/rmbx.rs`
-/// (not handled here).
-///
-/// Resolves and installs `[native].build_deps` before compiling, no
-/// `--install-deps` gate since compile has none. Checks the R library
-/// dir first, same logic `install_packages` uses, so a repeat compile
-/// with deps already satisfied stays network-free.
-pub fn run(project_root: &Path, clean: bool) -> Result<Vec<CompiledArtifact>> {
+/// How `run` treats a module's cache and `.lib/` before compiling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileMode {
+    /// Compile normally, a cache hit may skip the compiler.
+    Normal,
+    /// Remove cached and compiled artifacts and stop, like
+    /// `pkgbuild::clean_dll()`. Never compiles.
+    Clean,
+    /// Evict the cache first, then compile, so the build
+    /// cannot be a cache hit.
+    Rebuild,
+}
+
+/// Compile a module's native code in place, mirroring
+/// `devtools::load_all()`'s convention of building `src/*.so`
+/// right where the source lives, for fast dev-loop iteration.
+/// Resolves `[native].build_deps` first, same as `install`.
+pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifact>> {
     if !project_root.join("carrier.toml").exists() {
         bail!(
             "No carrier.toml found in {}. Is this a carrier module project?",
@@ -47,9 +40,23 @@ pub fn run(project_root: &Path, clean: bool) -> Result<Vec<CompiledArtifact>> {
         return Ok(Vec::new());
     }
 
-    if clean {
+    if matches!(mode, CompileMode::Clean | CompileMode::Rebuild) {
         carrier_native::cache::clear_module_cache(&name)
             .with_context(|| format!("Failed to clear native build cache for '{}'", name))?;
+    }
+
+    if mode == CompileMode::Clean {
+        let mut cleared_lib_dirs: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        for native_dir in &native_dirs {
+            let target_dir = native_dir.parent().unwrap_or(project_root);
+            let lib_dir = target_dir.join(".lib");
+            if cleared_lib_dirs.insert(lib_dir.clone()) && lib_dir.exists() {
+                std::fs::remove_dir_all(&lib_dir)
+                    .with_context(|| format!("Failed to clear {}", lib_dir.display()))?;
+            }
+        }
+
+        return Ok(Vec::new());
     }
 
     let build_deps = toml.native.as_ref()

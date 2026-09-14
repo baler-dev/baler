@@ -24,7 +24,7 @@ pub fn run(path: &str, binary: bool, keep_source: bool) -> Result<()> {
     let meta = &toml.module;
 
     let built = if binary {
-        Some(crate::ops::compile::run(&project_root, false)?)
+        Some(crate::ops::compile::run(&project_root, carrier_core::ops::compile::CompileMode::Normal)?)
     } else {
         None
     };

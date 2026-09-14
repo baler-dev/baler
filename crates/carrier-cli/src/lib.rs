@@ -68,11 +68,18 @@ enum Commands {
         /// Path to the project root (e.g. `.` or `./my-project`)
         #[arg(default_value = ".")]
         path: String,
-        
-        /// Evict this module's cached artifacts before compiling, so
-        /// the build can't short-circuit into a stale cache hit
-        #[arg(long)]
+
+        /// Remove this module's cached and compiled native artifacts
+        /// and stop, without compiling. Equivalent to
+        /// pkgbuild::clean_dll(), not a rebuild.
+        #[arg(long, conflicts_with = "rebuild")]
         clean: bool,
+
+        /// Force a real recompile even if the source hash hasn't
+        /// changed, by evicting this module's cache first. Unlike
+        /// --clean, this still compiles.
+        #[arg(long, conflicts_with = "clean")]
+        rebuild: bool,
     },
 
     /// Install a module from a .tar.gz, GitHub (gh:user/repo), or
@@ -124,8 +131,8 @@ pub fn run() {
         Commands::Init { name, dir_name, native, backend } => {
             commands::init::run(InitArgs { name, dir_name, native, backend })
         }
-        Commands::Compile { path, clean } => {
-            commands::compile::run(CompileArgs { path, clean })
+        Commands::Compile { path, clean, rebuild } => {
+            commands::compile::run(CompileArgs { path, clean, rebuild })
         }
         Commands::Bundle { path, binary, keep_source } => {
             commands::bundle::run(BundleArgs { path, binary, keep_source })
