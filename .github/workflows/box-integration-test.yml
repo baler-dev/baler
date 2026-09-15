@@ -38,16 +38,20 @@ jobs:
                   Rscript -e 'install.packages("pak")'
                   Rscript -e 'pak::pak("joshuamarie/box@feature/carrier-module-support")'
 
-            - name: "Fetch fpurrr"
-              run: git clone --depth 1 https://github.com/joshuamarie/fpurrr.git fpurrr-src
+            - name: "Fetch fpurrr and statmodule"
+              run: | 
+                  git clone --depth 1 https://github.com/joshuamarie/fpurrr.git fpurrr-src
+                  git clone --depth 1 https://github.com/joshuamarie/stat-box-module.git statmodule-src
 
             - name: "Install a real module via carrier"
               shell: bash
               run: |
                   if [ "${{ runner.os }}" = "Windows" ]; then
                       ./target/release/carrier.exe install ./fpurrr-src --install-deps
+                      ./target/release/carrier.exe install ./statmodule-src --install-deps
                   else
                       ./target/release/carrier install ./fpurrr-src --install-deps
+                      ./target/release/carrier.exe install ./statmodule-src --install-deps
                   fi
 
             - name: "Verify box::use() resolves the installed module"
