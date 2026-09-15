@@ -51,7 +51,7 @@ jobs:
                       ./target/release/carrier.exe install ./statmodule-src --install-deps
                   else
                       ./target/release/carrier install ./fpurrr-src --install-deps
-                      ./target/release/carrier.exe install ./statmodule-src --install-deps
+                      ./target/release/carrier install ./statmodule-src --install-deps
                   fi
 
             - name: "Verify box::use() resolves the installed module"
