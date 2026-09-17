@@ -7,5 +7,5 @@ pub struct BundleArgs {
 }
 
 pub fn run(args: BundleArgs) -> Result<()> {
-    carrier_core::ops::bundle::run(&args.path, args.binary, args.keep_source)
+    baler_core::ops::bundle::run(&args.path, args.binary, args.keep_source)
 }

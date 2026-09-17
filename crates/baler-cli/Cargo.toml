@@ -1,25 +1,21 @@
 [package]
-name = "carrier-cli"
+name = "baler-cli"
 version.workspace = true
 edition.workspace = true
-description = "A bundler and package manager for box modules"
-default-run = "carrier"
+description = "A 'Cargo'-style package manager for `{box}` modules"
+default-run = "baler"
 
 [lib]
-name = "carrier_cli"
+name = "baler_cli"
 path = "src/lib.rs"
 
 [[bin]]
-name = "carrier"
-path = "src/bin/carrier.rs"
-
-[[bin]]
-name = "box-crr"
-path = "src/bin/crr.rs"
+name = "baler"
+path = "src/bin/baler.rs"
 
 [dependencies]
-carrier-core = { path = "../carrier-core", features = ["network"] }
-carrier-native = { path = "../carrier-native" }
+baler-core = { path = "../baler-core", features = ["network"] }
+baler-native = { path = "../native-code-handler" }
 anyhow.workspace = true
 clap.workspace = true
 

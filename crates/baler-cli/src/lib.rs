@@ -13,7 +13,7 @@ use commands::{
 };
 
 #[derive(Parser)]
-#[command(name = "carrier")]
+#[command(name = "baler")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "A bundler and package manager for box modules")]
 struct Cli {
@@ -97,19 +97,19 @@ enum Commands {
         // native: Option<String>,
     },
 
-    /// Resolve R package dependencies and write carrier.lock, without
+    /// Resolve R package dependencies and write baler.lock, without
     /// installing anything
     Lock {
         /// Path to the project root (e.g. `.` or `./my-project`)
         path: String,
 
-        #[arg(long, conflicts_with = "remove", help = "Ignore any existing carrier.lock and re-resolve everything fresh instead of reusing its pins")]
+        #[arg(long, conflicts_with = "remove", help = "Ignore any existing baler.lock and re-resolve everything fresh instead of reusing its pins")]
         update: bool,
 
-        #[arg(long, conflicts_with = "remove", help = "Record the R version currently on PATH in carrier.lock, as provenance only, not enforced on install")]
+        #[arg(long, conflicts_with = "remove", help = "Record the R version currently on PATH in baler.lock, as provenance only, not enforced on install")]
         with_rver: bool,
 
-        #[arg(long, help = "Delete carrier.lock instead of writing one. This is the safe version of removal, carrier just resolves fresh without it")]
+        #[arg(long, help = "Delete baler.lock instead of writing one. This is the safe version of removal, baler just resolves fresh without it")]
         remove: bool,
     },
 

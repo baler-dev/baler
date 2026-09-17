@@ -6,5 +6,5 @@ pub struct RemoveArgs {
 }
 
 pub fn exec(args: RemoveArgs) -> Result<()> {
-    carrier_core::ops::remove::run(&args.name, args.force)
+    baler_core::ops::remove::run(&args.name, args.force)
 }

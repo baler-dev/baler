@@ -8,5 +8,5 @@ pub struct LockArgs {
 }
 
 pub fn run(args: LockArgs) -> Result<()> {
-    carrier_core::ops::lock::run(&args.path, args.update, args.with_rver, args.remove)
+    baler_core::ops::lock::run(&args.path, args.update, args.with_rver, args.remove)
 }

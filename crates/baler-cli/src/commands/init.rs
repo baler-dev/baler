@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use carrier_native::{Backend, NativeLang};
+use baler_native::{Backend, NativeLang};
 
 pub struct InitArgs {
     pub name: String,
@@ -12,5 +12,5 @@ pub struct InitArgs {
 pub fn run(args: InitArgs) -> Result<()> {
     let native = args.native.as_deref().map(NativeLang::parse).transpose()?;
     let backend = args.backend.as_deref().map(Backend::parse).transpose()?;
-    carrier_core::ops::init::run(&args.name, args.dir_name.as_deref(), native, backend)
+    baler_core::ops::init::run(&args.name, args.dir_name.as_deref(), native, backend)
 }
