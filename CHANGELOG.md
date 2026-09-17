@@ -14,15 +14,15 @@
 
 ## Breaking Changes
 
--  `baler compile --clean` flag now evicts a module's cached compiled native codes from `~/.baler/native-cache/` before compiling, so a stale cache hit can't mask a real rebuild. 
+-  `carrier compile --clean` flag now evicts a module's cached compiled native codes from `~/.carrier/native-cache/` before compiling, so a stale cache hit can't mask a real rebuild. 
 
     -  Note: `.lib/` was already cleared on every compile call regardless. `--clean` closes the remaining gap where the global cache could quietly repopulate it with the same binary.
 
--  `baler compile --rebuild` flag: evicts this module's cache first, then compiles, so a cache hit can't mask the fact that `R CMD SHLIB` actually ran again. `--clean` and `--rebuild` conflict with each other; passing both is a hard error.
+-  `carrier compile --rebuild` flag: evicts this module's cache first, then compiles, so a cache hit can't mask the fact that `R CMD SHLIB` actually ran again. `--clean` and `--rebuild` conflict with each other; passing both is a hard error.
 
--  As of this version, `baler compile` is the only command that doesn't need `<path>` to be supplied. 
+-  As of this version, `carrier compile` is the only command that doesn't need `<path>` to be supplied. 
 
-    -  You are allowed to run either `baler compile .` or just `baler compile`, given the current directory is the root directory of the project where `baler.toml` lives. 
+    -  You are allowed to run either `carrier compile .` or just `carrier compile`, given the current directory is the root directory of the project where `carrier.toml` lives. 
 
 # v0.2.2
 
@@ -34,17 +34,17 @@
 
     -  This also fixed a related bug in the "already satisfied" check: installed-package version detection used its own separate normalization that produced invalid semver syntax for any version with more than 3 components, so it silently never matched for those packages even right after a successful install.
 
--  `baler install` skips both `build_deps` installation and compilation entirely for a native unit when a `baler bundle --binary` archive already ships a matching prebuilt artifact (same target triple, R version, and source hash).
+-  `carrier install` skips both `build_deps` installation and compilation entirely for a native unit when a `carrier bundle --binary` archive already ships a matching prebuilt artifact (same target triple, R version, and source hash).
 
--  `baler compile` now also resolves and installs `[native].build_deps` before compiling, same as `baler install` already did. Checks the local R library first and only resolves against CRAN when something's actually missing or out of spec, so a repeat compile with `build_deps` already satisfied stays network-free.
+-  `carrier compile` now also resolves and installs `[native].build_deps` before compiling, same as `carrier install` already did. Checks the local R library first and only resolves against CRAN when something's actually missing or out of spec, so a repeat compile with `build_deps` already satisfied stays network-free.
 
 # v0.2.1
 
 ## What's fixed and changed
 
--  `{baler}` acknowledges `build_deps` from `[native]` in `baler.toml`. Now, the compilation step will resolve the external dependencies right before building compiled shared objects/artifacts. 
+-  `{carrier}` acknowledges `build_deps` from `[native]` in `carrier.toml`. Now, the compilation step will resolve the external dependencies right before building compiled shared objects/artifacts. 
 
--  From the `baler-core/` structure: 
+-  From the `carrier-core/` structure: 
     
     -  `cran/client.rs` is divided into 3 scripts
     
@@ -54,14 +54,14 @@
 
 ## What's new
 
--   Compiled code support: a module can now declare `[native]` in `baler.toml` to ship C, C++, Rcpp, Rust, or Fortran code alongside its R source.
+-   Compiled code support: a module can now declare `[native]` in `carrier.toml` to ship C, C++, Rcpp, Rust, or Fortran code alongside its R source.
 
-    -   `baler install` automatically compiles a module's native code as part of installing it — no manual build step. Compiled artifacts are cached locally (`~/.baler/native-cache/`), keyed by source contents, platform, and R version, so unchanged code isn't recompiled on every install.
+    -   `carrier install` automatically compiles a module's native code as part of installing it — no manual build step. Compiled artifacts are cached locally (`~/.carrier/native-cache/`), keyed by source contents, platform, and R version, so unchanged code isn't recompiled on every install.
 
-    -   `baler init <name> --native <ingredients>` scaffolds a compiled-code module from scratch. A starter source file, build configuration, and a small loader helper wired into `__init__.R`, so no module has to hand-write `dyn.load()`/platform-extension logic itself. `--native` takes a comma-separated set, e.g. `--native c`, `--native rcpp`, `--native c,fortran`:
+    -   `carrier init <name> --native <ingredients>` scaffolds a compiled-code module from scratch. A starter source file, build configuration, and a small loader helper wired into `__init__.R`, so no module has to hand-write `dyn.load()`/platform-extension logic itself. `--native` takes a comma-separated set, e.g. `--native c`, `--native rcpp`, `--native c,fortran`:
 
         ``` bash
-        baler init stats_native --native rcpp
+        carrier init stats_native --native rcpp
         ```
 
     -   Compiled code doesn't have to live under `src/` 
@@ -78,59 +78,59 @@
 
 ## Breaking changes
 
--  The content of the files generated by `baler init `  (without `--native`) completely replaces the previous "empty" ones. The "pure R" code contents are equivalent to the codes of the templates for the native languages when `--native` is used. 
+-  The content of the files generated by `carrier init `  (without `--native`) completely replaces the previous "empty" ones. The "pure R" code contents are equivalent to the codes of the templates for the native languages when `--native` is used. 
 
--  The `baler.toml` template when initializing has completely new face. 
+-  The `carrier.toml` template when initializing has completely new face. 
 
 -  Removing `.rmbx` support (Rationale: the `.tar.gz` tarball archives here caches compiled binaries, and this format is often supported)
 
 ## Fixes
 
--  Native builds are cached locally (keyed by source hash, platform, and R version, the latter detected live from the R installation doing the build, not from `baler.toml`'s `r_version` constraint). This applies to any native build, `baler compile`, `baler install`, or `baler bundle --binary` alike, and is separate from the platform/R-version tag `baler bundle --binary` attaches for a *different* machine to trust the precompiled artifact at install time.
+-  Native builds are cached locally (keyed by source hash, platform, and R version, the latter detected live from the R installation doing the build, not from `carrier.toml`'s `r_version` constraint). This applies to any native build, `carrier compile`, `carrier install`, or `carrier bundle --binary` alike, and is separate from the platform/R-version tag `carrier bundle --binary` attaches for a *different* machine to trust the precompiled artifact at install time.
 
--  `baler.lock` now handle external dependencies on the native compiled codes.
+-  `carrier.lock` now handle external dependencies on the native compiled codes.
 
--  `baler` now atomically writes `baler.lock` lockfile via temp file + rename
+-  `carrier` now atomically writes `carrier.lock` lockfile via temp file + rename
 
--  `baler` will fail when `baler.toml` repo drifts from `baler.lock`
+-  `carrier` will fail when `carrier.toml` repo drifts from `carrier.lock`
 
--  `baler.lock`'s `r_version` field is no longer written by default. It's opt-in via `baler lock --with-rver`, since two contributors on different R installs re-locking the same `baler.toml` should get an identical `[[package]]` output, and always writing `r_version` turned that into a spurious diff.
+-  `carrier.lock`'s `r_version` field is no longer written by default. It's opt-in via `carrier lock --with-rver`, since two contributors on different R installs re-locking the same `carrier.toml` should get an identical `[[package]]` output, and always writing `r_version` turned that into a spurious diff.
 
--  `baler lock --remove` deletes `baler.lock` instead of writing one. Safe to run any time, a missing lock just means baler resolves fresh, same as a project that never had one.
+-  `carrier lock --remove` deletes `carrier.lock` instead of writing one. Safe to run any time, a missing lock just means carrier resolves fresh, same as a project that never had one.
 
 # v0.1.3
 
 ## Fixes
 
--   `r_version` in `baler.toml` is now an enforced constraint, not a decorative string. It's parsed through the same version-spec syntax as `package_deps`/`module_deps` (`>=4.4.0`, `^4.4.0`, ranges), and checked against the R currently on `PATH`.
+-   `r_version` in `carrier.toml` is now an enforced constraint, not a decorative string. It's parsed through the same version-spec syntax as `package_deps`/`module_deps` (`>=4.4.0`, `^4.4.0`, ranges), and checked against the R currently on `PATH`.
 
-    -   Checked at `baler lock` and `baler install` time. A mismatch is a hard error.
+    -   Checked at `carrier lock` and `carrier install` time. A mismatch is a hard error.
 
--   `baler.lock` now records the R version that produced it, as provenance.
+-   `carrier.lock` now records the R version that produced it, as provenance.
 
--   Scaffolded `baler.toml` templates now default to `r_version = ">=4.0.0"` instead of a bare `"4.0.0"`, so new modules declare a floor instead of an ambiguous, unenforced string.
+-   Scaffolded `carrier.toml` templates now default to `r_version = ">=4.0.0"` instead of a bare `"4.0.0"`, so new modules declare a floor instead of an ambiguous, unenforced string.
 
 # v0.1.2
 
 ## Fixes
 
-- Bundled `.rmbx`/`.tar.gz` archives now carry the resolved `baler.lock` in their manifest. Previously, installing a standalone archive on a machine that never had the source project re-resolved dependencies fresh every time, silently ignoring any pin the project's lock had made.
+- Bundled `.rmbx`/`.tar.gz` archives now carry the resolved `carrier.lock` in their manifest. Previously, installing a standalone archive on a machine that never had the source project re-resolved dependencies fresh every time, silently ignoring any pin the project's lock had made.
 
-- `baler.toml`'s `[test]` config and extended author fields (`email`, `url`, `orcid`) were dropped when a bundled archive's metadata got reconstructed 
+- `carrier.toml`'s `[test]` config and extended author fields (`email`, `url`, `orcid`) were dropped when a bundled archive's metadata got reconstructed 
 
     -  `[test]` was never carried at all, and an extended author collapsed into a plain name string. Both now round-trip intact.
 
 # v0.1.1
 
--   Add `--repo` support on `baler install` for the future updates. 
+-   Add `--repo` support on `carrier install` for the future updates. 
 
--   A lockfile support on `baler`. 
+-   A lockfile support on `carrier`. 
 
--   New lockfile module: read/write `baler.lock`, pinning each package to an exact version and repo.
+-   New lockfile module: read/write `carrier.lock`, pinning each package to an exact version and repo.
 
-    -  Run `baler lock .` to produce the `baler.lock` lockfile. 
+    -  Run `carrier lock .` to produce the `carrier.lock` lockfile. 
 
--   `module_deps` in `baler.toml` can now declare a `source` alongside its version constraint, mirroring `package_deps`:
+-   `module_deps` in `carrier.toml` can now declare a `source` alongside its version constraint, mirroring `package_deps`:
 
     ``` toml
     [module_deps]
@@ -139,30 +139,30 @@
 
 -   Transitive module dependency resolution: a module's own `module_deps`/`package_deps` are now fetched and resolved recursively, not just the root project's. Dependency cycles are detected and rejected instead of silently resolving or hanging.
 
--   Fixes on `baler install` command:
+-   Fixes on `carrier install` command:
 
     -   `gh:user/repo/tree/<ref>/<subpath>` sources now install the pinned ref instead of silently falling back to the default branch.
 
-    -   Previously accepts bare names to install the module under local dir (e.g. `baler install some-dir`), now flags an error
+    -   Previously accepts bare names to install the module under local dir (e.g. `carrier install some-dir`), now flags an error
 
-        -   You have to place `.` prefix or `/` suffix if you want to install the module under some local dir, e.g. `baler install ./some-dir` or `baler install some-dir/`
+        -   You have to place `.` prefix or `/` suffix if you want to install the module under some local dir, e.g. `carrier install ./some-dir` or `carrier install some-dir/`
 
--   Fixes on `baler install` command: 
+-   Fixes on `carrier install` command: 
     
     -  `gh:user/repo/tree/<ref>/<subpath>` sources now install the pinned ref instead of silently falling back to the default branch.
-    -  Previously accepts bare names to install the module under local dir (e.g. `baler install some-dir`), now flags an error
+    -  Previously accepts bare names to install the module under local dir (e.g. `carrier install some-dir`), now flags an error
        
-       -  You have to place `.` prefix or `/` suffix if you want to install the module under some local dir, e.g. `baler install ./some-dir` or `baler install some-dir/`
+       -  You have to place `.` prefix or `/` suffix if you want to install the module under some local dir, e.g. `carrier install ./some-dir` or `carrier install some-dir/`
 
 # 0.1.0
 
--   This is the initial version release of `baler`
+-   This is the initial version release of `carrier`
 
 -   Built the very first foundation for managing `{box}` modules as installable, distributable packages.
 
 -   Here are the 4 commands:
 
-    -   `baler init` (Optional): Initializing the project, akin to `usethis::create_package()`
-    -   `baler bundle`: When sourcing the `{box}` modules
-    -   `baler install`: Install the package, analogous to `install.packages()`
-    -   `baler remove`: Remove the package
+    -   `carrier init` (Optional): Initializing the project, akin to `usethis::create_package()`
+    -   `carrier bundle`: When sourcing the `{box}` modules
+    -   `carrier install`: Install the package, analogous to `install.packages()`
+    -   `carrier remove`: Remove the package
