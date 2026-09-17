@@ -224,7 +224,7 @@ fn parse_dcf(reader: impl BufRead) -> Result<HashMap<String, PackageRecord>> {
             match key {
                 "Package" => name = Some(val.to_owned()),
                 "Version" => version = Some(val.to_owned()),
-                "Imports" | "Depends" => {
+                "Imports" | "Depends" | "LinkingTo" => {
                     deps.extend(parse_dep_field(val));
                     in_dep_field = true;
                 }
