@@ -2,6 +2,8 @@
 
 # Development version
 
+# v0.2.4
+
 ## Bug Fixes
 
 -  Fixed `PACKAGES.gz` parsing to also capture `LinkingTo` when building a package's dependency graph, alongside the already-handled `Imports` and `Depends`. A package that only needs another at compile time through `LinkingTo` (for example `dqrng` needing `sitmo`'s headers) was previously invisible to the transitive dependency walk, so it was never installed and never ordered ahead of the package that needs it.
