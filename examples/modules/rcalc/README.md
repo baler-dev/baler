@@ -1,23 +1,23 @@
 
 # Demo module: Calculus in R
 
-This is a demo `{box}`-`{carrier}` module that uses native compiled
-codes which contains functions involving calculus.
+This is a demo `{box}`-`{baler}` module that uses native compiled codes
+which contains functions involving calculus.
 
 ## Requirements
 
-- `{carrier}` binary (see
-  [installation](https://joshuamarie.com/carrier/installation.html) for
-  details)
+- `{baler}` binary (see
+  [installation](https://baler-dev.github.io/baler/installation.html)
+  for details)
 - Rtools toolchain
 - `{box}` R package (see
-  [installation](https://joshuamarie.com/carrier/installation.html) for
-  more details)
+  [installation](https://baler-dev.github.io/baler/installation.html)
+  for more details)
 
 ## Installation
 
 ``` bash
-carrier install gh:joshuamarie/carrier/tree/main/examples/modules/rcalc --install-deps
+baler install gh:baler-dev/baler/tree/main/examples/modules/rcalc --install-deps
 ```
 
 ## Usage

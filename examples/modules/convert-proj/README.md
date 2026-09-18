@@ -1,20 +1,20 @@
 # Convert package
 
-This is an example `{box}` module package managed by `{carrier}`, where it contains the collection of example codes featuring conversion units. 
+This is an example `{box}` module package managed by `{baler}`, where it contains the collection of example codes featuring conversion units. 
 
 ## Installation
 
-See the [{carrier} installation guide](https://joshuamarie.com/carrier/installation.html) for the installation details first. Then, for the meantime, install the patched forked `{box}` version:
+See the [{baler} installation guide](https://joshuamarie.com/baler/installation.html) for the installation details first. Then, for the meantime, install the patched forked `{box}` version:
 
 ``` r
 # install.packages('pak')
-pak::pak("joshuamarie/box@feature/carrier-module-support")
+pak::pak("joshuamarie/box@feature/baler-module-support")
 ```
 
 Then, install this package via following:
 
 ``` bash
-carrier install gh:joshuamarie/carrier/tree/main/examples/modules/convert-proj
+baler install gh:joshuamarie/baler/tree/main/examples/modules/convert-proj
 ```
 
 ## Usage
