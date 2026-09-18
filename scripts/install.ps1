@@ -18,10 +18,10 @@ if (-not $version -and $DefaultVersion -ne "__VERSION__") {
 
 if ($version) {
     Write-Host "Fetching release $version..."
-    $apiUrl = "https://api.github.com/repos/joshuamarie/carrier/releases/tags/$version"
+    $apiUrl = "https://api.github.com/repos/joshuamarie/baler/releases/tags/$version"
 } else {
     Write-Host "Fetching latest release..."
-    $apiUrl = "https://api.github.com/repos/joshuamarie/carrier/releases/latest"
+    $apiUrl = "https://api.github.com/repos/joshuamarie/baler/releases/latest"
 }
 
 Write-Host "Fetching download URL for $target..."
@@ -33,16 +33,16 @@ if (-not $asset) {
     exit 1
 }
 
-$tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name "carrier-install" -Force
+$tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name "baler-install" -Force
 
-Write-Host "Downloading carrier from $($asset.browser_download_url)..."
-Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$tmp\carrier.zip"
-Expand-Archive -Path "$tmp\carrier.zip" -DestinationPath $tmp -Force
+Write-Host "Downloading baler from $($asset.browser_download_url)..."
+Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$tmp\baler.zip"
+Expand-Archive -Path "$tmp\baler.zip" -DestinationPath $tmp -Force
 
-Move-Item -Path "$tmp\carrier.exe" -Destination "$InstallDir\carrier.exe" -Force
+Move-Item -Path "$tmp\baler.exe" -Destination "$InstallDir\baler.exe" -Force
 Remove-Item -Recurse -Force $tmp
 
-Write-Host "carrier installed to $InstallDir\carrier.exe"
+Write-Host "baler installed to $InstallDir\baler.exe"
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($userPath -notlike "*$InstallDir*") {

@@ -30,15 +30,15 @@ fi
 
 if [ -n "$version" ]; then
     echo "Fetching release $version..."
-    api_url="https://api.github.com/repos/joshuamarie/carrier/releases/tags/$version"
+    api_url="https://api.github.com/repos/joshuamarie/baler/releases/tags/$version"
 else
     echo "Fetching latest release..."
-    api_url="https://api.github.com/repos/joshuamarie/carrier/releases/latest"
+    api_url="https://api.github.com/repos/joshuamarie/baler/releases/latest"
 fi
 
 echo "Fetching download URL for $arch-$os_pattern..."
 github_response=$(curl -s "$api_url")
-asset_url=$(echo "$github_response" | grep -o "https://github.com/joshuamarie/carrier/releases/download/[^\"]*$arch-$os_pattern.$ext\"" | head -n 1)
+asset_url=$(echo "$github_response" | grep -o "https://github.com/joshuamarie/baler/releases/download/[^\"]*$arch-$os_pattern.$ext\"" | head -n 1)
 asset_url="${asset_url%\"}"
 
 if [ -z "$asset_url" ]; then
@@ -46,19 +46,19 @@ if [ -z "$asset_url" ]; then
     exit 1
 fi
 
-echo "Downloading carrier from $asset_url"
+echo "Downloading baler from $asset_url"
 if [ "$ext" = "zip" ]; then
-    curl -L -o carrier_latest.zip "$asset_url"
-    unzip -o carrier_latest.zip -d .
-    rm carrier_latest.zip
-    mv carrier.exe carrier 2>/dev/null || true
+    curl -L -o baler_latest.zip "$asset_url"
+    unzip -o baler_latest.zip -d .
+    rm baler_latest.zip
+    mv baler.exe baler 2>/dev/null || true
 else
-    curl -L -o carrier_latest.tar.gz "$asset_url"
-    tar -xzf carrier_latest.tar.gz --strip-components=1
-    rm carrier_latest.tar.gz
+    curl -L -o baler_latest.tar.gz "$asset_url"
+    tar -xzf baler_latest.tar.gz --strip-components=1
+    rm baler_latest.tar.gz
 fi
-chmod +x carrier* 2>/dev/null || true
-echo "carrier installed to ~/.local/bin"
+chmod +x baler* 2>/dev/null || true
+echo "baler installed to ~/.local/bin"
 
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     if [[ "$SHELL" == *"bash"* ]]; then
