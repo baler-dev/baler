@@ -2,15 +2,15 @@
 title: "Get Started"
 ---
 
-This walkthrough builds, bundles, and installs a small module from nothing, then uses it from R. It assumes `{carrier}` is on your path (see [Installation](installation.qmd) if it isn't). Here are following step by step: 
+This walkthrough builds, bundles, and installs a small module from nothing, then uses it from R. It assumes `{baler}` is on your path (see [Installation](installation.qmd) if it isn't). Here are following step by step: 
 
 ## 1. Scaffold a module
 
-By default, `carrier init <module-name>` scaffolds the module project containing the pure R codes as the source. Normally, this is how it looks like after the pre-construction of the module:
+By default, `baler init <module-name>` scaffolds the module project containing the pure R codes as the source. Normally, this is how it looks like after the pre-construction of the module:
 
 ```
 <module-name>-proj/
-├── carrier.toml
+├── baler.toml
 ├── README.md
 └── <module-name>/
     ├── hello.r
@@ -21,14 +21,14 @@ By default, `carrier init <module-name>` scaffolds the module project containing
 Let's try it with `{rmod}` for example: 
 
 ``` bash
-carrier init rmod
+baler init rmod
 ```
 
 This creates `rmod-proj/` (the default directory name is `<name>-proj`). If you don't want the `-proj` prefix, then override it with `--dir-name`. 
 
-The generated `carrier.toml` starts out mostly skeletal — some were pre-filled, and you can edit them once you started making a package. Fill the empty parameters or modify the pre-filled values, e.g. `description`, `authors`, `license`, and any `[package_deps]` or `[module_deps]` your module needs. See the [carrier.toml reference](reference/carrier-toml.qmd) for the full schema.
+The generated `baler.toml` starts out mostly skeletal — some were pre-filled, and you can edit them once you started making a package. Fill the empty parameters or modify the pre-filled values, e.g. `description`, `authors`, `license`, and any `[package_deps]` or `[module_deps]` your module needs. See the [baler.toml reference](reference/baler-toml.qmd) for the full schema.
 
-The source directory (`rmod/`) is named after the module by default. If you'd rather use a different directory name, set `src` in `carrier.toml` (see [Module Structure](reference/module-structure.qmd)).
+The source directory (`rmod/`) is named after the module by default. If you'd rather use a different directory name, set `src` in `baler.toml` (see [Module Structure](reference/module-structure.qmd)).
 
 ## 2. Write the module
 
@@ -56,14 +56,14 @@ box::use(
 
 ## 3. Packaging/Bundling
 
-This step is similar to `R CMD build` command or `devtools::build()`, so this would be more familiar to do. The step to package the `{box}` module with `{carrier}` is simple, so start from the project root:
+This step is similar to `R CMD build` command or `devtools::build()`, so this would be more familiar to do. The step to package the `{box}` module with `{baler}` is simple, so start from the project root:
 
 ``` bash
-carrier bundle .
+baler bundle .
 #> Bundled 'rmod' (0.1.0) -> /path/to/rmod_0.1.0.tar.gz
 ```
 
-<!-- Pass `--rmbx` to produce a `.rmbx` archive instead of `.tar.gz`. Either way, the archive embeds a `manifest.json` built from `carrier.toml` (see [Architecture](internals/architecture.qmd) for what goes into it). -->
+<!-- Pass `--rmbx` to produce a `.rmbx` archive instead of `.tar.gz`. Either way, the archive embeds a `manifest.json` built from `baler.toml` (see [Architecture](internals/architecture.qmd) for what goes into it). -->
 
 ## 4. Install it
 
@@ -72,25 +72,25 @@ This is your typical package installation step. There are few ways to install th
 1.  If this module is from a tarball local archive:
 
     ``` bash
-    carrier install ./rmod_0.1.0.tar.gz
+    baler install ./rmod_0.1.0.tar.gz
     ```
 
-2.  Directly from a module directory (carrier bundles it to a temp file first, then installs that):
+2.  Directly from a module directory (baler bundles it to a temp file first, then installs that):
 
     ``` bash
-    carrier install .
+    baler install .
     ```
 
 3.  From a GitHub repo, optionally pointing at a subpath:
 
     ``` bash
-    carrier install gh:username/path/to/rmod-proj
+    baler install gh:username/path/to/rmod-proj
     ```
 
-Installing prints where the module landed and the dependency plan carrier worked out from `[package_deps]` / `[module_deps]`:
+Installing prints where the module landed and the dependency plan baler worked out from `[package_deps]` / `[module_deps]`:
 
 ```
-Installed 'rmod' (0.1.0) -> ~/.carrier/modules/rmod
+Installed 'rmod' (0.1.0) -> ~/.baler/modules/rmod
 Dependencies:
   R packages:
     dplyr (*)
@@ -101,7 +101,7 @@ Dependencies:
 By default, R package dependencies are only *planned*, not installed. To install the main package dependencies, pass `--install-deps` to actually fetch and install them from CRAN (the default repo):
 
 ``` bash
-carrier install ./rmod_0.1.0.tar.gz --install-deps
+baler install ./rmod_0.1.0.tar.gz --install-deps
 ```
 
 ::: callout-note
@@ -110,16 +110,16 @@ Installation of `{box}` module packages from the local or GitHub requires you to
 
 ## 5. Lock dependencies (optional)
 
-Resolving `[package_deps]` against CRAN can settle on a different version each time you install — a new release published upstream, a different mirror, and so on. To pin what carrier resolved so a later install reproduces it exactly, write a lock file:
+Resolving `[package_deps]` against CRAN can settle on a different version each time you install — a new release published upstream, a different mirror, and so on. To pin what baler resolved so a later install reproduces it exactly, write a lock file:
 
 ``` bash
-carrier lock .
+baler lock .
 ```
 
-This writes `carrier.lock` next to `carrier.toml`, listing every resolved package with its exact version and repo. Commit it alongside your module so anyone else installing it gets the same versions.
+This writes `baler.lock` next to `baler.toml`, listing every resolved package with its exact version and repo. Commit it alongside your module so anyone else installing it gets the same versions.
 
 ``` bash
-carrier lock . --update
+baler lock . --update
 ```
 
 `--update` ignores any existing lock and re-resolves everything fresh. You'll use it when you want to deliberately pick up newer versions rather than stay pinned.
@@ -138,10 +138,10 @@ rmod$add(1, 4)
 
 ## 7. Remove it
 
-If you wish to remove `{<module-name>}` (any packages managed by `{carrier}`), `carrier remove <module-name>` is used, akin to `pip uninstall`. 
+If you wish to remove `{<module-name>}` (any packages managed by `{baler}`), `baler remove <module-name>` is used, akin to `pip uninstall`. 
 
 ``` bash
-carrier remove rmod
+baler remove rmod
 ```
 
 You'll be asked to confirm between yes and no. To skip the prompt, supply it with `--force`.

@@ -2,29 +2,29 @@
 title: "CLI Commands"
 ---
 
-This page documents the six `carrier` subcommands: what each one does, when you'd reach for it, and what its flags actually change. It's written for people using `carrier` to manage `{box}` modules, not for people working on `carrier`'s own source.
+This page documents the six `{baler}` subcommands: what each one does, when you'd reach for it, and what its flags actually change. It's written for people using `{baler}` to manage `{box}` modules, not for people working on `{baler}`'s own source.
 
 Every subcommand exits non-zero and prints `error: ...` to stderr on failure, so you can rely on that in scripts or CI without parsing output.
 
 ## Initialization and Scaffolding
 
-Through `carrier init` command, this will scaffold a new module project from scratch. Once executed, the following files: 
+Through `baler init` command, this will scaffold a new module project from scratch. Once executed, the following files: 
 
-1.   `carrier.toml`, which is the most required file to interact with `{carrier}`
+1.   `baler.toml`, which is the most required file to interact with `{baler}`
 2.   `README.md`
 3.   And R source files under a folder containing the source code of the module
 
-are generated. Here's the anatomy of `carrier init`: 
+are generated. Here's the anatomy of `baler init`: 
 
 ``` bash
-carrier init <name> [--dir-name <dir>] [--native <lang>] [--backend <backend>]
+baler init <name> [--dir-name <dir>] [--native <lang>] [--backend <backend>]
 ```
 
-And then this following table explains how `carrier init` behaves: 
+And then this following table explains how `baler init` behaves: 
 
 | Argument | Description |
 |---|---|
-| `<name>` | The module's name. Used as the default project directory name (`<name>-proj`), the default source directory name, and the `name` field written into `carrier.toml`. |
+| `<name>` | The module's name. Used as the default project directory name (`<name>-proj`), the default source directory name, and the `name` field written into `baler.toml`. |
 | `--dir-name <dir>` | Use a different project directory name instead of `<name>-proj`. |
 | `--native <lang>` | Scaffold a module with compiled code instead of pure R: `c` for C, `cpp` for C++. Sets up a starter source file, build configuration, and the loader code that runs `dyn.load()` automatically. Leave this out for a plain R module. |
 | `--backend <backend>` | Only relevant with `--native cpp`. Which C++ binding library to scaffold: `rcpp` (the default) or `cpp11`. |
@@ -34,58 +34,58 @@ Fails without changing anything if the target directory already exists, so it's 
 Here's an example:
 
 ``` bash
-carrier init stats_native
+baler init stats_native
 ```
 
 When `--native` is not passed, this will ignore `--backend` parameter, and won't generate the files under the chosen language, just their pure R versions. 
 
 ## Native compiled code compilation
 
-As what the [official documentation](https://klmr.me/box/articles/compiled-code.html) of `{box}` R package said, one module can handle native compiled codes. `{carrier}` gives you an alternative approach to manage module's native code (C, C++, ...) right where the source lives, for quick local iteration while developing. It never deletes the source afterward, which is what sets it apart from the compile step that happens automatically during `install`. For this one, use `carrier compile` and here's the following anatomy: 
+As what the [official documentation](https://klmr.me/box/articles/compiled-code.html) of `{box}` R package said, one module can handle native compiled codes. `{baler}` gives you an alternative approach to manage module's native code (C, C++, ...) right where the source lives, for quick local iteration while developing. It never deletes the source afterward, which is what sets it apart from the compile step that happens automatically during `install`. For this one, use `baler compile` and here's the following anatomy: 
 
 ``` bash
-carrier compile [<path>] [--clean] [--rebuild]
+baler compile [<path>] [--clean] [--rebuild]
 ```
 
 The following table summarizes the following bracketed "parameters" above: 
 
 | Argument | Description |
 |---|---|
-| `<path>` | The project's root directory. If you leave this out, it defaults to the current directory, so plain `carrier compile` works from inside a project. |
+| `<path>` | The project's root directory. If you leave this out, it defaults to the current directory, so plain `baler compile` works from inside a project. |
 | `--clean` | Deletes this module's compiled output and anything cached from previous builds, then stops without compiling anything. Use this when you just want a clean slate, not a new build. |
 | `--rebuild` | Throws away anything cached from a previous build first, then compiles again for real, even if nothing in the source actually changed. Useful when you've upgraded your compiler or toolchain and want to confirm the module still builds correctly, since an unchanged build would otherwise just reuse the old result. |
 
-A plain `carrier compile`, with neither flag, only recompiles when the source has actually changed since the last build; otherwise it reuses the previous result to save time. `--clean` and `--rebuild` do opposite things and can't be used together, passing both is an error.
+A plain `baler compile`, with neither flag, only recompiles when the source has actually changed since the last build; otherwise it reuses the previous result to save time. `--clean` and `--rebuild` do opposite things and can't be used together, passing both is an error.
 
 ## Bundling and Packaging
 
-Similar to `pkgbuild::build()` (or `devtools::build()`) and `R CMD build`, `carrier bundle` now bundles a module's source, creating into a single `.tar.gz` archive that can be installed elsewhere, shared with someone else, or attached to a GitHub release. Here's the anatomy of the `carrier bundle` command: 
+Similar to `pkgbuild::build()` (or `devtools::build()`) and `R CMD build`, `baler bundle` now bundles a module's source, creating into a single `.tar.gz` archive that can be installed elsewhere, shared with someone else, or attached to a GitHub release. Here's the anatomy of the `baler bundle` command: 
 
 ``` bash
 # If `<path>` isn't supplied, then `.` argument is passed by default
-carrier bundle <path> [--binary] [--keep-source]
+baler bundle <path> [--binary] [--keep-source]
 ```
 
 | Argument | Description |
 |---|---|
-| `<path>` | The project's root directory, wherever `carrier.toml` lives. Almost always just `.`. |
+| `<path>` | The project's root directory, wherever `baler.toml` lives. Almost always just `.`. |
 | `--binary` | Also compile any native code in the module first, and include the compiled artifact in the archive. Without this flag, only R source is bundled, compiled code has to be built again on install. |
 | `--keep-source` | Only meaningful together with `--binary`. Ships the native source *alongside* the compiled artifact, instead of stripping it out, so an install on a different platform or R version can fall back to compiling from source if the precompiled binary doesn't match. |
 
-The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you passed on `name` from `[module]` in `carrier.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `carrier.toml` is missing or can't be parsed. A `--binary` bundle only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, unless `--keep-source` was also used at bundle time.
+The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you passed on `name` from `[module]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A `--binary` bundle only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, unless `--keep-source` was also used at bundle time.
 
 ## Module installation
 
-As long as the `{box}` module is managed by `{carrier}`, you can install a `{box}` module so other projects can load it with `box::use()`. This is `{carrier}`'s equivalent of `install.packages()`.
+As long as the `{box}` module is managed by `{baler}`, you can install a `{box}` module so other projects can load it with `box::use()`. This is `{baler}`'s equivalent of `install.packages()`.
 
 ``` bash
-carrier install <source> [--install-deps] [--repo <url>]
+baler install <source> [--install-deps] [--repo <url>]
 ```
 
 | Argument | Description |
 |---|---|
-| `<source>` | Where to install from. Can be a local directory containing `carrier.toml`, a `.tar.gz` archive (from `carrier bundle`), or a GitHub repository written as `gh:user/repo`. You can pin a specific tag, branch, or commit with `gh:user/repo/tree/<ref>/<subpath>`; leaving out `<ref>` installs whatever the default branch currently has. |
-| `--install-deps` | Actually download and install the module's R package dependencies from CRAN. Without this flag, `carrier` still figures out and prints what it *would* install, but doesn't fetch anything. |
+| `<source>` | Where to install from. Can be a local directory containing `baler.toml`, a `.tar.gz` archive (from `baler bundle`), or a GitHub repository written as `gh:user/repo`. You can pin a specific tag, branch, or commit with `gh:user/repo/tree/<ref>/<subpath>`; leaving out `<ref>` installs whatever the default branch currently has. |
+| `--install-deps` | Actually download and install the module's R package dependencies from CRAN. Without this flag, `{baler}` still figures out and prints what it *would* install, but doesn't fetch anything. |
 | `--repo <url>` | Points at a module registry to install `<source>` from. Registries aren't supported yet, this flag exists but has nothing behind it currently. |
 
 Installing a module that's already installed under the same name replaces the old copy.
@@ -94,18 +94,18 @@ Installing from `gh:` needs internet access to reach GitHub, and those requests 
 
 ## Lock and lockfile
 
-This is inspired by `uv.lock` and `Cargo.lock`. As long as the dependencies are declared on `carrier.toml`, the command you'll use, `carrier lock`, will resolve everything a project depends on, both R packages and other modules, and writes the result to `carrier.lock` so future installs use the exact same versions instead of re-resolving from scratch. This doesn't install anything itself, it just pins what *would* be installed. Here's the anatomy of `carrier lock` command: 
+This is inspired by `uv.lock` and `Cargo.lock`. As long as the dependencies are declared on `baler.toml`, the command you'll use, `baler lock`, will resolve everything a project depends on, both R packages and other modules, and writes the result to `baler.lock` so future installs use the exact same versions instead of re-resolving from scratch. This doesn't install anything itself, it just pins what *would* be installed. Here's the anatomy of `baler lock` command: 
 
 ``` bash
-carrier lock <path> [--update] [--with-rver] [--remove]
+baler lock <path> [--update] [--with-rver] [--remove]
 ```
 
 | Argument | Description |
 |---|---|
 | `<path>` | The project's root directory. |
-| `--update` | Ignore any `carrier.lock` that already exists and re-resolve every dependency from scratch, instead of reusing what's already pinned. Use this when you want to pick up newer versions. |
-| `--with-rver` | Also record the R version you currently have on your system inside `carrier.lock`. This is informational only, it's never enforced or checked against on install, just a record of what produced the lock. |
-| `--remove` | Delete `carrier.lock` instead of writing one. Safe to run any time, if there's no lockfile, `carrier` just resolves dependencies fresh each time, same as a project that never had one. |
+| `--update` | Ignore any `baler.lock` that already exists and re-resolve every dependency from scratch, instead of reusing what's already pinned. Use this when you want to pick up newer versions. |
+| `--with-rver` | Also record the R version you currently have on your system inside `baler.lock`. This is informational only, it's never enforced or checked against on install, just a record of what produced the lock. |
+| `--remove` | Delete `baler.lock` instead of writing one. Safe to run any time, if there's no lockfile, `{baler}` just resolves dependencies fresh each time, same as a project that never had one. |
 
 ::: callout-note
 `--update` and `--with-rver` can't be combined with `--remove`, since removing the lock and updating it are contradictory actions.
@@ -114,10 +114,10 @@ carrier lock <path> [--update] [--with-rver] [--remove]
 
 ## Uninstall a module
 
-The bundle part gives you an archive, under `.tar.gz` format, of `{box}`-`{carrier}` module. Then we have the "installation" part that archives the module and placed on the path where `~/.carrier/modules` lived. `{carrier}` also has an option to uninstall a previously installed module, through `carrier remove`. Here's the following anatomy: 
+The bundle part gives you an archive, under `.tar.gz` format, of `{box}`-`{baler}` module. Then we have the "installation" part that archives the module and placed on the path where `~/.baler/modules` lived. `{baler}` also has an option to uninstall a previously installed module, through `baler remove`. Here's the following anatomy: 
 
 ``` bash
-carrier remove <name> [--force]
+baler remove <name> [--force]
 ```
 
 | Argument | Description |

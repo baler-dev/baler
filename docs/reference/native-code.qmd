@@ -2,23 +2,23 @@
 title: "Handling Native Code"
 ---
 
-Regular R packages have decades of established convention for compiled codes: through `src/`, `Makevars`, `useDynLib`, all built automatically as part of `R CMD INSTALL`. As what `{box}`'s own vignette on compiled code says so directly: `{box}` doesn't have a built-in foreign function interface, and integrating compiled code means doing the [steps in that vignette](https://klmr.me/box/articles/compiled-code.html) by hand, compiling it yourself, loading it yourself, wiring `.Call()` yourself. `{carrier}` exists to attempt to automate that manual work, not to add polish to something `{box}` was already handling.
+Regular R packages have decades of established convention for compiled codes: through `src/`, `Makevars`, `useDynLib`, all built automatically as part of `R CMD INSTALL`. As what `{box}`'s own vignette on compiled code says so directly: `{box}` doesn't have a built-in foreign function interface, and integrating compiled code means doing the [steps in that vignette](https://klmr.me/box/articles/compiled-code.html) by hand, compiling it yourself, loading it yourself, wiring `.Call()` yourself. `{baler}` exists to attempt to automate that manual work, not to add polish to something `{box}` was already handling.
 
-As of `{carrier}` version 0.2.0, `{box}`-`{carrier}` modules can contain native code (C, C++, ...), compiled via `R CMD SHLIB` mechanism. The R-side loading, `dyn.load()` / `dyn.unload()` wired to a module's `.on_load()` / `.on_unload()` hooks, isn't automatic just because a native directory exists. The current solution `{carrier}` has comes from the auto-generated `hook.r`, which `carrier init --native` scaffolds once, at that moment. If you add native code to a module some other way, for example dropping a `Makevars` into an existing module without re-running `--native` init, nothing writes that loading glue for you. You're back to the manual steps the `{box}` vignette describes, for that module.
+As of version 0.2.0, `{box}`-`{baler}` modules can contain native code (C, C++, ...), compiled via `R CMD SHLIB` mechanism. The R-side loading, `dyn.load()` / `dyn.unload()` wired to a module's `.on_load()` / `.on_unload()` hooks, isn't automatic just because a native directory exists. The current solution `{baler}` has comes from the auto-generated `hook.r`, which `baler init --native` scaffolds once, at that moment. If you add native code to a module some other way, for example dropping a `Makevars` into an existing module without re-running `--native` init, nothing writes that loading glue for you. You're back to the manual steps the `{box}` vignette describes, for that module.
 
-The practical difference from classic R packages is rather explicit: You are not forced to put native sources in a directory named `src/`. Any directory name is fine, as long as `{carrier}` can find it, either by automatic discovery or by an explicit `[native]` entry (for more details, see [The `[native]` block](#native-block)).
+The practical difference from classic R packages is rather explicit: You are not forced to put native sources in a directory named `src/`. Any directory name is fine, as long as `{baler}` can find it, either by automatic discovery or by an explicit `[native]` entry (for more details, see [The `[native]` block](#native-block)).
 
 ## Enabling native code in a module
 
-`{carrier}` ships scaffolding for modules with native compiled code. Two ways to get there:
+`{baler}` ships scaffolding for modules with native compiled code. Two ways to get there:
 
-1.  `carrier init <module-name> --native <lang>` on a fresh module. This scaffolds working example code (`hello_world`/`add`) in both the compiled language and R, already wired together.
+1.  `baler init <module-name> --native <lang>` on a fresh module. This scaffolds working example code (`hello_world`/`add`) in both the compiled language and R, already wired together.
 
-2.  Either drop sources into a directory that carrier will discover automatically, or add a `[native]` block to `carrier.toml`. You do not need the `[native]` block at all if the sources live under a discoverable directory and you have no build-time R package dependencies.
+2.  Either drop sources into a directory that baler will discover automatically, or add a `[native]` block to `baler.toml`. You do not need the `[native]` block at all if the sources live under a discoverable directory and you have no build-time R package dependencies.
 
 ## Supported languages and backends
 
-There are three (3) languages supported by `{carrier}` as of current version. The table below summarizes what `{carrier}` handles: 
+There are three (3) languages supported by `{baler}` as of current version. The table below summarizes what `{baler}` handles: 
 
 | Language | Value(s) accepted     | Status                   |
 |----------|-----------------------|--------------------------|
@@ -36,7 +36,7 @@ C++ has two backends, chosen independently of language:
 | cpp11 | `cpp11` | Header-only; `PKG_CPPFLAGS` points at the installed cpp11 headers, `CXX_STD = CXX11` |
 
 ::: callout-note
-When you initialize a module project that applies native C++ code as `{Rcpp}` as your backend, `{carrier}` will then generates the `hook.r` file that begins with `box::use(Rcpp[...])` so the package is available when the shared library is loaded. This is the only difference between C++ in `{Rcpp}` backend and plain C / cpp11 versions of `hook.r`, everything else is identical.
+When you initialize a module project that applies native C++ code as `{Rcpp}` as your backend, `{baler}` will then generates the `hook.r` file that begins with `box::use(Rcpp[...])` so the package is available when the shared library is loaded. This is the only difference between C++ in `{Rcpp}` backend and plain C / cpp11 versions of `hook.r`, everything else is identical.
 
 There's a reason for that. `{Rcpp}` but `{cpp11}` ships its own compiled shared library, it's header-only. Code generated by `{Rcpp}` calls functions that live inside `{Rcpp}`'s library, like `dataptr`. Your module's compiled shared object (e.g. `.so`) doesn't have those functions built in, it looks them up in R at runtime instead. R only knows where to find them once `{Rcpp}` itself has been loaded, either through `library(Rcpp)` in a normal session, or `box::use(Rcpp[...])` here.
 
@@ -54,7 +54,7 @@ sm$square(5)
 
 ## The `[native]` block {#native-block}
 
-`[native]` is entirely optional. You don't need it at all if your compiled code lives somewhere `{carrier}` already discovers on its own (see [Directory conventions](#directory-conventions)) and you have no build-time R package dependencies. If you do need to configure it, here's the shape:
+`[native]` is entirely optional. You don't need it at all if your compiled code lives somewhere `{baler}` already discovers on its own (see [Directory conventions](#directory-conventions)) and you have no build-time R package dependencies. If you do need to configure it, here's the shape:
 
 ``` toml
 [native]
@@ -63,14 +63,14 @@ path = "cpp/"
 build_deps = { Rcpp = "*" }
 ```
 
--   `path` is where this module's native source lives, relative to the module's own resolved source directory (the same base `[module].src` uses), not the project root where `carrier.toml` lives. It accepts either a single string, for one native-code location, or an array, for a module with more than one (e.g. `path = ["cpp1", "cpp2"]`). A configuration here, either a single location or a multiple locations, are just two shapes of the same source (`src`) field, not two separate keys.
+-   `path` is where this module's native source lives, relative to the module's own resolved source directory (the same base `[module].src` uses), not the project root where `baler.toml` lives. It accepts either a single string, for one native-code location, or an array, for a module with more than one (e.g. `path = ["cpp1", "cpp2"]`). A configuration here, either a single location or a multiple locations, are just two shapes of the same source (`src`) field, not two separate keys.
 
-    When `path` isn't set, `{carrier}` scans the module's whole source tree and treats every qualifying directory as its own native dir (see below). Also, when `src/` is named, the name of the compiled artifact comes from the name of the module. 
+    When `path` isn't set, `{baler}` scans the module's whole source tree and treats every qualifying directory as its own native dir (see below). Also, when `src/` is named, the name of the compiled artifact comes from the name of the module. 
 
 -   `build_deps` configures external dependencies, most commonly R packages, needed only to *compile* (e.g. `{Rcpp}`, `{cpp11}`, whatever `Makevars` needs via `system.file()`). If the compiled code also needs external packages loaded at runtime, list them in `build_deps`.
 
     ::: {.callout-warning collapse="true"}
-    As of `{carrier}` version 0.2.1, `build_deps` are folded into the ordinary package-resolution plan. Previously they are only installed if they also appear under `[package_deps]`.
+    As of `{baler}` version 0.2.1, `build_deps` are folded into the ordinary package-resolution plan. Previously they are only installed if they also appear under `[package_deps]`.
     :::
 
 ## Directory conventions {#directory-conventions}
@@ -84,11 +84,11 @@ As covered under [this explanation](#native-block), a module can declare more th
 
 ## Module template generation
 
-Running `carrier init cppModule --native cpp --backend rcpp` produces:
+Running `baler init cppModule --native cpp --backend rcpp` produces:
 
 ``` text
 cppModule-proj/
-├── carrier.toml
+├── baler.toml
 ├── README.md
 └── cppModule/                 # module source directory
     ├── __init__.r
@@ -101,7 +101,7 @@ cppModule-proj/
         └── Makevars
 ```
 
-After `carrier compile` (or a successful install-time build) the shared library appears here:
+After `baler compile` (or a successful install-time build) the shared library appears here:
 
 ``` text
 cppModule/
@@ -114,7 +114,7 @@ cppModule/
 
 ### Loading native compiled codes
 
-If you start your project by running `carrier init <module-name> --native ...` command, this will generate one file: `hook.r`, which contains the example `.on_load()` / `.on_unload()` hooks which runs the following `dyn.load()` / `dyn.unload()` calls that load the compiled shared object. Once the command is executed, this file is written at the top level of the module's own source directory, next to `__init__.r`, not inside the native subdirectory. It loads (and unloads) the compiled shared object from `.lib/`, the directory a finished build's artifact is copied into, not the build cache (see [Build cache](#build-cache) below, that's a different location entirely). Here's what it looks like:
+If you start your project by running `baler init <module-name> --native ...` command, this will generate one file: `hook.r`, which contains the example `.on_load()` / `.on_unload()` hooks which runs the following `dyn.load()` / `dyn.unload()` calls that load the compiled shared object. Once the command is executed, this file is written at the top level of the module's own source directory, next to `__init__.r`, not inside the native subdirectory. It loads (and unloads) the compiled shared object from `.lib/`, the directory a finished build's artifact is copied into, not the build cache (see [Build cache](#build-cache) below, that's a different location entirely). Here's what it looks like:
 
 `hook.r` (Rcpp backend):
 
@@ -135,45 +135,45 @@ dll = NULL
 
 The pure C / cpp11 variant is identical except that it omits the `box::use(Rcpp[...])` line. The `cpp/` is the name of the native directory and just a placeholder. `box::file()` resolves relative to the calling module, so the library is found next to the R files.
 
-If you run `carrier init <module-name>` without `--native`, then the generation tends to writes the pure R equivalent instead. The `hello_world()` / `add()` logic are pretty much the same as how they are implemented under the chosen "low-level" language, same file layout, but implemented directly in R, thus no file like `hook.r` which calls `dyn.load()` / `dyn.unload()` calls. A fresh module always starts from runnable examples, compiled or not.
+If you run `baler init <module-name>` without `--native`, then the generation tends to writes the pure R equivalent instead. The `hello_world()` / `add()` logic are pretty much the same as how they are implemented under the chosen "low-level" language, same file layout, but implemented directly in R, thus no file like `hook.r` which calls `dyn.load()` / `dyn.unload()` calls. A fresh module always starts from runnable examples, compiled or not.
 
 ### Binary bundles
 
-Pass `--binary` after `carrier bundle` and it runs the compile step first. Then forces the normally-hidden `.lib/` directory into the archive. The manifest records platform, R version, and source hash for each artifact, but nothing on the install side reads those back. A `--binary` bundle installed on a machine it wasn't built for unpacks its `.lib/` binary as-is and hands it straight to `dyn.load()` at runtime, with no compatibility check in between and no fallback, even if you also passed `--keep-source`, nothing currently detects a mismatch and recompiles from the kept source automatically.
+Pass `--binary` after `baler bundle` and it runs the compile step first. Then forces the normally-hidden `.lib/` directory into the archive. The manifest records platform, R version, and source hash for each artifact, but nothing on the install side reads those back. A `--binary` bundle installed on a machine it wasn't built for unpacks its `.lib/` binary as-is and hands it straight to `dyn.load()` at runtime, with no compatibility check in between and no fallback, even if you also passed `--keep-source`, nothing currently detects a mismatch and recompiles from the kept source automatically.
 
 Until that exists, only distribute `--binary` bundles to machines matching what they were built for.
 
-This is different from how carrier handles R package binaries from CRAN, where a downloaded binary's actual architecture is read out of its compiled header and checked before it's trusted. That check exists for CRAN dependencies specifically; it doesn't extend to a module's own compiled artifacts yet.
+This is different from how baler handles R package binaries from CRAN, where a downloaded binary's actual architecture is read out of its compiled header and checked before it's trusted. That check exists for CRAN dependencies specifically; it doesn't extend to a module's own compiled artifacts yet.
 
 ``` bash
-carrier bundle . --binary                 # ship .lib/, dropping native sources
-carrier bundle . --binary --keep-source   # ship both
+baler bundle . --binary                 # ship .lib/, dropping native sources
+baler bundle . --binary --keep-source   # ship both
 ```
 
 ## Build cache {#build-cache}
 
 Successful builds are cached, keyed by module, platform, R version, and a hash of the native directory's contents, so a cache hit copies the library into place instead of invoking `R CMD SHLIB` again.
 
-The global cache lives at `~/.carrier/native-cache/<module>/<platform>/<R-major.minor>/<source-hash>/`. `<source-hash>` is a SHA-256 digest over every file's relative path and bytes under the native directory, sorted for determinism, so the same source always hashes the same way regardless of the order the filesystem happens to list files in. `target/` is excluded from that hash: Cargo's own build output for a module mixing in Rust isn't deterministic between builds, so hashing it would change the cache key on every build even when nothing real changed, quietly defeating the cache.
+The global cache lives at `~/.baler/native-cache/<module>/<platform>/<R-major.minor>/<source-hash>/`. `<source-hash>` is a SHA-256 digest over every file's relative path and bytes under the native directory, sorted for determinism, so the same source always hashes the same way regardless of the order the filesystem happens to list files in. `target/` is excluded from that hash: Cargo's own build output for a module mixing in Rust isn't deterministic between builds, so hashing it would change the cache key on every build even when nothing real changed, quietly defeating the cache.
 
-Set `CARRIER_CACHE_DIR` to relocate the cache root away from `~/.carrier/native-cache/`. This matters on a machine without a conventional home directory (some CI runners), or when several users share a machine and want separate caches.
+Set `CARRIER_CACHE_DIR` to relocate the cache root away from `~/.baler/native-cache/`. This matters on a machine without a conventional home directory (some CI runners), or when several users share a machine and want separate caches.
 
 ### Cleaning, or forcing a rebuild
 
 Clearing `.lib/`, the directory a finished artifact is copied into, is not the same as clearing the cache above, and it's important to keep the two apart:
 
--   `.lib/` holds the compiled shared objects `box::file()` actually loads at runtime for the current project. `carrier compile` clears and rebuilds it on every run, whether or not anything changed.
--   The cache above is a separate, global store shared across every project on the machine. A plain `carrier compile` still checks it first: if the source hash, platform, and R version all match a previous build, the cached artifact is copied straight into the freshly-cleared `.lib/` and `R CMD SHLIB` never runs.
+-   `.lib/` holds the compiled shared objects `box::file()` actually loads at runtime for the current project. `baler compile` clears and rebuilds it on every run, whether or not anything changed.
+-   The cache above is a separate, global store shared across every project on the machine. A plain `baler compile` still checks it first: if the source hash, platform, and R version all match a previous build, the cached artifact is copied straight into the freshly-cleared `.lib/` and `R CMD SHLIB` never runs.
 
-So a normal `carrier compile`, assuming your working directory lives at the root of the project, can look like it rebuilt when it actually just replayed a cache hit.
+So a normal `baler compile`, assuming your working directory lives at the root of the project, can look like it rebuilt when it actually just replayed a cache hit.
 
 To remove the caches, both locally and globally, without rebuilding, pass `--clean`:
 
 ``` bash
-# carrier compile . --clean
+# baler compile . --clean
 # Not the same as 
-# `carrier compile` only 
-carrier compile --clean
+# `baler compile` only 
+baler compile --clean
 ```
 
 This removes every cached entry for the current module, across all platforms, R versions, and source hashes, and clears `.lib/`, then stops. Nothing gets compiled. Think of this as what you did with `devtools::clean()` and/or `pkgbuild::clean_dll()`.
@@ -181,8 +181,8 @@ This removes every cached entry for the current module, across all platforms, R 
 To force an actual recompile instead, pass `--rebuild`:
 
 ``` bash
-# carrier compile . --rebuild
-carrier compile --rebuild
+# baler compile . --rebuild
+baler compile --rebuild
 ```
 
 This evicts the same cache entries first, then compiles anyway. The next build has no cache entry to match against, so `R CMD SHLIB` has to run for real, even if the source hasn't changed since the last build.

@@ -1,14 +1,14 @@
 ---
 title: "Dependency Resolution"
-subtitle: "{carrier} internals explanations"
+subtitle: "{baler} internals explanations"
 description: "Articles only suitable for developers"
 ---
 
-This article covers how `{carrier}` resolves dependencies internally, walking through two Rust functions: `cran::client::install_packages` for R package dependencies, and `ops::module_graph::resolve_transitive` for `carrier`-installed module dependencies. Specifically: what runs when `carrier install --install-deps` resolves and installs R packages, and what runs when a module's `module_deps` gets walked transitively.
+This article covers how `{baler}` resolves dependencies internally, walking through two Rust functions: `cran::client::install_packages` for R package dependencies, and `ops::module_graph::resolve_transitive` for `baler`-installed module dependencies. Specifically: what runs when `baler install --install-deps` resolves and installs R packages, and what runs when a module's `module_deps` gets walked transitively.
 
 ## Grouping and fetch
 
-Requested packages are grouped by repo first, so each repo's `PACKAGES.gz` index gets fetched exactly once per `carrier install` run, no matter how many packages come from it. The fetch retries: three attempts, exponential backoff (`2^attempt` seconds) between them, on both non-2xx responses and request failures.
+Requested packages are grouped by repo first, so each repo's `PACKAGES.gz` index gets fetched exactly once per `baler install` run, no matter how many packages come from it. The fetch retries: three attempts, exponential backoff (`2^attempt` seconds) between them, on both non-2xx responses and request failures.
 
 ## Graph walk
 
@@ -34,8 +34,8 @@ Installation prefers a binary archive over building from source, but what counts
 
 ### Where the binary URL comes from
 
-1.  If you are on Windows, `{carrier}` tries to fetch at   `bin/windows/contrib/<r-version>/<pkg>_<version>.zip`, against whatever repo is configured. CRAN's default mirror has always served this.
-2.  If you are on MacOS, `{carrier}` then tries to fetch at `bin/macosx/<macos-arch>/contrib/<r-version>/<pkg>_<version>.tgz`, also against the configured repo directly, no special repo required. `<macos-arch>` is `big-sur-arm64` or `big-sur-x86_64`, picked from `R.version$arch`. This is deliberately not the flat `bin/macosx/contrib/` path some mirrors still serve: that legacy path is x86_64-only, and using it unconditionally hands an Intel binary to an Apple Silicon machine, which only fails later at `dlopen()` time, not at install time. An architecture `binary_url_for` doesn't recognize skips the binary attempt entirely and goes straight to source, with a warning.
+1.  If you are on Windows, `{baler}` tries to fetch at   `bin/windows/contrib/<r-version>/<pkg>_<version>.zip`, against whatever repo is configured. CRAN's default mirror has always served this.
+2.  If you are on MacOS, `{baler}` then tries to fetch at `bin/macosx/<macos-arch>/contrib/<r-version>/<pkg>_<version>.tgz`, also against the configured repo directly, no special repo required. `<macos-arch>` is `big-sur-arm64` or `big-sur-x86_64`, picked from `R.version$arch`. This is deliberately not the flat `bin/macosx/contrib/` path some mirrors still serve: that legacy path is x86_64-only, and using it unconditionally hands an Intel binary to an Apple Silicon machine, which only fails later at `dlopen()` time, not at install time. An architecture `binary_url_for` doesn't recognize skips the binary attempt entirely and goes straight to source, with a warning.
 3.  If you work on some Linux distros, it only works against a Package Manager-style repo (Posit Package Manager, formerly RSPM), and only when a distro codename could be detected from `/etc/os-release`'s `VERSION_CODENAME` field (Ubuntu and Debian set this; RHEL and openSUSE generally don't). When both hold, the URL is `<repo>/bin/linux/<distro>-<arch>/<r-version>/src/contrib/<pkg>_<version>.tar.gz`. CRAN's default mirror has no such tree at all, so on a plain `cloud.r-project.org` repo, or an unrecognized distro, this step never even fires. There's no dependency on `install.packages()`'s usual user-agent sniffing here: distro, architecture, and R version are all spelled out in the URL itself, which is exactly why this scheme was picked over Package Manager's other `__linux__/<distro>` URL format.
 
 ### Verifying what came back
@@ -60,7 +60,7 @@ Both the `.zip` and `.tar.gz` binary-extraction paths sanitize every entry path 
 *This is for developers under development*
 :::
 
-`carrier`-installed modules (`module_deps` in `carrier.toml`) resolve through a completely separate path from R packages: `resolve_transitive` in `ops::module_graph`. It shares no code with the CRAN resolution above. No repo grouping, no binary/source install step, no CRAN index. A module dependency gets fetched as a whole `carrier.toml` from its declared `source` (see [carrier.toml](../reference/carrier-toml.qmd#module_deps)), not resolved against a package index.
+`baler`-installed modules (`module_deps` in `baler.toml`) resolve through a completely separate path from R packages: `resolve_transitive` in `ops::module_graph`. It shares no code with the CRAN resolution above. No repo grouping, no binary/source install step, no CRAN index. A module dependency gets fetched as a whole `baler.toml` from its declared `source` (see [baler.toml](../reference/baler-toml.qmd#module_deps)), not resolved against a package index.
 
 ### Why this walk is DFS, not BFS
 
@@ -70,13 +70,13 @@ The graph is walked depth-first on purpose, keeping an explicit ancestor path: t
 
 1.  If the module name is already fully resolved, from an earlier branch of the walk, a diamond, its resolved version and source get checked for consistency against the current dependent's constraint instead of being fetched again. A mismatched `source` or an incompatible version constraint fails loudly, and will name both requesters.
 2.  If you have a module name that is already on the current ancestor path, that's a real cycle. The walk fails with the full chain (e.g. `a -> b -> a`) instead of looping forever.
-3.  If ever you have module dependencies carried by `{carrier}` and it is written under `module_deps` entry with no `source`, the resolution fails immediately as of current version, since there's no default module registry to fall back to (unlike `package_deps`, which defaults to CRAN).
-4.  Otherwise, the dependency's `carrier.toml` gets fetched from its `source`. Its declared `module.version` is checked against the requesting constraint, its own `package_deps` fold into the same package-resolution set used everywhere else, and its own `module_deps` get recursed into.
+3.  If ever you have module dependencies carried by `{baler}` and it is written under `module_deps` entry with no `source`, the resolution fails immediately as of current version, since there's no default module registry to fall back to (unlike `package_deps`, which defaults to CRAN).
+4.  Otherwise, the dependency's `baler.toml` gets fetched from its `source`. Its declared `module.version` is checked against the requesting constraint, its own `package_deps` fold into the same package-resolution set used everywhere else, and its own `module_deps` get recursed into.
 
 ### What fetches a module
 
-`ModuleFetcher` is a small trait. `resolve_transitive()` only knows how to walk the graph, not how to fetch a `carrier.toml`. The production implementation, `GitHubFetcher`, understands `gh:user/repo` sources (optionally pinned via `gh:user/repo/tree/<ref>/<subpath>`, see [CLI Commands](cli.qmd#carrier-install)) and requires the `network` feature, same as `carrier install`'s own `gh:` handling.
+`ModuleFetcher` is a small trait. `resolve_transitive()` only knows how to walk the graph, not how to fetch a `baler.toml`. The production implementation, `GitHubFetcher`, understands `gh:user/repo` sources (optionally pinned via `gh:user/repo/tree/<ref>/<subpath>`, see [CLI Commands](cli.qmd#baler-install)) and requires the `network` feature, same as `baler install`'s own `gh:` handling.
 
 ::: {.callout-note title="Technical Notes"}
-`resolve_transitive()` exists and is tested, but `carrier lock` doesn't call it yet. The current `carrier lock` uses the shallow, single-level `resolve()`, which doesn't fetch anything for `module_deps`. Transitive module resolution isn't wired into any CLI command yet.
+`resolve_transitive()` exists and is tested, but `baler lock` doesn't call it yet. The current `baler lock` uses the shallow, single-level `resolve()`, which doesn't fetch anything for `module_deps`. Transitive module resolution isn't wired into any CLI command yet.
 :::

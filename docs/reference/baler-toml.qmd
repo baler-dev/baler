@@ -1,25 +1,25 @@
 ---
-title: "carrier.toml"
+title: "baler.toml"
 ---
 
-When we compose a (re)usable codes to be shared as a library, one must contain a file that declares the metadata, including the info of the authors, the required version, and package dependencies the library used. Composing a `{box}`-`{carrier}` module library requires one file: `carrier.toml`. This metadata file sits at the root of a module project, one level above the source directory. It may contain up to five tables:
+When we compose a (re)usable codes to be shared as a library, one must contain a file that declares the metadata, including the info of the authors, the required version, and package dependencies the library used. Composing a `{box}`-`{baler}` module library requires one file: `baler.toml`. This metadata file sits at the root of a module project, one level above the source directory. It may contain up to five tables:
 
 | Table | Required | Purpose |
 |--------------------|----------------------------|-------------------------|
 | `[module]` | yes | Module identity and source location |
 | `[package_deps]` | no | Runtime R package dependencies |
-| `[module_deps]` | no | Other carrier modules this module depends on |
+| `[module_deps]` | no | Other baler modules this module depends on |
 | `[native]` | no | Location(s) of compiled code and build-time-only package deps |
 | `[test]` | no | Test framework configuration (currently advisory only) |
 
 ## `[module]`
 
-This block is always required. As what the table below said, this contains the info of the author of `{box}`-`{carrier}` module library 
+This block is always required. As what the table below said, this contains the info of the author of `{box}`-`{baler}` module library 
 
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `name` | string | yes | Module name. Also the default source-directory name when `src` is omitted. |
-| `version` | string | yes | Free-form version string. `carrier bundle` embeds it verbatim in the archive filename. |
+| `version` | string | yes | Free-form version string. `baler bundle` embeds it verbatim in the archive filename. |
 | `description` | string | yes | May be empty. |
 | `authors` | array | yes | See [Authors](#authors) below. |
 | `license` | string | yes | SPDX identifier or free-form text. |
@@ -27,7 +27,7 @@ This block is always required. As what the table below said, this contains the i
 | `src` | string | no | Path to the source directory, relative to the project root. Defaults to a directory named exactly `name`. The chosen directory **must** contain `__init__.r` or `__init__.R`. |
 
 ::: {.callout-note title="Technical Notes"}
--   `r_version` is recorded in the archive manifest but is *not* currently enforced against the R installation that runs `carrier install` / `carrier compile`.
+-   `r_version` is recorded in the archive manifest but is *not* currently enforced against the R installation that runs `baler install` / `baler compile`.
 -   Both `__init__.r` and `__init__.R` are accepted (case-insensitive entry-point detection). This matches `{box}`'s own behaviour. 
 :::
 
@@ -80,7 +80,7 @@ CRAN version strings that use dashes (e.g. `4.0-3`) are normalised to dots befor
 
 ## `[module_deps]`
 
-Maps another carrier module to a version requirement, using the same version-spec syntax as `[package_deps]`. Unlike package dependencies, there is no default registry...yet. Every resolvable entry must therefore supply a `source`:
+Maps another baler module to a version requirement, using the same version-spec syntax as `[package_deps]`. Unlike package dependencies, there is no default registry...yet. Every resolvable entry must therefore supply a `source`:
 
 ``` toml
 [module_deps]
@@ -89,7 +89,7 @@ other_module = { version = "*", source = "gh:user/repo" }
 utils = { version = ">=0.2", source = "gh:user/repo/tree/v0.3.1/modules/utils" }
 ```
 
-`source` accepts the same forms as the `<source>` argument of `carrier install` (currently `gh:user/repo` and the `/tree/<ref>/<subpath>` variant). See [CLI reference](cli.qmd#carrier-install).
+`source` accepts the same forms as the `<source>` argument of `baler install` (currently `gh:user/repo` and the `/tree/<ref>/<subpath>` variant). See [CLI reference](cli.qmd#baler-install).
 
 A bare-string form is accepted by the parser but cannot be resolved:
 
@@ -99,7 +99,7 @@ other_module = "*"   # will fail at resolution time
 ```
 
 ::: {.callout-note title="Technical Notes"}
-As of current version, an entry without a `source` (whether written as a bare string or as an inline table that omits the field) produces an explicit resolution error. There is deliberately no silent fallback. It has to have the source to be declared, since there's no default registry for `{box}`-`{carrier}` modules, yet. 
+As of current version, an entry without a `source` (whether written as a bare string or as an inline table that omits the field) produces an explicit resolution error. There is deliberately no silent fallback. It has to have the source to be declared, since there's no default registry for `{box}`-`{baler}` modules, yet. 
 :::
 
 ## `[native]`
@@ -122,9 +122,9 @@ build_deps = { Rcpp = "*" }   # installed before compilation; not a runtime depe
 ### Resolution rules
 
 1.  If `path` is set, those directories (relative to the module source dir) are used, whether it's written as a single string or an array.
-2.  Else, carrier scans the whole module source tree for directories that contain a `Makevars` (or recognised C/C++ sources). This is the behaviour you get when the `[native]` table is omitted entirely.
+2.  Else, `{baler}` scans the whole module source tree for directories that contain a `Makevars` (or recognised C/C++ sources). This is the behaviour you get when the `[native]` table is omitted entirely.
 
-The directory name itself is free (`c/`, `cpp/`, `fortran/`, `src/`, …). Detection is driven by the presence of build artefacts, not by a fixed folder name. See also the native-code scaffolding produced by `carrier init --native`.
+The directory name itself is free (`c/`, `cpp/`, `fortran/`, `src/`, …). Detection is driven by the presence of build artefacts, not by a fixed folder name. See also the native-code scaffolding produced by `baler init --native`.
 
 ::: {.callout-note title="Technical Notes"}
 -   Fortran scaffolding is recognised by the language parser but is not yet supported by the build pipeline (`R CMD SHLIB` is only invoked for `.c`/`.cpp`/`.cc`/`.cxx` sources).
@@ -143,7 +143,7 @@ Advisory configuration for a future test runner. Carrier does not yet execute te
 
 ## Full template
 
-This is the exact text written by `carrier init` (the `[native]` block appears only when `--native` is supplied):
+This is the exact text written by `baler init` (the `[native]` block appears only when `--native` is supplied):
 
 ``` toml
 [module]
@@ -182,4 +182,4 @@ framework = "testthat"
 dir = "tests"
 ```
 
-When `carrier init --native cpp` (or `--native c`, etc.) is used, the `[native]` block is un-commented and populated with the appropriate `path` and `build_deps` for the chosen language / backend.
+When `baler init --native cpp` (or `--native c`, etc.) is used, the `[native]` block is un-commented and populated with the appropriate `path` and `build_deps` for the chosen language / backend.

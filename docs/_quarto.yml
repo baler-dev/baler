@@ -1,12 +1,12 @@
 project:
     type: website
-    output-dir: carrier_site
+    output-dir: baler_site
 
 website:
-    title: "carrier"
+    title: "baler"
     description: "A package manager for {box} modules, built in Rust."
-    site-url: https://joshuamarie.github.io/carrier
-    repo-url: https://github.com/joshuamarie/carrier
+    site-url: https://joshuamarie.github.io/baler
+    repo-url: https://github.com/joshuamarie/baler
     repo-actions: [issue]
     page-navigation: true
     navbar:
@@ -21,10 +21,10 @@ website:
               menu:
                   - href: reference/cli.qmd
                     text: CLI Commands
-                  - href: reference/carrier-toml.qmd
-                    text: carrier.toml
-                  - href: reference/carrier-lock.qmd
-                    text: carrier.lock
+                  - href: reference/baler-toml.qmd
+                    text: baler.toml
+                  - href: reference/baler-lock.qmd
+                    text: baler.lock
                   - href: reference/module-structure.qmd
                     text: Module Structure
                   - href: reference/native-code.qmd
@@ -41,13 +41,13 @@ website:
               text: Contributing
         right:
             - icon: github
-              href: https://github.com/joshuamarie/carrier
+              href: https://github.com/joshuamarie/baler
     sidebar:
         - title: Reference
           contents:
               - reference/cli.qmd
-              - reference/carrier-toml.qmd
-              - reference/carrier-lock.qmd
+              - reference/baler-toml.qmd
+              - reference/baler-lock.qmd
               - reference/module-structure.qmd
               - reference/native-code.qmd
         - title: Internals

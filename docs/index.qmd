@@ -1,14 +1,14 @@
 ---
-title: "carrier"
+title: "baler"
 subtitle: "A package manager for {box} modules"
 comments: false
 ---
 
-## Why carrier (an overview)
+## Why baler (an overview)
 
-`{carrier}` is a package manager with thin-wrapper command line interface (CLI) for [{box}](https://klmr.me/box/) modules, written in Rust. `{box}` package and `{carrier}` are mutually exclusive: `{box}` is an R package that gives R a proper module (reusability and composability of R codes) system, but `{carrier}` is a CLI tool that does the job that gives those modules [a way to be packaged, versioned, and distributed]{.underline}. The interface and usage is deliberately close to Python's `pip`.
+`{baler}` is a package manager with thin-wrapper command line interface (CLI) for [{box}](https://klmr.me/box/) modules, written in Rust. `{box}` package and `{baler}` are mutually exclusive: `{box}` is an R package that gives R a proper module (reusability and composability of R codes) system, but `{baler}` is more like a `cargo` from Rust that does the job that gives those modules [a way to be packaged, versioned, and distributed]{.underline}. The interface and usage is also deliberately close to Python's `pip`.
 
-To make `{box}` modules distributable or installable with `{carrier}`, one must carry one extra file at its root: `carrier.toml`. It is a metadata file that plays the same role `DESCRIPTION` plays for an R package or `pyproject.toml` plays for a Python package (name, version, license, authors, and both R package and `{box}` module dependencies). You can also optionally lock the dependencies of the modules under `{carrier}` through a lockfile in the name of `carrier.lock` (see for more [details](./reference/carrier-lock)). Read the following documentations first: 
+To make `{box}` modules distributable or installable with `{baler}`, one must carry one extra file at its root: `baler.toml`. It is a metadata file that plays the same role `DESCRIPTION` plays for an R package or `pyproject.toml` plays for a Python package (name, version, license, authors, and both R package and `{box}` module dependencies). You can also optionally lock the dependencies of the modules under `{baler}` through a lockfile in the name of `baler.lock` (see for more [details](./reference/baler-lock)). Read the following documentations first: 
 
 1.  [Official docs](https://klmr.me/box)
 
@@ -16,20 +16,20 @@ To make `{box}` modules distributable or installable with `{carrier}`, one must 
 
 To get the explanations on how `{box}` modules work. 
 
-There's no actual formal name to call these packaged `{box}` modules, so let's call it as [`{box}`-`{carrier}` modules]{.underline} for now. To see how `{carrier}` works as a starter, see the following guide under [Get Started](./getting-started).
+There's no actual formal name to call these packaged `{box}` modules, so let's call it as [`{box}`-`{baler}` modules]{.underline} for now. To see how `{baler}` works as a starter, see the following guide under [Get Started](./getting-started).
 
 ## Commands
 
-A following usage is `carrier <command> ...` on the command line. Here are the following primary `<command>` you can use:
+A following usage is `baler <command> ...` on the command line. Here are the following primary `<command>` you can use:
 
--   `init` (Optional): scaffold a new module project together with the most important file: `carrier.toml`.
--   `bundle`: package a module in a `.tar.gz` archive, with a `manifest.json` built from `carrier.toml`.
+-   `init` (Optional): scaffold a new module project together with the most important file: `baler.toml`.
+-   `bundle`: package a module in a `.tar.gz` archive, with a `manifest.json` built from `baler.toml`.
 -   `install`: install a bundled archive, a local module directory, or a module living in a repo (for instance, for GitHub repo: `gh:user/repo`), and optionally resolve its R package dependencies (it looks up from CRAN by default). It also checks the installed R against the module's declared `r_version` constraint before proceeding.
--   `lock`: resolve a module's R package dependencies to exact versions and write `carrier.lock`, so a later install reuses those pins instead of re-resolving against CRAN. Also checks `r_version` and records the resolving R version in the lock.
+-   `lock`: resolve a module's R package dependencies to exact versions and write `baler.lock`, so a later install reuses those pins instead of re-resolving against CRAN. Also checks `r_version` and records the resolving R version in the lock.
 -   `remove`: uninstall a module. Use `--force` to skip the prompt and outright uninstall the module.
 
 ## Disclaimer
 
-Take note that `{carrier}` is a CLI tool and it doesn't replace ANYTHING, and that includes traditional R packages (`{box}` modules can still depend on CRAN-style packages, after all). In fact, it is built for a primary purpose, that is to serve as a "package manufacturer", responsible for managing `{box}` module packages involving packaging/bundling and installations, so `{carrier}` rather gives more opportunity for `{box}` modules. Once `{box}`-`{carrier}` packages are installed, you can attach them through `box::use()`, as this function automatically resolves it the same way it resolves any other module (see [details](installation.qmd) for the installation, as well as the patched `{box}` fork this currently requires).
+Take note that `{baler}` is a CLI tool and it doesn't replace ANYTHING, and that includes traditional R packages (`{box}` modules can still depend on CRAN-style packages, after all). In fact, it is built for a primary purpose, that is to serve as a "package manufacturer", responsible for managing `{box}` module packages involving packaging/bundling and installations, so `{baler}` rather gives more opportunity for `{box}` modules. Once `{box}`-`{baler}` packages are installed, you can attach them through `box::use()`, as this function automatically resolves it the same way it resolves any other module (see [details](installation.qmd) for the installation, as well as the patched `{box}` fork this currently requires).
 
 Begin with [Get Started](./getting-started) for a full walkthrough as starters, or jump to the [CLI reference](./reference/cli) if you already know what you're doing.
