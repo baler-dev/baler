@@ -1,8 +1,8 @@
 [package]
-name = "carrier-native"
+name = "baler-native"
 version.workspace = true
 edition.workspace = true
-description = "Compiles native code bundled inside box modules"
+description = "Compiles native code bundled inside {box} modules"
 
 [dependencies]
 anyhow.workspace = true

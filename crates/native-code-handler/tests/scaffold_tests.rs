@@ -1,4 +1,4 @@
-use carrier_native::{scaffold, Backend, NativeLang};
+use baler_native::{scaffold, Backend, NativeLang};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -9,7 +9,7 @@ impl TempScratchDir {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir()
-            .join(format!("carrier-native-test-{label}-{n}-{}", std::process::id()));
+            .join(format!("baler-native-test-{label}-{n}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)
     }
@@ -131,14 +131,14 @@ fn scaffold_native_dir_is_always_src_regardless_of_language() {
 fn has_native_src_true_for_bare_c_file_no_makevars() {
     let scratch = TempScratchDir::new("detect-no-makevars");
     std::fs::write(scratch.path().join("hello.c"), "// no makevars here").unwrap();
-    assert!(carrier_native::detect::has_native_src(scratch.path()));
+    assert!(baler_native::detect::has_native_src(scratch.path()));
 }
 
 #[test]
 fn has_native_src_true_for_bare_fortran_file_no_makevars() {
     let scratch = TempScratchDir::new("detect-fortran-no-makevars");
     std::fs::write(scratch.path().join("add.f90"), "! no makevars here").unwrap();
-    assert!(carrier_native::detect::has_native_src(scratch.path()));
+    assert!(baler_native::detect::has_native_src(scratch.path()));
 }
 
 #[test]
@@ -146,13 +146,13 @@ fn has_native_src_true_for_c_and_fortran_together() {
     let scratch = TempScratchDir::new("detect-c-and-fortran");
     std::fs::write(scratch.path().join("hello.c"), "").unwrap();
     std::fs::write(scratch.path().join("add.f90"), "").unwrap();
-    assert!(carrier_native::detect::has_native_src(scratch.path()));
+    assert!(baler_native::detect::has_native_src(scratch.path()));
 }
 
 #[test]
 fn has_native_src_false_for_empty_dir() {
     let scratch = TempScratchDir::new("detect-empty");
-    assert!(!carrier_native::detect::has_native_src(scratch.path()));
+    assert!(!baler_native::detect::has_native_src(scratch.path()));
 }
 
 #[test]

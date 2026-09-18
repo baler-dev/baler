@@ -1,4 +1,4 @@
-use carrier_native::toolchain::{
+use baler_native::toolchain::{
     check_cpp_fortran_mix_experimental, check_unhandled_sources, native_sources,
 };
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ fn scratch_dir(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir()
-        .join(format!("carrier-toolchain-test-{label}-{n}-{}", std::process::id()));
+        .join(format!("baler-toolchain-test-{label}-{n}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

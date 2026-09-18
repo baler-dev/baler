@@ -42,25 +42,25 @@ pub fn source_hash(native_dir: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Root of the local native build cache: `~/.carrier/native-cache/`.
+/// Root of the local native build cache: `~/.baler/native-cache/`.
 /// Artifacts are stored under
 /// `<module_name>/<target_triple>/<r_version>/<source_hash>/`, so a
 /// lookup is a pure path check.
 /// No index file to keep in sync.
 pub fn cache_dir() -> Result<PathBuf> {
-    if let Ok(dir) = std::env::var("CARRIER_CACHE_DIR") {
+    if let Ok(dir) = std::env::var("BALER_CACHE_DIR") {
         return Ok(PathBuf::from(dir));
     }
     let home = dirs::home_dir()
         .context("Could not determine home directory for the native build cache")?;
-    Ok(home.join(".carrier").join("native-cache"))
+    Ok(home.join(".baler").join("native-cache"))
 }
 
 /// New option: Removing global cached native compiled binaries
 ///
 /// Remove every cached artifact under `<cache_dir>/<cache_key_name>/`,
 /// across all target triples, R versions, and source hashes for that
-/// module. Used by `carrier compile --clean` to force a real rebuild
+/// module. Used by `baler compile --clean` to force a real rebuild
 /// instead of a cache hit on the next `build()` call.
 ///
 /// A missing directory is not an error: nothing has been built for

@@ -55,7 +55,7 @@ fn template_for(lang: NativeLang, backend: Option<Backend>) -> Result<Template> 
 /// Scaffold a module's R-only example code — the same hello/add shape
 /// `scaffold()` writes for native modules, minus anything compiled: no
 /// native dir, no hook.r, no dyn.load. Function bodies live entirely
-/// in R. Used by `carrier init` when `--native` isn't passed, so a
+/// in R. Used by `baler init` when `--native` isn't passed, so a
 /// fresh module starts from working, runnable examples instead of an
 /// empty `box::use()`.
 pub fn scaffold_pure_r(module_dir: &Path) -> Result<Vec<String>> {
@@ -75,7 +75,7 @@ pub fn scaffold_pure_r(module_dir: &Path) -> Result<Vec<String>> {
 
 /// Folder name for a module's native source. Always `src/` — matching
 /// R's own convention, and matching the one folder name that
-/// `carrier-core`'s `artifact_name()` maps to the module's own name
+/// `baler-core`'s `artifact_name()` maps to the module's own name
 /// rather than the folder's. That pairing is deliberate: a scaffolded
 /// module's calling code can reference `dlls$<module_name>` as a fixed
 /// literal because the folder that produces it is guaranteed to be

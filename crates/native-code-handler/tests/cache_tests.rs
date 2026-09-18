@@ -1,12 +1,12 @@
-use carrier_native::cache::clear_module_cache;
+use baler_native::cache::clear_module_cache;
 
 #[test]
 fn clear_module_cache_behavior() {
     let tmp = tempfile::tempdir().unwrap();
     // SAFETY: this file has exactly one #[test] fn, so no other test
-    // in this binary can race on CARRIER_CACHE_DIR while this runs.
+    // in this binary can race on BALER_CACHE_DIR while this runs.
     unsafe {
-        std::env::set_var("CARRIER_CACHE_DIR", tmp.path());
+        std::env::set_var("BALER_CACHE_DIR", tmp.path());
     }
 
     // Removes an existing module's cache entries, all triples/versions/hashes included.
@@ -31,6 +31,6 @@ fn clear_module_cache_behavior() {
 
     // SAFETY: see the comment on set_var above — same single-test file.
     unsafe {
-        std::env::remove_var("CARRIER_CACHE_DIR");
+        std::env::remove_var("BALER_CACHE_DIR");
     }
 }

@@ -1,4 +1,4 @@
-use carrier_native::Backend;
+use baler_native::Backend;
 
 #[test]
 fn backend_parse_accepts_known_values_case_insensitively() {

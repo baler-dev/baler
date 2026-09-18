@@ -1,8 +1,8 @@
-//! Integration test for `carrier-native`, run manually — it needs R
+//! Integration test for `baler-native`, run manually — it needs R
 //! (with `Rcpp` installed) and a C++ toolchain on PATH, neither of
 //! which CI can be assumed to have:
 //!
-//!   cargo test -p carrier-native -- --ignored --nocapture
+//!   cargo test -p baler-native -- --ignored --nocapture
 //!
 //! The fixture module (a real, working `{box}` module with compiled
 //! Rcpp code, copied from `native-demo`) lives entirely as inline
@@ -16,7 +16,7 @@
 //! `rolling_mean(c(1..10), window = 3)` => `NA NA 2 3 4 5 6 7 8 9` —
 //! is already known independently of this crate (see
 //! `native-demo/README.md`), so a failure here is unambiguously
-//! `carrier-native`'s fault, not the fixture's.
+//! `baler-native`'s fault, not the fixture's.
 
 use std::path::Path;
 use std::process::Command;
@@ -140,12 +140,12 @@ fn builds_caches_and_loads_stats_native() {
     let native_dir = module_dir.join("src");
 
     assert!(
-        carrier_native::has_native_src(&native_dir),
+        baler_native::has_native_src(&native_dir),
         "expected a Makevars under {}",
         native_dir.display()
     );
 
-    let first = carrier_native::build(&module_dir, &native_dir, "stats_native", "stats_native")
+    let first = baler_native::build(&module_dir, &native_dir, "stats_native", "stats_native")
         .expect("first build() should succeed");
     assert!(
         first.artifact_path.exists(),
@@ -155,7 +155,7 @@ fn builds_caches_and_loads_stats_native() {
 
     // Re-running build() with unchanged source should hit the cache,
     // not invoke R CMD SHLIB again.
-    let second = carrier_native::build(&module_dir, &native_dir, "stats_native", "stats_native")
+    let second = baler_native::build(&module_dir, &native_dir, "stats_native", "stats_native")
         .expect("second build() should succeed");
     assert!(second.from_cache, "second build() should be a cache hit");
     assert_eq!(

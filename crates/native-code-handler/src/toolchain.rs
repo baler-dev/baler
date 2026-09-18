@@ -29,7 +29,7 @@ pub struct BuildOutcome {
 /// Path of the ABI sidecar for a compiled artifact — same directory,
 /// same filename, with `.abi.json` appended. Its own function so a
 /// caller checking compatibility before `dyn.load()` (R-side glue
-/// code, not carrier itself) can compute the same path independently
+/// code, not baler itself) can compute the same path independently
 /// without needing a `BuildOutcome` in hand.
 pub fn sidecar_path(artifact_path: &Path) -> PathBuf {
     let mut name = artifact_path.file_name().unwrap_or_default().to_os_string();
@@ -251,7 +251,7 @@ fn locate_binary(name: &str) -> String {
 
 /// `R CMD SHLIB` itself handles a real `src/` mixing `.c`/`.cpp`/`.f`
 /// fine, links everything into one `.so`, that's an established R
-/// package pattern, not a carrier concern. Carrier compiles
+/// package pattern, not a baler concern. Baler compiles
 /// `.c`/`.cpp`/`.cc`/`.cxx` and `.f`/`.f90`/`.f95`/`.f03`; anything
 /// else (a stray `.py`, a leftover `.rs`) is silently excluded from
 /// the build with no feedback. Headers and `Makevars` are expected to
@@ -305,7 +305,7 @@ pub fn check_unhandled_sources(native_dir: &Path) -> Result<()> {
 /// across two separate `[native].path` entries (each compiled into
 /// its own artifact, never sharing a link step).
 ///
-/// Marked experimental on purpose: this is carrier's own enforcement
+/// Marked experimental on purpose: this is baler's own enforcement
 /// of a restriction R states but doesn't itself check for at build
 /// time. If real usage shows it's too strict, or the wrong shape
 /// entirely, delete this function and its one call site in build();

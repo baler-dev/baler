@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 
 /// A supported native-code language for a module's `[native]` block.
-/// Parsed from the `--native` CLI flag / `carrier.toml`, and used to
+/// Parsed from the `--native` CLI flag / `baler.toml`, and used to
 /// pick the right scaffold (starter source file + build glue) when a
 /// module opts into compiled code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

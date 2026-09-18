@@ -6,15 +6,15 @@ use std::path::Path;
 /// directory with no Makevars still counts if it has actual
 /// `.c`/`.cpp`/`.cc`/`.cxx` sources: `R CMD SHLIB` compiles those fine
 /// with default flags, and a hand-authored native dir shouldn't be
-/// invisible to carrier just for skipping a file it doesn't strictly
+/// invisible to baler just for skipping a file it doesn't strictly
 /// need. Deliberately filesystem-only, no dependency on
-/// `carrier-core`'s TOML types, so this crate can be driven directly
-/// against a bare directory, by tests, or by a future `carrier compile`
+/// `baler-core`'s TOML types, so this crate can be driven directly
+/// against a bare directory, by tests, or by a future `baler compile`
 /// run outside a full resolve.
 ///
 /// Nothing here assumes a folder is named `src/`, or that it sits
 /// inside a module directory at all. `native_dir` is whatever path
-/// `carrier-core` already resolved from `[native].path`.
+/// `baler-core` already resolved from `[native].path`.
 pub fn has_native_src(native_dir: &Path) -> bool {
     if native_dir.join("Makevars").exists() || native_dir.join("Makevars.win").exists() {
         return true;
