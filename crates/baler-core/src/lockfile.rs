@@ -5,10 +5,10 @@ use anyhow::{bail, Context, Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-pub const LOCK_FILE_NAME: &str = "carrier.lock";
+pub const LOCK_FILE_NAME: &str = "baler.lock";
 const LOCK_FORMAT_VERSION: u32 = 1;
 
-/// One package pinned to the exact version and repo carrier resolved it
+/// One package pinned to the exact version and repo baler resolved it
 /// to the last time the lock was written. R packages only for now —
 /// module deps have no automatic resolve+install path yet (execute_plan
 /// only reports whether a module is already installed), so there is
@@ -23,7 +23,7 @@ pub struct LockedPackage {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-pub struct CarrierLock {
+pub struct BalerLock {
     #[serde(default = "default_version")]
     pub version: u32,
     #[serde(default)]
@@ -36,10 +36,10 @@ fn default_version() -> u32 {
     LOCK_FORMAT_VERSION
 }
 
-impl CarrierLock {
+impl BalerLock {
     /// Build a lock from an already-resolved package set — used when
     /// reconstructing a lock from a bundle's embedded manifest, where
-    /// there is no carrier.lock file on disk to read.
+    /// there is no baler.lock file on disk to read.
     pub fn from_packages(packages: Vec<LockedPackage>) -> Self {
         Self { version: LOCK_FORMAT_VERSION, r_version: None, packages }
     }
@@ -55,7 +55,7 @@ impl CarrierLock {
         };
         let v = Version::parse(&p.version).with_context(|| {
             format!(
-                "carrier.lock has an invalid version for '{}': '{}'",
+                "baler.lock has an invalid version for '{}': '{}'",
                 name, p.version
             )
         })?;
@@ -63,25 +63,25 @@ impl CarrierLock {
     }
 }
 
-/// Read `carrier.lock` from `project_root`. `Ok(None)` means the file
+/// Read `baler.lock` from `project_root`. `Ok(None)` means the file
 /// doesn't exist — its presence is the only opt-in switch, so a missing
-/// lock is not an error, it just means carrier resolves fresh the way
+/// lock is not an error, it just means baler resolves fresh the way
 /// it always has. An existing-but-unparseable lock IS an error: silently
 /// ignoring a broken lock would defeat the reason it exists.
-pub fn read(project_root: &Path) -> Result<Option<CarrierLock>> {
+pub fn read(project_root: &Path) -> Result<Option<BalerLock>> {
     let path = project_root.join(LOCK_FILE_NAME);
     if !path.exists() {
         return Ok(None);
     }
     let contents = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    let lock: CarrierLock = toml::from_str(&contents)
+    let lock: BalerLock = toml::from_str(&contents)
         .with_context(|| format!("Failed to parse {}", path.display()))?;
 
     if lock.version != LOCK_FORMAT_VERSION {
         bail!(
-            "{} declares lock format version {}, but this build of carrier \
-             only understands version {}. Regenerate it with `carrier lock`.",
+            "{} declares lock format version {}, but this build of baler \
+             only understands version {}. Regenerate it with `baler lock`.",
             path.display(),
             lock.version,
             LOCK_FORMAT_VERSION
@@ -91,14 +91,14 @@ pub fn read(project_root: &Path) -> Result<Option<CarrierLock>> {
     Ok(Some(lock))
 }
 
-/// Write `carrier.lock` from a resolved set of `{name: (version, repo)}`,
+/// Write `baler.lock` from a resolved set of `{name: (version, repo)}`,
 /// sorted by package name for a stable, diffable file — an unsorted lock
 /// would produce noisy diffs on every write even when nothing about the
 /// resolved graph actually changed.
 ///
 /// `r_version` is `None` by default (see `--with-r-version` on
-/// `carrier lock`): the field is provenance-only, never enforced (the
-/// real constraint is `carrier.toml`'s `module.r_version`, checked
+/// `baler lock`): the field is provenance-only, never enforced (the
+/// real constraint is `baler.toml`'s `module.r_version`, checked
 /// separately), and two contributors on different R installs writing
 /// otherwise-identical locks would produce a spurious diff if this were
 /// recorded unconditionally.
@@ -117,12 +117,12 @@ pub fn write(
         .collect();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let lock = CarrierLock {
+    let lock = BalerLock {
         version: LOCK_FORMAT_VERSION,
         r_version: r_version.map(str::to_owned),
         packages,
     };
-    let contents = toml::to_string_pretty(&lock).context("Failed to serialize carrier.lock")?;
+    let contents = toml::to_string_pretty(&lock).context("Failed to serialize baler.lock")?;
 
     let path = project_root.join(LOCK_FILE_NAME);
     let tmp_path = path.with_extension("lock.tmp");

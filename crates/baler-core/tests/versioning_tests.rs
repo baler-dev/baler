@@ -1,4 +1,4 @@
-use carrier_core::version::{check_conflicts, VersionSpec};
+use baler_core::version::{check_conflicts, VersionSpec};
 use semver::Version;
 
 fn v(s: &str) -> Version {

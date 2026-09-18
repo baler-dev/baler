@@ -2,21 +2,21 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, Context, Result};
 
-use crate::carrier_toml::{CarrierToml, ModuleDep};
+use crate::baler_toml::{BalerToml, ModuleDep};
 use crate::ops::resolve::{resolve_packages_from_specs, ResolvedPlan};
 use crate::version::VersionSpec;
 
-/// Fetches a module's carrier.toml given the `source` string declared
+/// Fetches a module's baler.toml given the `source` string declared
 /// in its dependent's `module_deps`. resolve_transitive() only knows
 /// how to walk the dependency graph. It never touches the network
 /// itself, so who implements this decides that policy: a real fetch
 /// over GitHub in production, a HashMap in a test.
 pub trait ModuleFetcher {
-    fn fetch(&self, source: &str) -> Result<CarrierToml>;
+    fn fetch(&self, source: &str) -> Result<BalerToml>;
 }
 
 /// Walk the full module dependency graph, starting from `root`,
-/// fetching each declared module_dep's carrier.toml through `fetcher`
+/// fetching each declared module_dep's baler.toml through `fetcher`
 /// and folding its `package_deps/module_deps` into the same queue.
 ///
 /// Two invariants that must hold from the first version of this
@@ -32,7 +32,7 @@ pub trait ModuleFetcher {
 /// ancestry; a call stack does, which is why this walks the graph
 /// recursively with `path` instead of draining a VecDeque.
 pub fn resolve_transitive(
-    root: &CarrierToml,
+    root: &BalerToml,
     fetcher: &dyn ModuleFetcher,
 ) -> Result<ResolvedPlan> {
     let mut pkg_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
@@ -93,14 +93,14 @@ fn resolve_module(
     if let Some((existing_version, existing_source)) = resolved_modules.get(name) {
         let source = dep.source().ok_or_else(|| {
             anyhow::anyhow!(
-                "'{name}' has no source declared — carrier has no default module registry.\n\
+                "'{name}' has no source declared — baler has no default module registry.\n\
                  Declare it as: {name} = {{ version = \"...\", source = \"gh:user/repo\" }}"
             )
         })?;
         if source != existing_source {
             bail!(
                 "'{name}' is required from two different sources: '{}' and '{}' — \
-                 carrier doesn't merge these.",
+                 baler doesn't merge these.",
                 existing_source, source
             );
         }
@@ -123,7 +123,7 @@ fn resolve_module(
 
     let source = dep.source().ok_or_else(|| {
         anyhow::anyhow!(
-            "'{name}' has no source declared — carrier has no default module registry.\n\
+            "'{name}' has no source declared — baler has no default module registry.\n\
              Declare it as: {name} = {{ version = \"...\", source = \"gh:user/repo\" }}"
         )
     })?;

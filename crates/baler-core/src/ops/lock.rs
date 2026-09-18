@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-use crate::carrier_toml::CarrierToml;
+use crate::baler_toml::BalerToml;
 use crate::lockfile;
 use crate::ops::resolve;
 
 /// Resolve `path`'s R package dependencies to exact versions and repos,
-/// then write `carrier.lock`. With `update: true`, any existing lock is
+/// then write `baler.lock`. With `update: true`, any existing lock is
 /// ignored and everything is re-resolved fresh; otherwise packages the
 /// lock already pins are kept at their pinned version (see
 /// `resolve_only` / `resolve_all`'s locked-package handling).
@@ -16,11 +16,11 @@ use crate::ops::resolve;
 /// off by default so routine re-locks across contributors on different
 /// R installs stay diff-quiet.
 ///
-/// `remove: true` safely deletes `carrier.lock` instead of writing one, and
+/// `remove: true` safely deletes `baler.lock` instead of writing one, and
 /// returns before any resolution happens. This is always safe: a
-/// missing lock is not an error state anywhere in carrier. Every
+/// missing lock is not an error state anywhere in baler. Every
 /// caller (`ops::install`, `ops::bundle`) already treats "no lock" as
-/// "resolve fresh", exactly as if `carrier lock` had never been run.
+/// "resolve fresh", exactly as if `baler lock` had never been run.
 pub fn run(path: &str, update: bool, with_r_version: bool, remove: bool) -> Result<()> {
     let project_root = Path::new(path);
 
@@ -36,10 +36,10 @@ pub fn run(path: &str, update: bool, with_r_version: bool, remove: bool) -> Resu
         return Ok(());
     }
 
-    let toml_path = project_root.join("carrier.toml");
+    let toml_path = project_root.join("baler.toml");
     let contents = std::fs::read_to_string(&toml_path)
         .with_context(|| format!("Failed to read {}", toml_path.display()))?;
-    let toml: CarrierToml = ::toml::from_str(&contents)
+    let toml: BalerToml = ::toml::from_str(&contents)
         .with_context(|| format!("Failed to parse {}", toml_path.display()))?;
 
     let r_spec = toml.module.r_version_spec()?;

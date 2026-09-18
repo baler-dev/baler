@@ -1,14 +1,14 @@
-use carrier_core::carrier_toml::{Author, TestConfig};
-use carrier_core::formats::tar;
-use carrier_core::lockfile::LockedPackage;
-use carrier_core::manifest::{Dependencies, Manifest, PackageDepEntry};
+use baler_core::baler_toml::{Author, TestConfig};
+use baler_core::formats::tar;
+use baler_core::lockfile::LockedPackage;
+use baler_core::manifest::{Dependencies, Manifest, PackageDepEntry};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn unique_dir(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("carrier-fmt-test-{label}-{n}-{}", std::process::id()))
+    std::env::temp_dir().join(format!("baler-fmt-test-{label}-{n}-{}", std::process::id()))
 }
 
 struct Scratch(PathBuf);
@@ -146,10 +146,10 @@ fn tar_read_toml_reconstructs_module_metadata() {
 fn tar_user_file_named_manifest_json_survives_bundling() {
     let src = Scratch::new("tar-collision-src");
     make_fixture_src(src.path());
-    // A module file that happens to share a name with carrier's own
+    // A module file that happens to share a name with baler's own
     // generated manifest. This must not collide with it on write, and
     // must not be misrouted into .dist-info on unpack.
-    std::fs::write(src.path().join("manifest.json"), "user's own data, not carrier's").unwrap();
+    std::fs::write(src.path().join("manifest.json"), "user's own data, not baler's").unwrap();
 
     let files = tar::collect_files(src.path()).unwrap();
     let manifest = fixture_manifest("collisionmod", files);
@@ -163,22 +163,22 @@ fn tar_user_file_named_manifest_json_survives_bundling() {
 
     // The user's file is installed as ordinary module content, untouched.
     let user_file = install.path().join("collisionmod").join("manifest.json");
-    assert_eq!(std::fs::read_to_string(&user_file).unwrap(), "user's own data, not carrier's");
+    assert_eq!(std::fs::read_to_string(&user_file).unwrap(), "user's own data, not baler's");
 
-    // carrier's own manifest still lands in .dist-info, and is still valid.
+    // baler's own manifest still lands in .dist-info, and is still valid.
     let dist_info = install.path().join("collisionmod-0.1.0.dist-info");
-    let carrier_manifest = std::fs::read_to_string(dist_info.join("manifest.json")).unwrap();
-    let parsed = Manifest::from_json(&carrier_manifest).unwrap();
+    let baler_manifest = std::fs::read_to_string(dist_info.join("manifest.json")).unwrap();
+    let parsed = Manifest::from_json(&baler_manifest).unwrap();
     assert_eq!(parsed.name, "collisionmod");
 }
 
 #[test]
-fn tar_read_toml_errors_on_non_carrier_archive() {
-    let scratch = Scratch::new("tar-not-carrier");
-    let not_carrier = scratch.path().join("plain.tar.gz");
+fn tar_read_toml_errors_on_non_baler_archive() {
+    let scratch = Scratch::new("tar-not-baler");
+    let not_baler = scratch.path().join("plain.tar.gz");
 
     // A tarball with no manifest.json inside at all.
-    let file = std::fs::File::create(&not_carrier).unwrap();
+    let file = std::fs::File::create(&not_baler).unwrap();
     let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
     let mut archive = ::tar::Builder::new(enc);
     let readme = scratch.path().join("README.md");
@@ -186,5 +186,5 @@ fn tar_read_toml_errors_on_non_carrier_archive() {
     archive.append_path_with_name(&readme, "top/README.md").unwrap();
     archive.finish().unwrap();
 
-    assert!(tar::read_toml(&not_carrier).is_err());
+    assert!(tar::read_toml(&not_baler).is_err());
 }

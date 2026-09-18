@@ -1,5 +1,5 @@
-use carrier_core::carrier_toml::{Author, CarrierToml, ModuleMeta, PackageDep, DEFAULT_CRAN_MIRROR};
-use carrier_native::{Backend, NativeLang};
+use baler_core::baler_toml::{Author, BalerToml, ModuleMeta, PackageDep, DEFAULT_CRAN_MIRROR};
+use baler_native::{Backend, NativeLang};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,7 +13,7 @@ impl TempScratchDir {
     fn new(label: &str) -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("carrier-toml-test-{label}-{n}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("baler-toml-test-{label}-{n}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)
     }
@@ -128,7 +128,7 @@ fn resolve_src_dir_defaults_to_module_name() {
     std::fs::create_dir_all(&src_dir).unwrap();
     std::fs::write(src_dir.join("__init__.R"), "").unwrap();
 
-    let toml = CarrierToml {
+    let toml = BalerToml {
         module: module_meta("mymod", None),
         package_deps: None,
         module_deps: None,
@@ -143,7 +143,7 @@ fn resolve_src_dir_defaults_to_module_name() {
 #[test]
 fn resolve_src_dir_errors_when_default_dir_missing() {
     let scratch = TempScratchDir::new("missing-default");
-    let toml = CarrierToml {
+    let toml = BalerToml {
         module: module_meta("mymod", None),
         package_deps: None,
         module_deps: None,
@@ -160,7 +160,7 @@ fn resolve_src_dir_errors_when_init_r_missing() {
     let scratch = TempScratchDir::new("missing-init");
     std::fs::create_dir_all(scratch.path().join("mymod")).unwrap();
 
-    let toml = CarrierToml {
+    let toml = BalerToml {
         module: module_meta("mymod", None),
         package_deps: None,
         module_deps: None,
@@ -179,7 +179,7 @@ fn resolve_src_dir_uses_explicit_src_override() {
     std::fs::create_dir_all(&src_dir).unwrap();
     std::fs::write(src_dir.join("__init__.R"), "").unwrap();
 
-    let toml = CarrierToml {
+    let toml = BalerToml {
         module: module_meta("mymod", Some("custom_source")),
         package_deps: None,
         module_deps: None,
@@ -194,7 +194,7 @@ fn resolve_src_dir_uses_explicit_src_override() {
 #[test]
 fn resolve_src_dir_errors_when_explicit_src_not_a_directory() {
     let scratch = TempScratchDir::new("explicit-src-not-dir");
-    let toml = CarrierToml {
+    let toml = BalerToml {
         module: module_meta("mymod", Some("does_not_exist")),
         package_deps: None,
         module_deps: None,
@@ -207,16 +207,16 @@ fn resolve_src_dir_errors_when_explicit_src_not_a_directory() {
 
 #[test]
 fn default_template_contains_module_name_and_parses_as_toml() {
-    // let template = CarrierToml::default_template("mymod");
-    let template = CarrierToml::default_template("mymod", Some((NativeLang::C, None)));
+    // let template = BalerToml::default_template("mymod");
+    let template = BalerToml::default_template("mymod", Some((NativeLang::C, None)));
     assert!(template.contains("name = \"mymod\""));
-    let parsed: CarrierToml = toml::from_str(&template).unwrap();
+    let parsed: BalerToml = toml::from_str(&template).unwrap();
     assert_eq!(parsed.module.name, "mymod");
 }
 
 #[test]
 fn default_template_none_leaves_native_block_fully_commented() {
-    let template = CarrierToml::default_template("mymod", None);
+    let template = BalerToml::default_template("mymod", None);
     assert!(template.contains("# path = \"native/\""));
     assert!(template.contains("# build_deps = { Rcpp = \"*\" }"));
     assert!(!template.lines().any(|l| l.trim_start().starts_with("path =")));
@@ -225,14 +225,14 @@ fn default_template_none_leaves_native_block_fully_commented() {
 
 #[test]
 fn default_template_c_leaves_path_commented_no_build_deps() {
-    let template = CarrierToml::default_template("mymod", Some((NativeLang::C, None)));
+    let template = BalerToml::default_template("mymod", Some((NativeLang::C, None)));
     assert!(!template.lines().any(|l| l.trim_start().starts_with("path =")), "path should stay commented, auto-detection handles it");
     assert!(template.contains("# build_deps = { Rcpp = \"*\" }"));
 }
 
 #[test]
 fn default_template_cpp_rcpp_leaves_path_commented_sets_build_deps() {
-    let template = CarrierToml::default_template(
+    let template = BalerToml::default_template(
         "mymod",
         Some((NativeLang::Cpp, Some(Backend::Rcpp))),
     );
@@ -242,13 +242,13 @@ fn default_template_cpp_rcpp_leaves_path_commented_sets_build_deps() {
 
 #[test]
 fn default_template_cpp_omitted_backend_defaults_to_rcpp() {
-    let template = CarrierToml::default_template("mymod", Some((NativeLang::Cpp, None)));
+    let template = BalerToml::default_template("mymod", Some((NativeLang::Cpp, None)));
     assert!(template.lines().any(|l| l.trim_start() == "build_deps = { Rcpp = \"*\" }"));
 }
 
 #[test]
 fn default_template_cpp11_sets_cpp11_build_deps() {
-    let template = CarrierToml::default_template(
+    let template = BalerToml::default_template(
         "mymod",
         Some((NativeLang::Cpp, Some(Backend::Cpp11))),
     );
@@ -263,7 +263,7 @@ fn default_template_all_native_variants_parse_as_valid_toml() {
         Some((NativeLang::Cpp, Some(Backend::Rcpp))),
         Some((NativeLang::Cpp, Some(Backend::Cpp11))),
     ] {
-        let template = CarrierToml::default_template("mymod", native);
-        assert!(toml::from_str::<CarrierToml>(&template).is_ok());
+        let template = BalerToml::default_template("mymod", native);
+        assert!(toml::from_str::<BalerToml>(&template).is_ok());
     }
 }

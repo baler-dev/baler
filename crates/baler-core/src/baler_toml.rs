@@ -2,8 +2,8 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use carrier_native::detect::find_native_dirs;
-use carrier_native::{Backend, NativeLang};
+use baler_native::detect::find_native_dirs;
+use baler_native::{Backend, NativeLang};
 
 use crate::version::VersionSpec;
 
@@ -151,8 +151,8 @@ impl NativePath {
 ///
 /// `path` is relative to the module's own source directory (whatever
 /// `resolve_src_dir()` resolves to), the same base `src` in
-/// `[module]` already uses, not the project root `carrier.toml` lives
-/// in. `path = ["cpp", "extra/src"]` in a module's own `carrier.toml`
+/// `[module]` already uses, not the project root `baler.toml` lives
+/// in. `path = ["cpp", "extra/src"]` in a module's own `baler.toml`
 /// means exactly what it looks like: two dirs nested under that
 /// module's source tree.
 ///
@@ -166,10 +166,10 @@ pub struct NativeConfig {
 }
 
 /// `box` accepts either case for a module's `.r`/`.R` extension, so
-/// carrier's own entry-point check shouldn't hardcode one, a module
+/// baler's own entry-point check shouldn't hardcode one, a module
 /// scaffolded with either convention, or hand-authored either way,
 /// must resolve the same regardless of which case the author used or
-/// which filesystem carrier itself happens to be running on.
+/// which filesystem baler itself happens to be running on.
 fn find_init_file(dir: &Path) -> Option<PathBuf> {
     for name in ["__init__.r", "__init__.R"] {
         let candidate = dir.join(name);
@@ -180,10 +180,10 @@ fn find_init_file(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-// ---- CarrierToml (For metadata file) ----
+// ---- BalerToml (For metadata file) ----
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CarrierToml {
+pub struct BalerToml {
     pub module: ModuleMeta,
     pub package_deps: Option<BTreeMap<String, PackageDep>>,
     pub module_deps: Option<BTreeMap<String, ModuleDep>>,
@@ -214,17 +214,17 @@ pub struct TestConfig {
     pub dir: Option<String>,
 }
 
-impl CarrierToml {
+impl BalerToml {
     pub fn from_dir(project_root: &Path) -> Result<Self> {
-        let toml_path = project_root.join("carrier.toml");
+        let toml_path = project_root.join("baler.toml");
         let contents = std::fs::read_to_string(&toml_path)
             .with_context(|| format!(
-                "Could not read carrier.toml at {}. \
-                 Run `carrier init` to create one.",
+                "Could not read baler.toml at {}. \
+                 Run `baler init` to create one.",
                 toml_path.display()
             ))?;
         toml::from_str(&contents)
-            .with_context(|| format!("Failed to parse carrier.toml at {}", toml_path.display()))
+            .with_context(|| format!("Failed to parse baler.toml at {}", toml_path.display()))
     }
 
     pub fn resolve_src_dir(&self, project_root: &Path) -> Result<PathBuf> {
@@ -248,7 +248,7 @@ impl CarrierToml {
             bail!(
                 "Source directory '{}' not found in '{}'.\n\
                  The source directory must match the module name '{}', \
-                 or set `src` in carrier.toml to point to the correct directory.",
+                 or set `src` in baler.toml to point to the correct directory.",
                 self.module.name,
                 project_root.display(),
                 self.module.name,
@@ -287,7 +287,7 @@ impl CarrierToml {
         Ok(!self.resolve_native_dirs(project_root)?.is_empty())
     }
 
-    /// `native` is `Some((lang, backend))` when `carrier init` was run
+    /// `native` is `Some((lang, backend))` when `baler init` was run
     /// with `--native`. `path` is written relative to the module's own
     /// source directory, matching how `resolve_native_dirs()` now
     /// resolves it, not the project root.

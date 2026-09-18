@@ -1,27 +1,27 @@
 //! Uses the real `convert-proj` example module that ships at the repo
 //! root as a fixture, instead of a synthetic one. This is the actual
-//! deliverable a user would bundle/install with `carrier`, so a passing
+//! deliverable a user would bundle/install with `baler`, so a passing
 //! suite here means the example in the repo genuinely still works with
-//! the current carrier-core code, not just a stand-in.
+//! the current baler-core code, not just a stand-in.
 //!
-//! Values are read from convert-proj's real `carrier.toml` at test time
+//! Values are read from convert-proj's real `baler.toml` at test time
 //! (module name, version, ...) rather than hardcoded, so this doesn't
 //! silently go stale if that file changes.
 
-use carrier_core::carrier_toml::CarrierToml;
-use carrier_core::formats::tar;
-use carrier_core::manifest::Manifest;
-use carrier_core::ops::{install, remove};
+use baler_core::baler_toml::BalerToml;
+use baler_core::formats::tar;
+use baler_core::manifest::Manifest;
+use baler_core::ops::{install, remove};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-// install/remove resolve their target dir from CARRIER_LIB (env vars are
+// install/remove resolve their target dir from BALER_LIB (env vars are
 // process-global); see the same guard pattern in install_lifecycle_tests.rs.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Path to the real convert-proj/ directory at the repo root, resolved
-/// relative to this crate (crates/carrier-core) rather than the process's
+/// relative to this crate (crates/baler-core) rather than the process's
 /// current working directory, so `cargo test` works the same no matter
 /// where it's invoked from.
 fn convert_proj_dir() -> PathBuf {
@@ -31,7 +31,7 @@ fn convert_proj_dir() -> PathBuf {
 fn unique_dir(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("carrier-convertproj-test-{label}-{n}-{}", std::process::id()))
+    std::env::temp_dir().join(format!("baler-convertproj-test-{label}-{n}-{}", std::process::id()))
 }
 
 struct Scratch(PathBuf);
@@ -52,23 +52,23 @@ impl Drop for Scratch {
     }
 }
 
-struct CarrierLibGuard {
+struct BalerLibGuard {
     previous: Option<String>,
 }
 
-impl CarrierLibGuard {
+impl BalerLibGuard {
     fn set(path: &Path) -> Self {
-        let previous = std::env::var("CARRIER_LIB").ok();
-        unsafe { std::env::set_var("CARRIER_LIB", path); }
+        let previous = std::env::var("BALER_LIB").ok();
+        unsafe { std::env::set_var("BALER_LIB", path); }
         Self { previous }
     }
 }
 
-impl Drop for CarrierLibGuard {
+impl Drop for BalerLibGuard {
     fn drop(&mut self) {
         match &self.previous {
-            Some(v) => unsafe { std::env::set_var("CARRIER_LIB", v) },
-            None => unsafe { std::env::remove_var("CARRIER_LIB") },
+            Some(v) => unsafe { std::env::set_var("BALER_LIB", v) },
+            None => unsafe { std::env::remove_var("BALER_LIB") },
         }
     }
 }
@@ -77,26 +77,26 @@ impl Drop for CarrierLibGuard {
 /// other test's results, if this fails, the other tests here are
 /// meaningless, not passing-by-accident.
 #[test]
-fn convert_proj_fixture_exists_with_carrier_toml() {
+fn convert_proj_fixture_exists_with_baler_toml() {
     let dir = convert_proj_dir();
     assert!(dir.is_dir(), "convert-proj not found at {}", dir.display());
-    assert!(dir.join("carrier.toml").is_file());
+    assert!(dir.join("baler.toml").is_file());
 }
 
 #[test]
-fn convert_proj_carrier_toml_parses_and_resolves_src() {
+fn convert_proj_baler_toml_parses_and_resolves_src() {
     let dir = convert_proj_dir();
-    let toml = CarrierToml::from_dir(&dir).expect("convert-proj/carrier.toml should parse");
+    let toml = BalerToml::from_dir(&dir).expect("convert-proj/baler.toml should parse");
     let src = toml.resolve_src_dir(&dir).expect("src dir should resolve");
 
-    // The module's entry point must exist, per carrier's own contract.
+    // The module's entry point must exist, per baler's own contract.
     assert!(src.join("__init__.R").is_file());
 }
 
 #[test]
 fn convert_proj_bundles_as_tar_gz_with_matching_metadata() {
     let dir = convert_proj_dir();
-    let toml = CarrierToml::from_dir(&dir).unwrap();
+    let toml = BalerToml::from_dir(&dir).unwrap();
     let src = toml.resolve_src_dir(&dir).unwrap();
 
     let archive_dir = Scratch::reserved("tar-archive");
@@ -128,14 +128,14 @@ fn convert_proj_bundles_as_tar_gz_with_matching_metadata() {
 }
 
 #[test]
-fn convert_proj_installs_via_carrier_install_run() {
+fn convert_proj_installs_via_baler_install_run() {
     let _guard = ENV_LOCK.lock().unwrap();
 
     let dir = convert_proj_dir();
-    let toml = CarrierToml::from_dir(&dir).expect("convert-proj/carrier.toml should parse");
+    let toml = BalerToml::from_dir(&dir).expect("convert-proj/baler.toml should parse");
 
     let lib = Scratch::reserved("lib");
-    let _env = CarrierLibGuard::set(lib.path());
+    let _env = BalerLibGuard::set(lib.path());
 
     // install_deps = false → dependency install stays a dry run, so this
     // never touches the network regardless of what convert-proj declares
@@ -158,9 +158,9 @@ fn convert_proj_installs_via_carrier_install_run() {
     assert!(module_dir.join("temp").join("__init__.R").is_file());
     assert!(module_dir.join("temp").join("conversions.R").is_file());
 
-    // carrier.toml and README.md are project files, not module files,
+    // baler.toml and README.md are project files, not module files,
     // must not leak into the installed tree.
-    assert!(!module_dir.join("carrier.toml").exists());
+    assert!(!module_dir.join("baler.toml").exists());
     assert!(!module_dir.join("README.md").exists());
 
     let dist_info = lib.path().join(format!("{}-{}.dist-info", toml.module.name, toml.module.version));

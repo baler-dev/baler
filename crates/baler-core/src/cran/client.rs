@@ -8,20 +8,20 @@ use anyhow::{Context, Result};
 use semver::Version;
 
 use crate::cran::packages::RVersion;
-use crate::lockfile::CarrierLock;
+use crate::lockfile::BalerLock;
 use crate::ops::resolve::ResolvedPackage;
 
 use download::download_and_unpack;
 use graph::{resolve_all, topo_order, RepoResolution};
 
 /// Resolve every package (direct and transitive) to exact versions and
-/// repos, without downloading or installing anything — what `carrier
+/// repos, without downloading or installing anything — what `baler
 /// lock` calls. Only the PACKAGES.gz indices get fetched; no individual
 /// package's source or binary is ever transferred, which is what makes
 /// this cheap enough to run just to check or refresh a lock.
 pub fn resolve_packages(
     packages: &BTreeMap<String, ResolvedPackage>,
-    lock: Option<&CarrierLock>,
+    lock: Option<&BalerLock>,
 ) -> Result<HashMap<String, (Version, String)>> {
     let (_, globally_resolved) = resolve_all(packages, lock)?;
     Ok(globally_resolved)
@@ -31,14 +31,14 @@ pub fn resolve_packages(
 /// via `resolve_all`.
 ///
 /// Returns the full resolved set (direct and transitive) so a caller can
-/// write it out as a new `carrier.lock`, minus anything that resolved
+/// write it out as a new `baler.lock`, minus anything that resolved
 /// successfully but then failed to actually download/install as a
 /// transitive dep (skipped with a warning below): a lock entry for a
 /// package that isn't actually there would be worse than no entry.
 pub fn install_packages(
     packages: &BTreeMap<String, ResolvedPackage>,
     lib_path: &Path,
-    lock: Option<&CarrierLock>,
+    lock: Option<&BalerLock>,
 ) -> Result<HashMap<String, (Version, String)>> {
     let (per_repo, mut globally_resolved) = resolve_all(packages, lock)?;
 

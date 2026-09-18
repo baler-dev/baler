@@ -2,9 +2,9 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
-use carrier_native::{Backend, NativeLang};
+use baler_native::{Backend, NativeLang};
 
-use crate::carrier_toml::CarrierToml;
+use crate::baler_toml::BalerToml;
 
 pub fn run(
     name: &str,
@@ -24,10 +24,10 @@ pub fn run(
     .with_context(|| format!("Failed to create directory: {}", project_root.display()))?;
     
     fs::write(
-        project_root.join("carrier.toml"),
-        CarrierToml::default_template(name, native.map(|lang| (lang, backend))),
+        project_root.join("baler.toml"),
+        BalerToml::default_template(name, native.map(|lang| (lang, backend))),
     )
-    .context("Failed to write carrier.toml")?;
+    .context("Failed to write baler.toml")?;
     
     fs::write(
         project_root.join("README.md"),
@@ -41,7 +41,7 @@ pub fn run(
     .with_context(|| format!("Failed to create source directory: {}", src_dir.display()))?;
     
     let mut files = vec![
-        "carrier.toml".to_string(),
+        "baler.toml".to_string(),
         "README.md".to_string(),
     ];
     
@@ -50,13 +50,13 @@ pub fn run(
     // build_deps. path is deliberately omitted there — resolve_native_dirs()
     // auto-detects src/ (and any other native dir) on its own.
     if let Some(lang) = native {
-        let scaffolded = carrier_native::scaffold::scaffold(&src_dir, name, lang, backend)
+        let scaffolded = baler_native::scaffold::scaffold(&src_dir, name, lang, backend)
             .with_context(|| format!("Failed to scaffold native code in {}", src_dir.display()))?;
         for f in scaffolded {
             files.push(format!("{}/{}", name, f));
         }
     } else {
-        let scaffolded = carrier_native::scaffold::scaffold_pure_r(&src_dir)
+        let scaffolded = baler_native::scaffold::scaffold_pure_r(&src_dir)
             .with_context(|| format!("Failed to scaffold R-only example code in {}", src_dir.display()))?;
         for f in scaffolded {
             files.push(format!("{}/{}", name, f));
@@ -70,7 +70,7 @@ pub fn run(
     println!();
     println!(
         "Source directory: '{}/'\n\
-         Rename it and set `src` in carrier.toml if you prefer a different name.",
+         Rename it and set `src` in baler.toml if you prefer a different name.",
         name
     );
     

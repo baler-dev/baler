@@ -1,4 +1,4 @@
-use carrier_core::lockfile::{read, write, LOCK_FILE_NAME};
+use baler_core::lockfile::{read, write, LOCK_FILE_NAME};
 use semver::Version;
 use std::collections::BTreeMap;
 
@@ -77,9 +77,9 @@ fn a_malformed_lock_file_fails_to_read_rather_than_being_ignored() {
 
 #[test]
 fn a_lock_with_no_recognized_fields_is_a_hard_error_not_an_empty_lock() {
-    // e.g. carrier.toml accidentally copied over carrier.lock — valid
+    // e.g. baler.toml accidentally copied over baler.lock — valid
     // TOML, but none of it means anything as a lock. Before
-    // deny_unknown_fields this deserialized into an empty CarrierLock
+    // deny_unknown_fields this deserialized into an empty BalerLock
     // (version defaulted to 1, packages defaulted to []) instead of
     // failing, so install would silently resolve everything fresh.
     let dir = tempfile::tempdir().unwrap();

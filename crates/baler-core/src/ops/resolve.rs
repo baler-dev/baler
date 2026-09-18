@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use anyhow::{bail, Result};
 
-use crate::carrier_toml::{ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
+use crate::baler_toml::{ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
 use crate::version::VersionSpec;
 use crate::paths::{resolve_install_dir, resolve_r_lib_dir};
 
@@ -46,7 +46,7 @@ pub fn resolve(
         mod_specs.entry(name.clone()).or_default().push(spec);
 
         // TODO: dep.source() is parsed but not yet used. Once transitive
-        // module resolution exists, fetch the source's carrier.toml,
+        // module resolution exists, fetch the source's baler.toml,
         // read its declared module.version, check it against `spec`,
         // and push its own deps onto the queue.
     }
@@ -63,22 +63,22 @@ pub fn resolve(
 
 /// Build a plan straight from an existing lock instead of walking
 /// package_deps. A lock already holds the full transitive closure that
-/// `carrier lock` resolved — cli, lifecycle, magrittr, vctrs and
+/// `baler lock` resolved — cli, lifecycle, magrittr, vctrs and
 /// everything else a direct dep like purrr pulls in, not just the names
-/// carrier.toml declares directly. resolve()'s one-level walk can't see
+/// baler.toml declares directly. resolve()'s one-level walk can't see
 /// past that first level, which is exactly what leaves those extra
 /// packages unrequested and uninstalled when a lock is present.
 ///
 /// Every name still declared in package_deps keeps its own constraint
 /// string (so cran::client's own lock-vs-constraint check still catches
 /// a genuinely stale lock). A name that's only in the lock — a
-/// transitive dep never declared in carrier.toml — gets "*", since
-/// nothing in carrier.toml constrains it and the lock is the only
+/// transitive dep never declared in baler.toml — gets "*", since
+/// nothing in baler.toml constrains it and the lock is the only
 /// authority on what it should resolve to.
 pub fn resolve_locked(
     package_deps: &Option<BTreeMap<String, PackageDep>>,
     module_deps: &Option<BTreeMap<String, ModuleDep>>,
-    lock: &crate::lockfile::CarrierLock,
+    lock: &crate::lockfile::BalerLock,
 ) -> Result<ResolvedPlan> {
     let empty = BTreeMap::new();
     let declared = package_deps.as_ref().unwrap_or(&empty);
@@ -86,14 +86,14 @@ pub fn resolve_locked(
     for (name, dep) in declared {
         let Some(locked) = lock.packages.iter().find(|locked| &locked.name == name) else {
             bail!(
-                "'{name}' is declared in carrier.toml but missing from carrier.lock. \
-                 The lock is stale. Run `carrier lock --update` and commit the result."
+                "'{name}' is declared in baler.toml but missing from baler.lock. \
+                 The lock is stale. Run `baler lock --update` and commit the result."
             );
         };
         if dep.repo() != locked.repo {
             bail!(
-                "'{name}' repo changed in carrier.toml ({} -> {}) but carrier.lock \
-                 still pins the old one. Run `carrier lock --update` and commit the result.",
+                "'{name}' repo changed in baler.toml ({} -> {}) but baler.lock \
+                 still pins the old one. Run `baler lock --update` and commit the result.",
                 locked.repo,
                 dep.repo()
             );
@@ -143,7 +143,7 @@ pub(crate) fn resolve_packages_from_specs(
                 let constraints: Vec<String> = multiple.iter().map(|s| s.to_string()).collect();
                 bail!(
                     "'{name}' has {} conflicting version constraints ({}) — \
-                     carrier doesn't merge these yet.",
+                     baler doesn't merge these yet.",
                     multiple.len(),
                     constraints.join(", ")
                 );
@@ -175,7 +175,7 @@ pub fn print_plan(plan: &ResolvedPlan) {
         }
     }
     if !plan.modules.is_empty() {
-        println!("  carrier modules:");
+        println!("  baler modules:");
         for (name, ver) in &plan.modules {
             println!("    {} ({})", name, ver);
         }
@@ -188,13 +188,13 @@ pub fn already_installed_module(name: &str) -> Result<bool> {
 }
 
 /// Resolve a plan's R packages to exact versions and repos without
-/// installing anything — what `carrier lock` calls. Module deps aren't
+/// installing anything — what `baler lock` calls. Module deps aren't
 /// included: there's no automatic resolve+install path for them yet
 /// (see the TODO in `resolve()` above), so there's nothing concrete to
 /// pin for a module the same way there is for a package.
 pub fn resolve_only(
     plan: &ResolvedPlan,
-    lock: Option<&crate::lockfile::CarrierLock>,
+    lock: Option<&crate::lockfile::BalerLock>,
 ) -> Result<std::collections::HashMap<String, (semver::Version, String)>> {
     if plan.packages.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -204,13 +204,13 @@ pub fn resolve_only(
 
 /// Runs the plan. On a real (non-dry-run) install, returns everything
 /// that was resolved for R packages (direct and transitive) so the
-/// caller can write it out as a fresh `carrier.lock` if asked to. A
+/// caller can write it out as a fresh `baler.lock` if asked to. A
 /// dry run or a plan with no packages returns an empty map; there is
 /// nothing yet to lock.
 pub fn execute_plan(
     plan: &ResolvedPlan,
     dry_run: bool,
-    lock: Option<&crate::lockfile::CarrierLock>,
+    lock: Option<&crate::lockfile::BalerLock>,
 ) -> Result<std::collections::HashMap<String, (semver::Version, String)>> {
     let mut resolved = std::collections::HashMap::new();
 
@@ -232,7 +232,7 @@ pub fn execute_plan(
             println!("  [ok] {} (already installed)", name);
         } else {
             println!(
-                "  [missing] {} — install with: carrier install <path or gh:user/repo>",
+                "  [missing] {} — install with: baler install <path or gh:user/repo>",
                 name
             );
         }

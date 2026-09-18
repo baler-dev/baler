@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::carrier_toml::{CarrierToml, DEFAULT_CRAN_MIRROR};
+use crate::baler_toml::{BalerToml, DEFAULT_CRAN_MIRROR};
 use crate::formats::tar;
 use crate::manifest::{Dependencies, Manifest};
 
@@ -19,7 +19,7 @@ pub fn run(path: &str, binary: bool, keep_source: bool) -> Result<()> {
         bail!("Path is not a directory: {}", project_root.display());
     }
 
-    let toml = CarrierToml::from_dir(&project_root)?;
+    let toml = BalerToml::from_dir(&project_root)?;
     let src_path = toml.resolve_src_dir(&project_root)?;
     let meta = &toml.module;
 
@@ -75,7 +75,7 @@ pub fn run(path: &str, binary: bool, keep_source: bool) -> Result<()> {
 
 /// Used by `install` when bundling a GitHub-downloaded module.
 pub fn bundle_to(project_root: &Path, output_path: &Path) -> Result<()> {
-    let toml = CarrierToml::from_dir(project_root)?;
+    let toml = BalerToml::from_dir(project_root)?;
     let src_path = toml.resolve_src_dir(project_root)?;
 
     let manifest = build_manifest(&toml, project_root, &src_path, None)?;
@@ -84,7 +84,7 @@ pub fn bundle_to(project_root: &Path, output_path: &Path) -> Result<()> {
 }
 
 fn build_manifest(
-    toml: &CarrierToml,
+    toml: &BalerToml,
     project_root: &Path,
     src_path: &Path,
     built: Option<&[crate::ops::compile::CompiledArtifact]>,
@@ -125,7 +125,7 @@ fn build_manifest(
     };
 
     let lock = crate::lockfile::read(project_root)
-        .with_context(|| format!("Failed to read carrier.lock in {}", project_root.display()))?;
+        .with_context(|| format!("Failed to read baler.lock in {}", project_root.display()))?;
 
     let mut manifest = Manifest::new(
         &meta.name,

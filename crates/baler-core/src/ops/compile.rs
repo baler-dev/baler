@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::carrier_toml::CarrierToml;
+use crate::baler_toml::BalerToml;
 use crate::cran::client::read_installed_version;
 use crate::ops::resolve;
 use crate::paths::resolve_r_lib_dir;
@@ -25,14 +25,14 @@ pub enum CompileMode {
 /// right where the source lives, for fast dev-loop iteration.
 /// Resolves `[native].build_deps` first, same as `install`.
 pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifact>> {
-    if !project_root.join("carrier.toml").exists() {
+    if !project_root.join("baler.toml").exists() {
         bail!(
-            "No carrier.toml found in {}. Is this a carrier module project?",
+            "No baler.toml found in {}. Is this a baler module project?",
             project_root.display()
         );
     }
 
-    let toml = CarrierToml::from_dir(project_root)?;
+    let toml = BalerToml::from_dir(project_root)?;
     let name = toml.module.name.clone();
     let native_dirs = toml.resolve_native_dirs(project_root)?;
 
@@ -41,7 +41,7 @@ pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifac
     }
 
     if matches!(mode, CompileMode::Clean | CompileMode::Rebuild) {
-        carrier_native::cache::clear_module_cache(&name)
+        baler_native::cache::clear_module_cache(&name)
             .with_context(|| format!("Failed to clear native build cache for '{}'", name))?;
     }
 
@@ -102,7 +102,7 @@ pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifac
 
         let binary_name = binary_name(native_dir, &name);
 
-        let outcome = carrier_native::build(target_dir, native_dir, binary_name, &name)
+        let outcome = baler_native::build(target_dir, native_dir, binary_name, &name)
             .with_context(|| format!("Failed to compile native code for '{}' at {}", name, native_dir.display()))?;
 
         compiled.push(CompiledArtifact {

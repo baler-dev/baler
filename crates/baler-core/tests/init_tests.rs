@@ -1,11 +1,11 @@
-use carrier_core::ops::init;
+use baler_core::ops::init;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn unique_dir(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("carrier-init-test-{label}-{n}-{}", std::process::id()))
+    std::env::temp_dir().join(format!("baler-init-test-{label}-{n}-{}", std::process::id()))
 }
 
 struct Scratch(PathBuf);
@@ -30,7 +30,7 @@ fn init_creates_expected_project_layout() {
     let scratch = Scratch::uncreated(unique_dir("layout"));
     init::run("mymod", Some(scratch.path().to_str().unwrap()), None, None).unwrap();
 
-    assert!(scratch.path().join("carrier.toml").is_file());
+    assert!(scratch.path().join("baler.toml").is_file());
     assert!(scratch.path().join("README.md").is_file());
     assert!(scratch.path().join("mymod").join("__init__.r").is_file());
     assert!(scratch.path().join("mymod").join("hello.r").is_file());
@@ -44,11 +44,11 @@ fn init_creates_expected_project_layout() {
 }
 
 #[test]
-fn init_carrier_toml_contains_module_name() {
+fn init_baler_toml_contains_module_name() {
     let scratch = Scratch::uncreated(unique_dir("toml-content"));
     init::run("weathertools", Some(scratch.path().to_str().unwrap()), None, None).unwrap();
 
-    let contents = std::fs::read_to_string(scratch.path().join("carrier.toml")).unwrap();
+    let contents = std::fs::read_to_string(scratch.path().join("baler.toml")).unwrap();
     assert!(contents.contains("name = \"weathertools\""));
 }
 
@@ -92,14 +92,14 @@ fn init_defaults_dir_name_to_name_proj_suffix() {
     // No explicit dir_name — falls back to "<name>-proj" relative to CWD.
     // Run from within a scratch CWD-equivalent by using a unique name so
     // parallel test runs (which share process CWD) can't collide.
-    let unique_name = format!("carrier-cwd-test-{}", std::process::id());
+    let unique_name = format!("baler-cwd-test-{}", std::process::id());
     let expected_dir = PathBuf::from(format!("{unique_name}-proj"));
     // Clean up any leftovers from a previous failed run before starting.
     let _ = std::fs::remove_dir_all(&expected_dir);
 
     init::run(&unique_name, None, None, None).unwrap();
     assert!(expected_dir.is_dir());
-    assert!(expected_dir.join("carrier.toml").is_file());
+    assert!(expected_dir.join("baler.toml").is_file());
 
     let _ = std::fs::remove_dir_all(&expected_dir);
 }

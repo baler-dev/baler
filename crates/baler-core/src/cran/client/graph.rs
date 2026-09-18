@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use semver::Version;
 
 use crate::cran::packages::{fetch, fetch_archive_versions, PackageRecord, RVersion};
-use crate::lockfile::CarrierLock;
+use crate::lockfile::BalerLock;
 use crate::ops::resolve::ResolvedPackage;
 use crate::version::VersionSpec;
 
@@ -55,7 +55,7 @@ pub(super) fn topo_order(
 /// Resolve every package (direct and transitive) needed to satisfy
 /// `packages`, without downloading or installing anything. Shared by
 /// `install_packages` (resolve, then install) and `resolve_packages()`
-/// (resolve only what `carrier lock` calls). Packages are grouped by
+/// (resolve only what `baler lock` calls). Packages are grouped by
 /// repo so each PACKAGES.gz is fetched only once per repository.
 ///
 /// If `lock` is `Some`, any requested package it pins is used at that
@@ -67,7 +67,7 @@ pub(super) fn topo_order(
 /// it.
 pub(super) fn resolve_all(
     packages: &BTreeMap<String, ResolvedPackage>,
-    lock: Option<&CarrierLock>,
+    lock: Option<&BalerLock>,
 ) -> Result<(BTreeMap<String, RepoResolution>, HashMap<String, (Version, String)>)> {
     let mut by_repo: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     for (name, pkg) in packages {
@@ -101,18 +101,18 @@ pub(super) fn resolve_all(
                 Some((version, locked_repo)) => {
                     if locked_repo != *repo {
                         bail!(
-                            "carrier.lock pins '{name}' to repo {locked_repo}, but carrier.toml \
-                             now points at {repo}. Re-run with --write-lock (or `carrier lock`) \
-                             to update the lock, or revert carrier.toml's repo for this package."
+                            "baler.lock pins '{name}' to repo {locked_repo}, but baler.toml \
+                             now points at {repo}. Re-run with --write-lock (or `baler lock`) \
+                             to update the lock, or revert baler.toml's repo for this package."
                         );
                     }
 
                     let required = VersionSpec::parse(spec)?;
                     if !required.matches(&version) {
                         bail!(
-                            "carrier.lock pins '{name}' to {version}, but carrier.toml now \
+                            "baler.lock pins '{name}' to {version}, but baler.toml now \
                              requires '{spec}', so the lock is stale. Re-run with --write-lock \
-                             (or `carrier lock`) to update it."
+                             (or `baler lock`) to update it."
                         );
                     }
 
@@ -215,7 +215,7 @@ fn resolve_install_set(
             // group's own to_install has no business installing it a
             // second time under the wrong repo. Only a group where pkg is
             // itself one of `requested` may correct a stale repo tag —
-            // that's the one place carrier.toml's own declaration for
+            // that's the one place baler.toml's own declaration for
             // this package lives.
             if direct.contains(pkg) {
                 resolved.insert(pkg.clone(), ResolvedInstall {

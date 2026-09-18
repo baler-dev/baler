@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use crate::formats::tar;
-use crate::lockfile::{self, CarrierLock};
+use crate::lockfile::{self, BalerLock};
 use crate::ops::resolve;
 use crate::paths::resolve_install_dir;
 
@@ -11,9 +11,9 @@ use super::native::build_native_if_present;
 
 /// Returns the full resolved R package set (direct and transitive) that
 /// `execute_plan` produced, so a caller installing from a local
-/// directory can write it out as `carrier.lock` when `--write-lock` is
+/// directory can write it out as `baler.lock` when `--write-lock` is
 /// passed. A dry run or a plan with no packages yields an empty map.
-pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Option<&CarrierLock>) -> Result<()> {
+pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Option<&BalerLock>) -> Result<()> {
     if !tar_path.exists() {
         bail!("File not found: {}", tar_path.display());
     }
@@ -51,10 +51,10 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
 
     // A dir/github install passes a lock read fresh from the source
     // project. A standalone .tar.gz has no project directory to read
-    // one from, fall back to whatever `carrier bundle` baked into the
+    // one from, fall back to whatever `baler bundle` baked into the
     // archive's manifest.json at bundle time.
     let manifest = tar::read_manifest(tar_path)?;
-    let embedded_lock = manifest.locked_packages.clone().map(CarrierLock::from_packages);
+    let embedded_lock = manifest.locked_packages.clone().map(BalerLock::from_packages);
     let effective_lock = lock.cloned().or(embedded_lock);
 
     let plan = match &effective_lock {
@@ -71,15 +71,15 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
 }
 
 pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool) -> Result<()> {
-    if !project_root.join("carrier.toml").exists() {
+    if !project_root.join("baler.toml").exists() {
         bail!(
-            "No carrier.toml found in {}. Is this a carrier module project?",
+            "No baler.toml found in {}. Is this a baler module project?",
             project_root.display()
         );
     }
 
     let lock = lockfile::read(project_root)
-        .with_context(|| format!("Failed to read carrier.lock in {}", project_root.display()))?;
+        .with_context(|| format!("Failed to read baler.lock in {}", project_root.display()))?;
 
     let tmp = TempDir::new().context("Failed to create temp directory")?;
     let output_path = tmp.path().join("module.tar.gz");

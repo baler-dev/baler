@@ -2,15 +2,15 @@ use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
 
-use carrier_core::carrier_toml::{CarrierToml, ModuleDep, ModuleMeta};
-use carrier_core::ops::module_graph::{resolve_transitive, ModuleFetcher};
+use baler_core::baler_toml::{BalerToml, ModuleDep, ModuleMeta};
+use baler_core::ops::module_graph::{resolve_transitive, ModuleFetcher};
 
 struct MockFetcher {
-    by_source: HashMap<String, CarrierToml>,
+    by_source: HashMap<String, BalerToml>,
 }
 
 impl ModuleFetcher for MockFetcher {
-    fn fetch(&self, source: &str) -> Result<CarrierToml> {
+    fn fetch(&self, source: &str) -> Result<BalerToml> {
         self.by_source
             .get(source)
             .map(toml_clone)
@@ -18,11 +18,11 @@ impl ModuleFetcher for MockFetcher {
     }
 }
 
-// CarrierToml doesn't derive Clone (ModuleMeta doesn't need to in
+// BalerToml doesn't derive Clone (ModuleMeta doesn't need to in
 // production code), so the mock rebuilds a fresh copy per fetch call
 // instead. Only used in this test file.
-fn toml_clone(t: &CarrierToml) -> CarrierToml {
-    CarrierToml {
+fn toml_clone(t: &BalerToml) -> BalerToml {
+    BalerToml {
         module: ModuleMeta {
             name: t.module.name.clone(),
             version: t.module.version.clone(),
@@ -39,8 +39,8 @@ fn toml_clone(t: &CarrierToml) -> CarrierToml {
     }
 }
 
-fn minimal_toml(name: &str, version: &str, module_deps: Option<BTreeMap<String, ModuleDep>>) -> CarrierToml {
-    CarrierToml {
+fn minimal_toml(name: &str, version: &str, module_deps: Option<BTreeMap<String, ModuleDep>>) -> BalerToml {
+    BalerToml {
         module: ModuleMeta {
             name: name.to_owned(),
             version: version.to_owned(),

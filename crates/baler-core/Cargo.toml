@@ -1,8 +1,8 @@
 [package]
-name = "carrier-core"
+name = "baler-core"
 version.workspace = true
 edition.workspace = true
-description = "Core logic for carrier — bundling, installing, and managing box modules"
+description = "Core logic for baler — bundling, installing, and managing box modules"
 
 [features]
 network = []
@@ -22,7 +22,7 @@ dirs.workspace = true
 reqwest.workspace = true
 tempfile.workspace = true
 semver.workspace = true
-carrier-native = { path = "../carrier-native" }
+baler-native = { path = "../native-code-handler" }
 
 [dev-dependencies]
 insta.workspace = true

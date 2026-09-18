@@ -1,20 +1,20 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-const CARRIER_LIB_ENV: &str = "CARRIER_LIB";
-const CARRIER_R_LIB_ENV: &str = "CARRIER_R_LIB";
-const CARRIER_DIR: &str = ".carrier";
+const BALER_LIB_ENV: &str = "BALER_LIB";
+const BALER_R_LIB_ENV: &str = "BALER_R_LIB";
+const BALER_DIR: &str = ".baler";
 const MODULES_DIR: &str = "modules";
 
 pub fn resolve_install_dir() -> Result<PathBuf> {
-    if let Ok(lib) = std::env::var(CARRIER_LIB_ENV) {
+    if let Ok(lib) = std::env::var(BALER_LIB_ENV) {
         if !lib.is_empty() {
             return Ok(PathBuf::from(lib));
         }
     }
     let global = dirs::home_dir()
         .context("Cannot find home directory")?
-        .join(CARRIER_DIR)
+        .join(BALER_DIR)
         .join(MODULES_DIR);
     Ok(global)
 }
@@ -46,8 +46,8 @@ pub fn detect_r_platform() -> Result<RPlatform> {
     // Ask R for both its version and its actual running architecture in one
     // call — R.version$arch reflects what the R process itself was built
     // for, which is what determines which binary it can load. Reading this
-    // from R directly, rather than from the arch carrier itself was
-    // compiled for, stays correct even if carrier and R ever end up running
+    // from R directly, rather than from the arch baler itself was
+    // compiled for, stays correct even if baler and R ever end up running
     // under different architectures (e.g. one under Rosetta).
     let output = std::process::Command::new("Rscript")
         .args([
@@ -117,7 +117,7 @@ pub fn detect_r_version() -> Result<semver::Version> {
 }
 
 pub fn resolve_r_lib_dir() -> Result<PathBuf> {
-    if let Ok(lib) = std::env::var(CARRIER_R_LIB_ENV) {
+    if let Ok(lib) = std::env::var(BALER_R_LIB_ENV) {
         if !lib.is_empty() {
             return Ok(PathBuf::from(lib));
         }
@@ -142,7 +142,7 @@ pub fn resolve_r_lib_dir() -> Result<PathBuf> {
     if path_str.is_empty() {
         anyhow::bail!(
             "Could not determine R library path. \
-             Set CARRIER_R_LIB to the path of your R library."
+             Set BALER_R_LIB to the path of your R library."
         );
     }
 

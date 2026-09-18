@@ -6,7 +6,7 @@ use flate2::{write::GzEncoder, Compression};
 use tar::Builder;
 
 use crate::manifest::Manifest;
-use crate::carrier_toml::{ModuleDep, PackageDep};
+use crate::baler_toml::{ModuleDep, PackageDep};
 
 /// Bundle a module into a `.tar.gz` archive.
 ///
@@ -19,7 +19,7 @@ use crate::carrier_toml::{ModuleDep, PackageDep};
 ///     └── ...
 /// ```
 ///
-/// `carrier.toml` is intentionally excluded — it is a project manifest,
+/// `baler.toml` is intentionally excluded — it is a project manifest,
 /// not part of the installable module, just as `pyproject.toml` is not
 /// included inside `site-packages/pandas/`.
 pub fn bundle(
@@ -73,7 +73,7 @@ pub fn bundle(
     Ok(())
 }
 
-/// Unpack a `.tar.gz` carrier archive into the install directory.
+/// Unpack a `.tar.gz` baler archive into the install directory.
 ///
 /// Strips the top-level `{name}_{version}/` prefix so the result is:
 /// ``` text
@@ -155,20 +155,20 @@ pub fn read_manifest(tar_path: &Path) -> Result<crate::manifest::Manifest> {
     }
 
     anyhow::bail!(
-        "No manifest.json found in {}. Is this a valid carrier package?",
+        "No manifest.json found in {}. Is this a valid baler package?",
         tar_path.display()
     )
 }
 
-/// Read and reconstruct the `carrier.toml`-equivalent embedded in a
-/// `.tar.gz`, without fully extracting the archive. carrier.toml
-/// itself is no longer bundled — this rebuilds what carrier.toml would
+/// Read and reconstruct the `baler.toml`-equivalent embedded in a
+/// `.tar.gz`, without fully extracting the archive. baler.toml
+/// itself is no longer bundled — this rebuilds what baler.toml would
 /// have said from manifest.json instead.
-pub fn read_toml(tar_path: &Path) -> Result<crate::carrier_toml::CarrierToml> {
+pub fn read_toml(tar_path: &Path) -> Result<crate::baler_toml::BalerToml> {
     let manifest = read_manifest(tar_path)?;
 
-    Ok(crate::carrier_toml::CarrierToml {
-        native: manifest.native.map(|n| crate::carrier_toml::NativeConfig {
+    Ok(crate::baler_toml::BalerToml {
+        native: manifest.native.map(|n| crate::baler_toml::NativeConfig {
             path: None,
             // paths: None,
             build_deps: if n.build_deps.is_empty() {
@@ -188,7 +188,7 @@ pub fn read_toml(tar_path: &Path) -> Result<crate::carrier_toml::CarrierToml> {
                 )
             },
         }),
-        module: crate::carrier_toml::ModuleMeta {
+        module: crate::baler_toml::ModuleMeta {
             name: manifest.name,
             version: manifest.version,
             description: manifest.description,

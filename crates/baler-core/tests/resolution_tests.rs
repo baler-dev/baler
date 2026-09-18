@@ -1,5 +1,5 @@
-use carrier_core::carrier_toml::{ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
-use carrier_core::ops::resolve::resolve;
+use baler_core::baler_toml::{ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
+use baler_core::ops::resolve::resolve;
 use std::collections::BTreeMap;
 
 #[test]

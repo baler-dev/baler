@@ -70,7 +70,7 @@ pub fn install_binary_package(
         Ok(()) => {}
         Err(rename_err) => {
             eprintln!(
-                "[carrier] rename failed for {package_name} ({rename_err}), falling back to copy"
+                "[baler] rename failed for {package_name} ({rename_err}), falling back to copy"
             );
             copy_dir_recursive(&staged_pkg, &dest)?;
             verify_built_package(&dest, package_name)?;

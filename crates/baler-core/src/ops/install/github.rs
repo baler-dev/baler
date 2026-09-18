@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use ::tar::Archive as TarArchive;
-use crate::carrier_toml::CarrierToml;
+use crate::baler_toml::BalerToml;
 use crate::lockfile;
 use crate::ops::module_graph::ModuleFetcher;
 
@@ -84,16 +84,16 @@ pub(super) fn install_from_github(user: &str, repo: &str, git_ref: Option<&str>,
         }
     }
 
-    if !project_root.join("carrier.toml").exists() {
+    if !project_root.join("baler.toml").exists() {
         bail!(
-            "No carrier.toml found in {}/{}. \
-             This repository is not a carrier module.",
+            "No baler.toml found in {}/{}. \
+             This repository is not a baler module.",
             user, repo
         );
     }
 
     let lock = lockfile::read(&project_root).with_context(|| {
-        format!("Failed to read carrier.lock in {}", project_root.display())
+        format!("Failed to read baler.lock in {}", project_root.display())
     })?;
 
     let output_path = tmp.path().join(format!("{}.tar.gz", repo));
@@ -121,7 +121,7 @@ pub struct GitHubFetcher;
 
 #[cfg(feature = "network")]
 impl ModuleFetcher for GitHubFetcher {
-    fn fetch(&self, source: &str) -> Result<CarrierToml> {
+    fn fetch(&self, source: &str) -> Result<BalerToml> {
         let rest = source.strip_prefix("gh:").ok_or_else(|| {
             anyhow::anyhow!("Unsupported module source '{source}', only gh: sources can be fetched right now.")
         })?;
@@ -151,8 +151,8 @@ impl ModuleFetcher for GitHubFetcher {
             None => extracted_root,
         };
 
-        CarrierToml::from_dir(&project_root)
-            .with_context(|| format!("Module source '{source}' does not contain a valid carrier.toml"))
+        BalerToml::from_dir(&project_root)
+            .with_context(|| format!("Module source '{source}' does not contain a valid baler.toml"))
     }
 }
 
@@ -161,7 +161,7 @@ pub struct GitHubFetcher;
 
 #[cfg(not(feature = "network"))]
 impl ModuleFetcher for GitHubFetcher {
-    fn fetch(&self, _source: &str) -> Result<CarrierToml> {
+    fn fetch(&self, _source: &str) -> Result<BalerToml> {
         bail!(
             "GitHub module fetching requires the 'network' feature.\n\
              Rebuild with: cargo build --features network"
@@ -173,7 +173,7 @@ impl ModuleFetcher for GitHubFetcher {
 fn download_file(url: &str, dest: &PathBuf) -> Result<()> {
     let response = reqwest::blocking::Client::new()
         .get(url)
-        .header("User-Agent", "carrier")
+        .header("User-Agent", "baler")
         .send()
         .with_context(|| format!("HTTP request failed: {url}"))?;
 

@@ -1,11 +1,11 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::carrier_toml::{Author, TestConfig};
+use crate::baler_toml::{Author, TestConfig};
 use crate::lockfile::LockedPackage;
 
 /// Embedded inside every .rmbx/.tar.gz archive as `manifest.json`.
-/// Mirrors `carrier.toml`, minus `module.src` — bundle() already
+/// Mirrors `baler.toml`, minus `module.src` — bundle() already
 /// flattens the source tree relative to that directory, so by install
 /// time there's nothing left for `src` to point at.
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,12 +21,12 @@ pub struct Manifest {
     pub native: Option<NativeManifest>,
     pub files: Vec<String>,
     pub bundled_at: String,
-    /// The resolved package set from `carrier.lock` at bundle time, if
+    /// The resolved package set from `baler.lock` at bundle time, if
     /// one existed. `dependencies.packages` only carries the constraint
-    /// strings declared in `carrier.toml`. This is what lets a
+    /// strings declared in `baler.toml`. This is what lets a
     /// standalone archive reproduce the exact install a lock would have
     /// given, without the original project directory around to read
-    /// `carrier.lock` from.
+    /// `baler.lock` from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked_packages: Option<Vec<LockedPackage>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,7 +47,7 @@ pub struct ModuleDepEntry {
     pub version: String,
     /// Unlike `PackageDepEntry.repo`, `None` here is not a default —
     /// there is no default module registry. `None` means the source
-    /// carrier.toml declared none, which resolution treats as an error.
+    /// baler.toml declared none, which resolution treats as an error.
     pub source: Option<String>,
 }
 
@@ -56,25 +56,25 @@ pub struct Dependencies {
     /// Every 'box' modules uses R packages
     /// Write R package deps through e.g. ["dplyr", "stringr"])
     pub packages: Vec<PackageDepEntry>,
-    /// Then other carrier modules required (e.g. ["utils/helpers"])
+    /// Then other baler modules required (e.g. ["utils/helpers"])
     pub modules: Vec<ModuleDepEntry>,
 }
 
 /// Present only when the bundled module has compiled code (mirrors
-/// `carrier_toml::NativeConfig`, plus a source hash computed at bundle
+/// `baler_toml::NativeConfig`, plus a source hash computed at bundle
 /// time). Carries the module's build-time deps forward into the
-/// archive so `carrier install` can resolve+install them on the
+/// archive so `baler install` can resolve+install them on the
 /// installing machine before compiling. The same reason `Dependencies`
-/// gets embedded here instead of re-read from a `carrier.toml` that
+/// gets embedded here instead of re-read from a `baler.toml` that
 /// may not travel with every install path (e.g. `.rmbx`).
 ///
 /// `artifacts` is empty unless the bundle was made with `--binary`.
 /// Distributing prebuilts beyond one machine's own tagged output is
 /// still a registry-level concern that doesn't exist yet.
 /// A single tagged, precompiled binary attached to a bundle by
-/// `carrier bundle --binary`. `target_triple`/`r_version` are the
+/// `baler bundle --binary`. `target_triple`/`r_version` are the
 /// exact two axes ABI compatibility depends on for R native code (see
-/// `carrier_native::toolchain::BuildOutcome`). Install-only trusts
+/// `baler_native::toolchain::BuildOutcome`). Install-only trusts
 /// this artifact when both match the installing machine AND
 /// `source_hash` matches the unpacked source's own recomputed hash.
 /// Any mismatch on any of the three falls back to compiling from
@@ -93,22 +93,22 @@ pub struct NativeArtifact {
 pub struct NativeManifest {
     pub build_deps: Vec<PackageDepEntry>,
     /// Hash of the module's native-code directory contents at bundle
-    /// time (whatever `CarrierToml::resolve_native_dir()` resolved to
-    /// — see `carrier_native::source_hash`). This is informational for
+    /// time (whatever `BalerToml::resolve_native_dir()` resolved to
+    /// — see `baler_native::source_hash`). This is informational for
     /// now (lets an installer log "source changed since this was
     /// published"); the installing machine always recomputes its own
     /// hash for cache lookups rather than trusting this one, since
     /// it's describing the bundler's directory, not necessarily
     /// byte-identical to what ends up on disk after unpacking.
     pub source_hash: String,
-    /// Precompiled binaries attached via `carrier bundle --binary`.
+    /// Precompiled binaries attached via `baler bundle --binary`.
     /// Empty for a plain source bundle. `#[serde(default)]` so a
     /// manifest.json from before this field existed still parses.
     #[serde(default)]
     pub artifacts: Vec<NativeArtifact>,
     /// Every native-code directory `resolve_native_dirs()` found at
     /// bundle time, relative to the module's source dir. Lets
-    /// `carrier install` use exactly what `carrier bundle` saw —
+    /// `baler install` use exactly what `baler bundle` saw —
     /// including an explicit `[native].path` override — instead of
     /// re-scanning the unpacked tree and potentially finding a
     /// different set. `#[serde(default)]` so a manifest.json from

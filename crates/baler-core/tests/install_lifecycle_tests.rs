@@ -1,19 +1,19 @@
-use carrier_core::ops::{init, install, remove};
+use baler_core::ops::{init, install, remove};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-// `install`/`remove` resolve their target directory from the CARRIER_LIB
+// `install`/`remove` resolve their target directory from the BALER_LIB
 // env var (see paths::resolve_install_dir). Env vars are process-global,
 // and cargo runs #[test]s in this file concurrently on multiple threads
-// within the same process, so every test that touches CARRIER_LIB must
+// within the same process, so every test that touches BALER_LIB must
 // hold this lock for its full duration or they'll stomp on each other.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn unique_dir(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("carrier-install-test-{label}-{n}-{}", std::process::id()))
+    std::env::temp_dir().join(format!("baler-install-test-{label}-{n}-{}", std::process::id()))
 }
 
 struct Scratch(PathBuf);
@@ -27,7 +27,7 @@ impl Scratch {
     }
 
     /// Reserves and creates the dir immediately, for scratch space the
-    /// test itself needs to populate before calling into carrier-core.
+    /// test itself needs to populate before calling into baler-core.
     fn new(label: &str) -> Self {
         let dir = unique_dir(label);
         std::fs::create_dir_all(&dir).unwrap();
@@ -45,25 +45,25 @@ impl Drop for Scratch {
     }
 }
 
-/// Guard that sets CARRIER_LIB for the duration of the closure and always
+/// Guard that sets BALER_LIB for the duration of the closure and always
 /// restores/clears it afterward, even on panic (via Drop).
-struct CarrierLibGuard {
+struct BalerLibGuard {
     previous: Option<String>,
 }
 
-impl CarrierLibGuard {
+impl BalerLibGuard {
     fn set(path: &Path) -> Self {
-        let previous = std::env::var("CARRIER_LIB").ok();
-        unsafe { std::env::set_var("CARRIER_LIB", path); }
+        let previous = std::env::var("BALER_LIB").ok();
+        unsafe { std::env::set_var("BALER_LIB", path); }
         Self { previous }
     }
 }
 
-impl Drop for CarrierLibGuard {
+impl Drop for BalerLibGuard {
     fn drop(&mut self) {
         match &self.previous {
-            Some(v) => unsafe { std::env::set_var("CARRIER_LIB", v) },
-            None => unsafe { std::env::remove_var("CARRIER_LIB") },
+            Some(v) => unsafe { std::env::set_var("BALER_LIB", v) },
+            None => unsafe { std::env::remove_var("BALER_LIB") },
         }
     }
 }
@@ -72,13 +72,13 @@ impl Drop for CarrierLibGuard {
 fn install_from_dir_then_remove_round_trip() {
     let _guard = ENV_LOCK.lock().unwrap();
 
-    // Scaffold a real module project with `carrier init`.
+    // Scaffold a real module project with `baler init`.
     let project = Scratch::reserved("project");
     init::run("roundtripmod", Some(project.path().to_str().unwrap()), None, None).unwrap();
 
     // Redirect the install target to a scratch "library" dir.
     let lib = Scratch::reserved("lib");
-    let _env = CarrierLibGuard::set(lib.path());
+    let _env = BalerLibGuard::set(lib.path());
 
     // install_deps = false → dependency install is a dry run, so this
     // never touches the network even though the project has no deps.
@@ -90,9 +90,9 @@ fn install_from_dir_then_remove_round_trip() {
     let dist_info = lib.path().join("roundtripmod-0.1.0.dist-info");
     assert!(dist_info.join("manifest.json").is_file());
 
-    // `carrier.toml` is a project manifest, not part of the installable module
+    // `baler.toml` is a project manifest, not part of the installable module
     // It must not end up in the installed tree
-    assert!(!module_dir.join("carrier.toml").exists());
+    assert!(!module_dir.join("baler.toml").exists());
 
     remove::run("roundtripmod", true).unwrap();
     assert!(!module_dir.exists());
@@ -113,7 +113,7 @@ fn reinstalling_replaces_the_previous_install() {
     init::run("reinstallmod", Some(project.path().to_str().unwrap()), None, None).unwrap();
 
     let lib = Scratch::reserved("lib-reinstall");
-    let _env = CarrierLibGuard::set(lib.path());
+    let _env = BalerLibGuard::set(lib.path());
 
     install::run(project.path().to_str().unwrap(), false, None).unwrap();
 
@@ -134,20 +134,20 @@ fn remove_errors_when_module_not_installed() {
     let _guard = ENV_LOCK.lock().unwrap();
 
     let lib = Scratch::reserved("lib-empty");
-    let _env = CarrierLibGuard::set(lib.path());
+    let _env = BalerLibGuard::set(lib.path());
 
     let err = remove::run("does-not-exist", true).unwrap_err();
     assert!(err.to_string().contains("not installed"));
 }
 
 #[test]
-fn install_errors_on_project_without_carrier_toml() {
+fn install_errors_on_project_without_baler_toml() {
     let _guard = ENV_LOCK.lock().unwrap();
 
     let project = Scratch::new("no-toml"); // pre-created, deliberately empty
     let lib = Scratch::reserved("lib-no-toml");
-    let _env = CarrierLibGuard::set(lib.path());
+    let _env = BalerLibGuard::set(lib.path());
 
     let err = install::run(project.path().to_str().unwrap(), false, None).unwrap_err();
-    assert!(err.to_string().contains("carrier.toml"));
+    assert!(err.to_string().contains("baler.toml"));
 }

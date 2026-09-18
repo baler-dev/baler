@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::carrier_toml::PackageDep;
+use crate::baler_toml::PackageDep;
 use crate::ops::resolve;
 
 /// Compiles a module's native code, if it has any, right after
@@ -17,7 +17,7 @@ use crate::ops::resolve;
 ///
 /// Gated behind `install_deps`: `[native].build_deps` are resolved
 /// and installed here, separately from `[package_deps]` and skipping
-/// `carrier.lock` since they're compile-time-only, not a runtime
+/// `baler.lock` since they're compile-time-only, not a runtime
 /// contract.
 pub(super) fn build_native_if_present(
     module_path: &PathBuf,
@@ -41,7 +41,7 @@ pub(super) fn build_native_if_present(
             }
             dirs
         }
-        _ => carrier_native::detect::find_native_dirs(module_path),
+        _ => baler_native::detect::find_native_dirs(module_path),
     };
 
     if native_dirs.is_empty() {
@@ -50,7 +50,7 @@ pub(super) fn build_native_if_present(
 
     if !install_deps {
         println!(
-            " [native] {} has compiled code, build with: carrier install --install-deps",
+            " [native] {} has compiled code, build with: baler install --install-deps",
             name
         );
         return Ok(());
@@ -91,7 +91,7 @@ pub(super) fn build_native_if_present(
         let binary_name = crate::ops::compile::binary_name(native_dir, name);
 
         println!("Building native code for '{}' ({})...", name, native_dir.display());
-        let outcome = carrier_native::build(target_dir, native_dir, binary_name, name)
+        let outcome = baler_native::build(target_dir, native_dir, binary_name, name)
             .with_context(|| format!("Failed to build native code for '{}' at {}", name, native_dir.display()))?;
 
         println!(
