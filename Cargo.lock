@@ -121,6 +121,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "baler-cli"
+version = "0.2.4"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "baler-core",
+ "baler-native",
+ "clap",
+]
+
+[[package]]
+name = "baler-core"
+version = "0.2.4"
+dependencies = [
+ "anyhow",
+ "baler-native",
+ "chrono",
+ "dirs",
+ "flate2",
+ "insta",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "walkdir",
+ "zip",
+]
+
+[[package]]
+name = "baler-native"
+version = "0.2.4"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "sha2",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -187,50 +231,6 @@ checksum = "225bff33b2141874fe80d71e07d6eec4f85c5c216453dd96388240f96e1acc14"
 dependencies = [
  "cc",
  "pkg-config",
-]
-
-[[package]]
-name = "carrier-cli"
-version = "0.2.4"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "carrier-core",
- "carrier-native",
- "clap",
-]
-
-[[package]]
-name = "carrier-core"
-version = "0.2.4"
-dependencies = [
- "anyhow",
- "carrier-native",
- "chrono",
- "dirs",
- "flate2",
- "insta",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "tar",
- "tempfile",
- "thiserror",
- "toml",
- "walkdir",
- "zip",
-]
-
-[[package]]
-name = "carrier-native"
-version = "0.2.4"
-dependencies = [
- "anyhow",
- "dirs",
- "sha2",
- "tempfile",
- "walkdir",
 ]
 
 [[package]]
