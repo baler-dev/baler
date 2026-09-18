@@ -55,7 +55,7 @@ Then install the particular primary `{box}` R package to load the `{box}`-`{bale
 # This needs compilation BTW
 # To build the package
 # install.packages('pak')
-pak::pak("joshuamarie/box@feature/baler-module-support")
+pak::pak("joshuamarie/box@feature/baler-support")
 ```
 
 ## Requirements

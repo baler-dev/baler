@@ -52,7 +52,7 @@ You are working with `{box}` modules, and `{baler}` is the "package manufacturer
 
 ``` r
 # install.packages('pak')
-pak::pak("joshuamarie/box@feature/baler-module-support")
+pak::pak("joshuamarie/box@feature/baler-support")
 ```
 
 ## What's more? 
