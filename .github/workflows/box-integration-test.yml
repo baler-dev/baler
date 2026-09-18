@@ -37,7 +37,7 @@ jobs:
             - name: "Install the patched {box} fork"
               run: |
                   Rscript -e 'install.packages("pak")'
-                  Rscript -e 'pak::pak("joshuamarie/box@feature/baler-module-support")'
+                  Rscript -e 'pak::pak("joshuamarie/box@feature/baler-support")'
 
             - name: "Fetch fpurrr and statmodule"
               run: | 
