@@ -1,13 +1,13 @@
 # baler
 
-[![Build](https://github.com/joshuamarie/baler/actions/workflows/build.yml/badge.svg)](https://github.com/joshuamarie/baler/actions/workflows/build.yml)
-[![Tests](https://github.com/joshuamarie/baler/actions/workflows/test.yml/badge.svg)](https://github.com/joshuamarie/baler/actions/workflows/test.yml)
-[![Release](https://img.shields.io/github/v/release/joshuamarie/baler)](https://github.com/joshuamarie/baler/releases)
-[![License](https://img.shields.io/github/license/joshuamarie/baler)](https://github.com/joshuamarie/baler/blob/main/LICENSE.md)
+[![Build](https://github.com/baler-dev/baler/actions/workflows/build.yml/badge.svg)](https://github.com/baler-dev/baler/actions/workflows/build.yml)
+[![Tests](https://github.com/baler-dev/baler/actions/workflows/test.yml/badge.svg)](https://github.com/baler-dev/baler/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/baler-dev/baler)](https://github.com/baler-dev/baler/releases)
+[![License](https://img.shields.io/github/license/baler-dev/baler)](https://github.com/baler-dev/baler/blob/main/LICENSE.md)
 
 A module manager for [{box}](https://klmr.me/box/) modules.
 
-`{baler}` is another package manager for R, built in Rust, exclusive for `{box}` modules — those packages are called `{box}`-`{baler}` modules (or packages) for now. The tasks it handles involve bundling and installation. The entire purpose of `{baler}` is to make the packaging for `{box}` modules possible and to be easily distributed. The interface of `{baler}` is similar to that Python's `pip` or `conda`, or Rust's `{cargo}` itself. Visit the following docs:
+`{baler}`, formerly [`{carrier}`](https://github.com/joshuamarie/carrier), is another package manager for R, built in Rust, exclusive for `{box}` modules — those packages are called `{box}`-`{baler}` modules (or packages) for now. The tasks it handles involve bundling and installation. The entire purpose of `{baler}` is to make the packaging for `{box}` modules possible and to be easily distributed. The interface of `{baler}` is similar to that Python's `pip` or `conda`, or Rust's `{cargo}` itself. Visit the following docs:
 
 -  [The official docs](https://klmr.me/box/)
 -  [The book](https://modules-in-r.joshuamarie.com/)
@@ -16,36 +16,36 @@ To get an explanation of how `{box}` modules work.
 
 ## Installation
 
-`{baler}` is a Rust package with thin wrapper command line interface (CLI) tool built in Rust. Pre-built binaries for Linux, macOS, and Windows is available on the [Releases](https://github.com/joshuamarie/baler/releases).
+`{baler}` is a Rust package with thin wrapper command line interface (CLI) tool built in Rust. Pre-built binaries for Linux, macOS, and Windows is available on the [Releases](https://github.com/baler-dev/baler/releases).
 
 You can install `baler` using the Shell installers. 
 
 1.  On Linux / macOS:
 
     ``` bash
-    curl -sSL https://raw.githubusercontent.com/joshuamarie/baler/refs/heads/main/scripts/install.sh | bash
+    curl -sSL https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.sh | bash
     ```
 
 2.  On Windows: 
 
     ``` bash
-    powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/joshuamarie/baler/refs/heads/main/scripts/install.ps1 | iex"
+    powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.ps1 | iex"
     ```
 
 To install the specific version, use that version's URL instead of `latest`: 
 
 ``` bash
-curl -LsSf https://github.com/joshuamarie/baler/releases/download/v0.1.1/baler-installer.sh | bash
+curl -LsSf https://github.com/baler-dev/baler/releases/download/v0.1.1/baler-installer.sh | bash
 ```
 
 ``` bash
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/joshuamarie/baler/releases/download/v0.1.1/baler-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/baler-dev/baler/releases/download/v0.1.1/baler-installer.ps1 | iex"
 ```
 
 To install the development version of `{baler}` from GitHub, one requires [Rust](https://www.rust-lang.org/tools/install) (stable toolchain), particularly toolchains namely `rustc` and `cargo` on your system to compile it from source.
 
 ``` bash
-cargo install --git https://github.com/joshuamarie/baler
+cargo install --git https://github.com/baler-dev/baler
 ```
 
 Then install the particular primary `{box}` R package to load the `{box}`-`{baler}` modules. In a meantime, kindly install the package from the forked repo, as the patches for `{baler}` support are written down there and hasn't made in its upstream yet, so do the following:
@@ -133,7 +133,7 @@ There are patches along the source code of `{box}`. This way, the modules manage
 Try `{convert}` module, which belongs to `convert-proj` from the `examples/`: 
 
 ``` r
-# baler install gh:joshuamarie/baler/tree/main/examples/modules/convert-proj
+# baler install gh:baler-dev/baler/tree/main/examples/modules/convert-proj
 box::use(cv = convert)
 cv$mass$mass_conversion_table(1000)
 ```
