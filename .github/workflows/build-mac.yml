@@ -34,20 +34,20 @@ jobs:
           rustup target list --installed
 
       - name: "Build"
-        run: cargo build --release --locked --target ${{ matrix.this.target }} -p carrier-cli
+        run: cargo build --release --locked --target ${{ matrix.this.target }} -p baler-cli
         
       - name: "Smoke test"
         run: |
-          target/${{ matrix.this.target }}/release/carrier --version
-          target/${{ matrix.this.target }}/release/carrier --help > /dev/null 
+          target/${{ matrix.this.target }}/release/baler --version
+          target/${{ matrix.this.target }}/release/baler --help > /dev/null 
 
       - name: "Archive"
         run: |
           TARGET=${{ matrix.this.target }}
-          ARCHIVE_NAME=carrier-$TARGET
+          ARCHIVE_NAME=baler-$TARGET
           ARCHIVE_FILE=$ARCHIVE_NAME.tar.gz
           mkdir -p $ARCHIVE_NAME
-          cp target/$TARGET/release/carrier $ARCHIVE_NAME/carrier
+          cp target/$TARGET/release/baler $ARCHIVE_NAME/baler
           tar czvf $ARCHIVE_FILE $ARCHIVE_NAME
           shasum -a 256 $ARCHIVE_FILE > $ARCHIVE_FILE.sha256
 
