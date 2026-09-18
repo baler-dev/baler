@@ -5,8 +5,8 @@ project:
 website:
     title: "baler"
     description: "A package manager for {box} modules, built in Rust."
-    site-url: https://joshuamarie.github.io/baler
-    repo-url: https://github.com/joshuamarie/baler
+    site-url: https://baler-dev.github.io/baler
+    repo-url: https://github.com/baler-dev/baler
     repo-actions: [issue]
     page-navigation: true
     navbar:
@@ -41,7 +41,7 @@ website:
               text: Contributing
         right:
             - icon: github
-              href: https://github.com/joshuamarie/baler
+              href: https://github.com/baler-dev/baler
     sidebar:
         - title: Reference
           contents:
