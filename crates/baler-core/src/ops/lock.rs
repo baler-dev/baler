@@ -42,13 +42,16 @@ pub fn run(path: &str, update: bool, with_r_version: bool, remove: bool) -> Resu
     let toml: BalerToml = ::toml::from_str(&contents)
         .with_context(|| format!("Failed to parse {}", toml_path.display()))?;
 
-    let r_spec = toml.module.r_version_spec()?;
+    let r_spec = toml.project.r_version_spec()?;
     crate::version::check_r_version(&r_spec)?;
     let detected = crate::paths::detect_r_version()?;
 
     let existing = if update { None } else { lockfile::read(project_root)? };
 
-    let plan = resolve::resolve(&toml.package_deps, &toml.module_deps)?;
+    let package_deps = (!toml.project.dependencies.packages.is_empty())
+        .then(|| toml.project.dependencies.packages.clone());
+    let module_deps = toml.project.dependencies.baler.clone();
+    let plan = resolve::resolve(&package_deps, &module_deps)?;
     let resolved = resolve::resolve_only(&plan, existing.as_ref())?;
 
     let r_version = if with_r_version { Some(detected.to_string()) } else { None };
