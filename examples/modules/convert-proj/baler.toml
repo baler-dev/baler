@@ -1,17 +1,18 @@
-[module]
+[project]
 name = "convert"
 version = "0.1.0"
-description = "Unit conversion utilities for mass and temperature. This is just a demo"
+description = "Unit conversion utilities for mass and temperature. This is used on `box-integration-test` CI workflow"
 authors = [
     { name = "Joshua Marie", email = "joshua.marie.k@gmail.com" }
 ]
 license = "Unknown"
 r_version = "4.0.0"
- 
-[package_deps]
- 
-[module_deps]
- 
-[test]
-framework = "testthat"
-dir = "tests"
+readme = "README.md"
+
+# [project.dependencies]
+
+# [project.dependencies.baler]
+
+# [tool.test]
+# framework = "testthat"
+# dir = "tests"
