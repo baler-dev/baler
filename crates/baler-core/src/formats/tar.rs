@@ -5,28 +5,34 @@ use anyhow::{Context, Result};
 use flate2::{write::GzEncoder, Compression};
 use tar::Builder;
 
-use crate::manifest::Manifest;
-use crate::baler_toml::{ModuleDep, PackageDep};
-
 /// Bundle a module into a `.tar.gz` archive.
 ///
 /// Archive structure:
 /// ``` text
 /// tstk_0.1.0/
-/// └── tstk/
-///     ├── __init__.R
-///     ├── decomp/
-///     └── ...
+/// ├── tstk/
+/// │   ├── __init__.R
+/// │   ├── decomp/
+/// │   └── ...
+/// ├── baler.toml
+/// └── baler.lock        (only if the project has one)
 /// ```
 ///
-/// `baler.toml` is intentionally excluded — it is a project manifest,
-/// not part of the installable module, just as `pyproject.toml` is not
-/// included inside `site-packages/pandas/`.
+/// `baler.toml` and `baler.lock` are shipped as-is, the actual source
+/// files, not a generated re-encoding of them. There used to be a
+/// generated `manifest.json` here instead; it duplicated `baler.toml`
+/// for no reason a source bundle needs (an sdist-style archive ships
+/// its real manifest directly, the same way a Python sdist ships
+/// `pyproject.toml` and a Julia package tarball ships `Project.toml`),
+/// carried a timestamp nobody asked for, and its one genuinely
+/// generated field (native artifact metadata: target_triple/r_version/
+/// source_hash) was dead code, nothing downstream ever read it.
 pub fn bundle(
     src_path: &Path,
-    _project_root: &Path,
+    project_root: &Path,
     output_path: &Path,
-    manifest: &Manifest,
+    name: &str,
+    version: &str,
     exclude: &[PathBuf],
     force_include: &[PathBuf],
 ) -> Result<()> {
@@ -36,7 +42,7 @@ pub fn bundle(
     let enc = GzEncoder::new(file, Compression::default());
     let mut archive = Builder::new(enc);
 
-    let top = format!("{}_{}", manifest.name, manifest.version);
+    let top = format!("{}_{}", name, version);
 
     for entry in all_files(src_path, exclude, force_include) {
         let rel = entry
@@ -46,7 +52,7 @@ pub fn bundle(
         let tar_name = format!(
             "{}/{}/{}",
             top,
-            manifest.name,
+            name,
             rel.to_string_lossy().replace('\\', "/")
         );
 
@@ -55,19 +61,23 @@ pub fn bundle(
             .with_context(|| format!("Failed to add to archive: {tar_name}"))?;
     }
 
-    // Write manifest.json at the archive root, a sibling of {name}/ —
-    // never inside the module's own namespace, so a module file that
-    // happens to be named manifest.json can't collide with it.
-    let manifest_json = manifest.to_json()?;
-    let manifest_bytes = manifest_json.as_bytes();
-    let manifest_tar_name = format!("{}/manifest.json", top);
-    let mut header = tar::Header::new_gnu();
-    header.set_size(manifest_bytes.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
+    // baler.toml and baler.lock land at the archive root, a sibling of
+    // {name}/ — never inside the module's own namespace, so a module
+    // file that happens to be named either of those can't collide
+    // with them.
+    let toml_path = project_root.join("baler.toml");
+    let toml_tar_name = format!("{}/baler.toml", top);
     archive
-        .append_data(&mut header, &manifest_tar_name, manifest_bytes)
-        .context("Failed to add manifest.json to archive")?;
+        .append_path_with_name(&toml_path, &toml_tar_name)
+        .with_context(|| format!("Failed to add baler.toml to archive: {toml_tar_name}"))?;
+
+    let lock_path = project_root.join(crate::lockfile::LOCK_FILE_NAME);
+    if lock_path.exists() {
+        let lock_tar_name = format!("{}/baler.lock", top);
+        archive
+            .append_path_with_name(&lock_path, &lock_tar_name)
+            .with_context(|| format!("Failed to add baler.lock to archive: {lock_tar_name}"))?;
+    }
 
     archive.finish().context("Failed to finalize tar.gz archive")?;
     Ok(())
@@ -82,7 +92,8 @@ pub fn bundle(
 ///     decomp/
 ///     ...
 /// <install_dir>/tstk-0.1.0.dist-info/
-///     manifest.json
+///     baler.toml
+///     baler.lock       (only if the archive shipped one)
 /// ```
 pub fn unpack(tar_path: &Path, install_dir: &Path, name: &str, version: &str) -> Result<()> {
     let file = File::open(tar_path)
@@ -108,12 +119,17 @@ pub fn unpack(tar_path: &Path, install_dir: &Path, name: &str, version: &str) ->
             continue;
         }
 
-        // Only the reserved root-level manifest.json goes into .dist-info.
-        // Matching by full path (not basename) means a module file that
-        // happens to be named manifest.json — however deep — is never
-        // mistaken for it and misrouted.
-        let dest = if stripped == Path::new("manifest.json") {
-            dist_info_dir.join("manifest.json")
+        // Only the reserved root-level baler.toml/baler.lock go into
+        // .dist-info. Matching by full path (not basename) means a
+        // module file that happens to be named either — however deep
+        // — is never mistaken for it and misrouted. Multiple modules
+        // share one install_dir, so these can't land loose at
+        // install_dir's own root, each module's copy would overwrite
+        // the last one's.
+        let dest = if stripped == Path::new("baler.toml") {
+            dist_info_dir.join("baler.toml")
+        } else if stripped == Path::new("baler.lock") {
+            dist_info_dir.join("baler.lock")
         } else {
             install_dir.join(&stripped)
         };
@@ -131,9 +147,41 @@ pub fn unpack(tar_path: &Path, install_dir: &Path, name: &str, version: &str) ->
     Ok(())
 }
 
-/// Read the `manifest.json` embedded in a `.tar.gz` without unpacking
-/// the rest of the archive.
-pub fn read_manifest(tar_path: &Path) -> Result<crate::manifest::Manifest> {
+/// Read the `baler.toml` embedded in a `.tar.gz` without unpacking the
+/// rest of the archive.
+pub fn read_toml(tar_path: &Path) -> Result<crate::baler_toml::BalerToml> {
+    let contents = read_embedded_file(tar_path, "baler.toml")?.with_context(|| {
+        format!(
+            "No baler.toml found in {}. Is this a valid baler package?",
+            tar_path.display()
+        )
+    })?;
+
+    toml::from_str(&contents)
+        .with_context(|| format!("Failed to parse baler.toml embedded in {}", tar_path.display()))
+}
+
+/// Read the `baler.lock` embedded in a `.tar.gz`, if the archive
+/// shipped one. `Ok(None)` means the module was bundled without a
+/// lock, not an error, same meaning `lockfile::read` gives a missing
+/// file on disk.
+pub fn read_lock(tar_path: &Path) -> Result<Option<crate::lockfile::BalerLock>> {
+    match read_embedded_file(tar_path, "baler.lock")? {
+        Some(contents) => {
+            let lock: crate::lockfile::BalerLock = toml::from_str(&contents).with_context(|| {
+                format!("Failed to parse baler.lock embedded in {}", tar_path.display())
+            })?;
+            Ok(Some(lock))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Read one root-level file out of a `.tar.gz` by its stripped path,
+/// without unpacking the rest of the archive. Shared by `read_toml`
+/// and `read_lock`, the only difference between them is which name
+/// they look for and how the result gets parsed.
+fn read_embedded_file(tar_path: &Path, name: &str) -> Result<Option<String>> {
     let file = File::open(tar_path)
         .with_context(|| format!("Failed to open: {}", tar_path.display()))?;
 
@@ -141,88 +189,19 @@ pub fn read_manifest(tar_path: &Path) -> Result<crate::manifest::Manifest> {
     let mut archive = tar::Archive::new(gz);
 
     for entry in archive.entries().context("Failed to read tar.gz entries")? {
-        let mut entry = entry.context("Failed to read entry")?;
+        let mut entry = entry.context("Failed to read tar.gz entry")?;
         let raw_path = entry.path()?.to_path_buf();
         let stripped = strip_top_level(&raw_path)?;
 
-        if stripped == Path::new("manifest.json") {
+        if stripped == Path::new(name) {
             let mut s = String::new();
             std::io::Read::read_to_string(&mut entry, &mut s)
-                .context("Failed to read manifest.json from archive")?;
-            return crate::manifest::Manifest::from_json(&s)
-                .context("Failed to parse manifest.json from archive");
+                .with_context(|| format!("Failed to read {} from archive", name))?;
+            return Ok(Some(s));
         }
     }
 
-    anyhow::bail!(
-        "No manifest.json found in {}. Is this a valid baler package?",
-        tar_path.display()
-    )
-}
-
-/// Read and reconstruct the `baler.toml`-equivalent embedded in a
-/// `.tar.gz`, without fully extracting the archive. baler.toml
-/// itself is no longer bundled — this rebuilds what baler.toml would
-/// have said from manifest.json instead.
-pub fn read_toml(tar_path: &Path) -> Result<crate::baler_toml::BalerToml> {
-    let manifest = read_manifest(tar_path)?;
-
-    Ok(crate::baler_toml::BalerToml {
-        native: manifest.native.map(|n| crate::baler_toml::NativeConfig {
-            path: None,
-            // paths: None,
-            build_deps: if n.build_deps.is_empty() {
-                None
-            } else {
-                Some(
-                    n.build_deps
-                        .into_iter()
-                        .map(|entry| {
-                            let dep = match entry.repo {
-                                Some(repo) => PackageDep::Extended { version: entry.version, repo: Some(repo) },
-                                None => PackageDep::Simple(entry.version),
-                            };
-                            (entry.name, dep)
-                        })
-                        .collect()
-                )
-            },
-        }),
-        module: crate::baler_toml::ModuleMeta {
-            name: manifest.name,
-            version: manifest.version,
-            description: manifest.description,
-            authors: manifest.authors,
-            license: manifest.license,
-            r_version: manifest.r_version,
-            src: None,
-        },
-        package_deps: Some(
-            manifest.dependencies.packages
-                .into_iter()
-                .map(|entry| {
-                    let dep = match entry.repo {
-                        Some(repo) => PackageDep::Extended { version: entry.version, repo: Some(repo) },
-                        None => PackageDep::Simple(entry.version),
-                    };
-                    (entry.name, dep)
-                })
-                .collect()
-        ),
-        module_deps: Some(
-            manifest.dependencies.modules
-                .into_iter()
-                .map(|entry| {
-                    let dep = match entry.source {
-                        Some(source) => ModuleDep::Extended { version: entry.version, source: Some(source) },
-                        None => ModuleDep::Simple(entry.version),
-                    };
-                    (entry.name, dep)
-                })
-                .collect()
-        ),
-        test: manifest.test,
-    })
+    Ok(None)
 }
 
 pub fn collect_files(base: &Path) -> Result<Vec<String>> {

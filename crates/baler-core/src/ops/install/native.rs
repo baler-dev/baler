@@ -1,48 +1,35 @@
-use anyhow::{bail, Context, Result};
-use std::collections::BTreeMap;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-use crate::baler_toml::PackageDep;
+use crate::baler_toml::BalerToml;
 use crate::ops::resolve;
 
 /// Compiles a module's native code, if it has any, right after
 /// unpacking. `module_path` is the module's own flat installed
-/// directory (`<install_dir>/<n>`). Native code isn't assumed to
-/// live in one blessed spot, `find_native_dirs` walks the whole
-/// installed tree, so a module can have several compiled-code dirs
-/// nested under different submodules.
+/// directory (`<install_dir>/<name>`), which after unpack already *is*
+/// the module's source dir, there is no project root wrapping it.
 ///
-/// Detection is purely filesystem-based (`has_native_src` via
-/// `find_native_dirs`), not keyed off the manifest's `native` field.
+/// `toml` is the `baler.toml` shipped inside the archive and read back
+/// by `tar::read_toml`. Declared native dirs come from
+/// `toml.native_dirs_under(module_path)`, which honours
+/// `[compiled-code].path` if the author set one, falling back to a
+/// filesystem scan otherwise, same resolution `bundle` used to decide
+/// what to ship. There used to be a `declared_dirs` list baked into a
+/// generated manifest.json for this; recomputing it from the shipped
+/// baler.toml gives the identical answer without needing a generated
+/// copy to stay in sync with it.
 ///
-/// Gated behind `install_deps`: `[native].build_deps` are resolved
-/// and installed here, separately from `[package_deps]` and skipping
-/// `baler.lock` since they're compile-time-only, not a runtime
-/// contract.
+/// Gated behind `install_deps`: `[compiled-code].build_deps` are
+/// resolved and installed here, separately from
+/// `[project.dependencies]` and skipping `baler.lock`, since they're
+/// compile-time-only, not a runtime contract.
 pub(super) fn build_native_if_present(
     module_path: &PathBuf,
     name: &str,
     install_deps: bool,
-    native: Option<&crate::manifest::NativeManifest>,
+    toml: &BalerToml,
 ) -> Result<()> {
-    let native_dirs: Vec<PathBuf> = match native.map(|n| n.declared_dirs.as_slice()) {
-        Some(paths) if !paths.is_empty() => {
-            let mut dirs = Vec::with_capacity(paths.len());
-            for p in paths {
-                let dir = module_path.join(p);
-                if !dir.is_dir() {
-                    bail!(
-                        "Manifest declares native path '{}' for '{}', but it does not exist after unpacking. \
-                         The archive may be corrupted or out of date with its own manifest.",
-                        p, name
-                    );
-                }
-                dirs.push(dir);
-            }
-            dirs
-        }
-        _ => baler_native::detect::find_native_dirs(module_path),
-    };
+    let native_dirs = toml.native_dirs_under(module_path);
 
     if native_dirs.is_empty() {
         return Ok(());
@@ -56,20 +43,9 @@ pub(super) fn build_native_if_present(
         return Ok(());
     }
 
-    let build_deps: Option<BTreeMap<String, PackageDep>> = native
-        .map(|n| &n.build_deps)
-        .filter(|deps| !deps.is_empty())
-        .map(|deps| {
-            deps.iter()
-                .map(|entry| {
-                    let dep = match &entry.repo {
-                        Some(repo) => PackageDep::Extended { version: entry.version.clone(), repo: Some(repo.clone()) },
-                        None => PackageDep::Simple(entry.version.clone()),
-                    };
-                    (entry.name.clone(), dep)
-                })
-                .collect()
-        });
+    let build_deps = toml.compiled_code.as_ref()
+        .and_then(|n| n.build_deps.clone())
+        .filter(|deps| !deps.is_empty());
 
     if let Some(deps) = build_deps {
         println!("  Installing native build deps for '{}'...", name);
