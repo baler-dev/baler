@@ -1,4 +1,7 @@
 /target
-*.rmbx
 *.tar.gz
 .env
+.Rhistory
+*.html
+
+# *.rmbx
