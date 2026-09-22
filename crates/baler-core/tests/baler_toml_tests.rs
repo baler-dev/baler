@@ -1,4 +1,4 @@
-use baler_core::baler_toml::{Author, BalerToml, ModuleMeta, PackageDep, DEFAULT_CRAN_MIRROR};
+use baler_core::baler_toml::{Author, BalerToml, Dependencies, ModuleMeta, PackageDep, DEFAULT_CRAN_MIRROR};
 use baler_native::{Backend, NativeLang};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -34,10 +34,14 @@ fn module_meta(name: &str, src: Option<&str>) -> ModuleMeta {
         name: name.to_owned(),
         version: "0.1.0".to_owned(),
         description: String::new(),
+        readme: None,
         authors: vec![Author::Simple("Jane Doe".to_owned())],
         license: "MIT".to_owned(),
         r_version: "4.0.0".to_owned(),
+        repository: None,
+        keywords: Vec::new(),
         src: src.map(|s| s.to_owned()),
+        dependencies: Dependencies::default(),
     }
 }
 
@@ -129,11 +133,10 @@ fn resolve_src_dir_defaults_to_module_name() {
     std::fs::write(src_dir.join("__init__.R"), "").unwrap();
 
     let toml = BalerToml {
-        module: module_meta("mymod", None),
-        package_deps: None,
-        module_deps: None,
-        native: None,
-        test: None,
+        project: module_meta("mymod", None),
+        development: None,
+        compiled_code: None,
+        tool: None,
     };
 
     let resolved = toml.resolve_src_dir(scratch.path()).unwrap();
@@ -144,11 +147,10 @@ fn resolve_src_dir_defaults_to_module_name() {
 fn resolve_src_dir_errors_when_default_dir_missing() {
     let scratch = TempScratchDir::new("missing-default");
     let toml = BalerToml {
-        module: module_meta("mymod", None),
-        package_deps: None,
-        module_deps: None,
-        native: None,
-        test: None,
+        project: module_meta("mymod", None),
+        development: None,
+        compiled_code: None,
+        tool: None,
     };
 
     let err = toml.resolve_src_dir(scratch.path()).unwrap_err();
@@ -161,11 +163,10 @@ fn resolve_src_dir_errors_when_init_r_missing() {
     std::fs::create_dir_all(scratch.path().join("mymod")).unwrap();
 
     let toml = BalerToml {
-        module: module_meta("mymod", None),
-        package_deps: None,
-        module_deps: None,
-        native: None,
-        test: None,
+        project: module_meta("mymod", None),
+        development: None,
+        compiled_code: None,
+        tool: None,
     };
 
     let err = toml.resolve_src_dir(scratch.path()).unwrap_err();
@@ -180,11 +181,10 @@ fn resolve_src_dir_uses_explicit_src_override() {
     std::fs::write(src_dir.join("__init__.R"), "").unwrap();
 
     let toml = BalerToml {
-        module: module_meta("mymod", Some("custom_source")),
-        package_deps: None,
-        module_deps: None,
-        native: None,
-        test: None,
+        project: module_meta("mymod", Some("custom_source")),
+        development: None,
+        compiled_code: None,
+        tool: None,
     };
 
     let resolved = toml.resolve_src_dir(scratch.path()).unwrap();
@@ -195,11 +195,10 @@ fn resolve_src_dir_uses_explicit_src_override() {
 fn resolve_src_dir_errors_when_explicit_src_not_a_directory() {
     let scratch = TempScratchDir::new("explicit-src-not-dir");
     let toml = BalerToml {
-        module: module_meta("mymod", Some("does_not_exist")),
-        package_deps: None,
-        module_deps: None,
-        native: None,
-        test: None,
+        project: module_meta("mymod", Some("does_not_exist")),
+        development: None,
+        compiled_code: None,
+        tool: None,
     };
 
     assert!(toml.resolve_src_dir(scratch.path()).is_err());
@@ -211,7 +210,7 @@ fn default_template_contains_module_name_and_parses_as_toml() {
     let template = BalerToml::default_template("mymod", Some((NativeLang::C, None)));
     assert!(template.contains("name = \"mymod\""));
     let parsed: BalerToml = toml::from_str(&template).unwrap();
-    assert_eq!(parsed.module.name, "mymod");
+    assert_eq!(parsed.project.name, "mymod");
 }
 
 #[test]

@@ -88,7 +88,7 @@ fn install_from_dir_then_remove_round_trip() {
     assert!(module_dir.join("__init__.r").is_file());
 
     let dist_info = lib.path().join("roundtripmod-0.1.0.dist-info");
-    assert!(dist_info.join("manifest.json").is_file());
+    assert!(dist_info.join("baler.toml").is_file());
 
     // `baler.toml` is a project manifest, not part of the installable module
     // It must not end up in the installed tree
@@ -102,7 +102,7 @@ fn install_from_dir_then_remove_round_trip() {
     // install does before a reinstall. Asserting the *actual* behavior
     // here so a future change to remove.rs is caught either way; if this
     // turns out to be unintended, the fix belongs in remove.rs, not here.
-    assert!(dist_info.join("manifest.json").is_file());
+    assert!(dist_info.join("baler.toml").is_file());
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn remove_errors_when_module_not_installed() {
 fn install_errors_on_project_without_baler_toml() {
     let _guard = ENV_LOCK.lock().unwrap();
 
-    let project = Scratch::new("no-toml"); // pre-created, deliberately empty
+    let project = Scratch::new("no-toml"); 
     let lib = Scratch::reserved("lib-no-toml");
     let _env = BalerLibGuard::set(lib.path());
 

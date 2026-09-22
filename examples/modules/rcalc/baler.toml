@@ -1,22 +1,26 @@
-[module]
+[project]
 name = "rcalc"
 version = "0.1.0"
-description = "This package is used for demo, containing functions involving calculus"
+description = "This package contains functions involving calculus. This package is used to test integration with `{box}` that has native compiled codes"
+readme = "README.md"
 authors = [
     { name = "Joshua Marie", email = "joshua.marie.k@gmail.com" }
 ]
 license = "Unknown"
 r_version = ">=4.1.0"
 src = "src/"
- 
-# [package_deps]
- 
-# [module_deps]
 
-[native]
+# [project.dependencies]
+
+# [project.dependencies.baler]
+
+[compiled-code]
 path = ["c/", "cpp/"]
-build_deps = { Rcpp = "*" }
+# build_deps = { Rcpp = "*" }
 
-# [test]
+[compiled-code.build_deps]
+Rcpp = ">=1.1.0"
+
+# [tool.test]
 # framework = "testthat"
 # dir = "tests"

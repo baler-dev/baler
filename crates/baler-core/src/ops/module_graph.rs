@@ -7,17 +7,18 @@ use crate::ops::resolve::{resolve_packages_from_specs, ResolvedPlan};
 use crate::version::VersionSpec;
 
 /// Fetches a module's baler.toml given the `source` string declared
-/// in its dependent's `module_deps`. resolve_transitive() only knows
-/// how to walk the dependency graph. It never touches the network
-/// itself, so who implements this decides that policy: a real fetch
-/// over GitHub in production, a HashMap in a test.
+/// in its dependent's `[project.dependencies.baler]` entry.
+/// resolve_transitive() only knows how to walk the dependency graph.
+/// It never touches the network itself, so who implements this
+/// decides that policy: a real fetch over GitHub in production, a
+/// HashMap in a test.
 pub trait ModuleFetcher {
     fn fetch(&self, source: &str) -> Result<BalerToml>;
 }
 
 /// Walk the full module dependency graph, starting from `root`,
-/// fetching each declared module_dep's baler.toml through `fetcher`
-/// and folding its `package_deps/module_deps` into the same queue.
+/// fetching each declared box-module dep's baler.toml through `fetcher`
+/// and folding its own dependencies into the same queue.
 ///
 /// Two invariants that must hold from the first version of this
 /// function, not added later: no infinite loop on a dependency cycle,
@@ -38,7 +39,7 @@ pub fn resolve_transitive(
     let mut pkg_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
     let mut pkg_repos: BTreeMap<String, String> = BTreeMap::new();
 
-    for (name, dep) in root.package_deps.as_ref().unwrap_or(&BTreeMap::new()) {
+    for (name, dep) in &root.project.dependencies.packages {
         let spec = VersionSpec::parse(dep.version())?;
         pkg_specs.entry(name.clone()).or_default().push(spec);
         pkg_repos.insert(name.clone(), dep.repo().to_owned());
@@ -57,7 +58,7 @@ pub fn resolve_transitive(
     // to fetch these in.
     let mut path: Vec<String> = Vec::new();
 
-    for (name, dep) in root.module_deps.as_ref().unwrap_or(&BTreeMap::new()) {
+    for (name, dep) in root.project.dependencies.baler.as_ref().unwrap_or(&BTreeMap::new()) {
         resolve_module(
             name,
             dep,
@@ -78,7 +79,7 @@ pub fn resolve_transitive(
     Ok(ResolvedPlan { packages, modules })
 }
 
-/// Resolve one module dep and recurse into its own module_deps.
+/// Resolve one box-module dep and recurse into its own dependencies.
 /// Package deps discovered along the way are folded into `pkg_specs`/
 /// `pkg_repos` for the caller to finalize once the whole graph is walked.
 fn resolve_module(
@@ -132,12 +133,13 @@ fn resolve_module(
         .fetch(source)
         .with_context(|| format!("Failed to fetch module '{name}' from '{source}'"))?;
 
-    let fetched_version = semver::Version::parse(&fetched.module.version).with_context(|| {
-        format!(
-            "Module '{name}' at '{source}' has an invalid version '{}'",
-            fetched.module.version
-        )
-    })?;
+    // Reuses ModuleMeta::semver() (the same check `from_dir` runs on a
+    // local baler.toml) instead of parsing `version` a second way here,
+    // with its own context layered on for which module/source it was.
+    let fetched_version = fetched
+        .project
+        .semver()
+        .with_context(|| format!("Module '{name}' at '{source}' has an invalid version"))?;
 
     let spec = VersionSpec::parse(dep.version())?;
     if !spec.matches(&fetched_version) {
@@ -146,14 +148,14 @@ fn resolve_module(
         );
     }
 
-    for (pkg_name, pkg_dep) in fetched.package_deps.unwrap_or_default() {
+    for (pkg_name, pkg_dep) in fetched.project.dependencies.packages {
         let pkg_spec = VersionSpec::parse(pkg_dep.version())?;
         pkg_specs.entry(pkg_name.clone()).or_default().push(pkg_spec);
         pkg_repos.insert(pkg_name, pkg_dep.repo().to_owned());
     }
 
     path.push(name.to_owned());
-    for (dep_name, dep_dep) in fetched.module_deps.unwrap_or_default() {
+    for (dep_name, dep_dep) in fetched.project.dependencies.baler.unwrap_or_default() {
         resolve_module(&dep_name, &dep_dep, fetcher, resolved_modules, path, pkg_specs, pkg_repos)?;
     }
     path.pop();

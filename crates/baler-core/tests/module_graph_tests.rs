@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
 
-use baler_core::baler_toml::{BalerToml, ModuleDep, ModuleMeta};
+use baler_core::baler_toml::{BalerToml, Dependencies, ModuleDep, ModuleMeta};
 use baler_core::ops::module_graph::{resolve_transitive, ModuleFetcher};
 
 struct MockFetcher {
@@ -23,37 +23,43 @@ impl ModuleFetcher for MockFetcher {
 // instead. Only used in this test file.
 fn toml_clone(t: &BalerToml) -> BalerToml {
     BalerToml {
-        module: ModuleMeta {
-            name: t.module.name.clone(),
-            version: t.module.version.clone(),
-            description: t.module.description.clone(),
-            authors: t.module.authors.clone(),
-            license: t.module.license.clone(),
-            r_version: t.module.r_version.clone(),
-            src: t.module.src.clone(),
+        project: ModuleMeta {
+            name: t.project.name.clone(),
+            version: t.project.version.clone(),
+            description: t.project.description.clone(),
+            readme: t.project.readme.clone(),
+            authors: t.project.authors.clone(),
+            license: t.project.license.clone(),
+            r_version: t.project.r_version.clone(),
+            repository: t.project.repository.clone(),
+            keywords: t.project.keywords.clone(),
+            src: t.project.src.clone(),
+            dependencies: t.project.dependencies.clone(),
         },
-        package_deps: t.package_deps.clone(),
-        module_deps: t.module_deps.clone(),
-        native: None,
-        test: None,
+        development: None,
+        compiled_code: None,
+        tool: None,
     }
 }
 
 fn minimal_toml(name: &str, version: &str, module_deps: Option<BTreeMap<String, ModuleDep>>) -> BalerToml {
     BalerToml {
-        module: ModuleMeta {
+        project: ModuleMeta {
             name: name.to_owned(),
             version: version.to_owned(),
             description: String::new(),
+            readme: None,
             authors: vec![],
             license: "Unknown".to_owned(),
             r_version: "4.0.0".to_owned(),
+            repository: None,
+            keywords: Vec::new(),
             src: None,
+            dependencies: Dependencies { packages: BTreeMap::new(), baler: module_deps },
         },
-        package_deps: None,
-        module_deps,
-        native: None,
-        test: None,
+        development: None,
+        compiled_code: None,
+        tool: None,
     }
 }
 

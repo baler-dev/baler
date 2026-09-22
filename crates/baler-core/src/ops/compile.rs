@@ -33,7 +33,7 @@ pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifac
     }
 
     let toml = BalerToml::from_dir(project_root)?;
-    let name = toml.module.name.clone();
+    let name = toml.project.name.clone();
     let native_dirs = toml.resolve_native_dirs(project_root)?;
 
     if native_dirs.is_empty() {
@@ -59,7 +59,7 @@ pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifac
         return Ok(Vec::new());
     }
 
-    let build_deps = toml.native.as_ref()
+    let build_deps = toml.compiled_code.as_ref()
         .and_then(|n| n.build_deps.clone())
         .filter(|deps| !deps.is_empty());
 

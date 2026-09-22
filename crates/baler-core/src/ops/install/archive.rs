@@ -19,13 +19,13 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
     }
 
     let toml = tar::read_toml(tar_path)
-        .with_context(|| format!("Failed to read manifest from {}", tar_path.display()))?;
+        .with_context(|| format!("Failed to read baler.toml from {}", tar_path.display()))?;
 
-    let r_spec = toml.module.r_version_spec()?;
+    let r_spec = toml.project.r_version_spec()?;
     crate::version::check_r_version(&r_spec)?;
 
-    let name = toml.module.name.clone();
-    let version = toml.module.version.clone();
+    let name = toml.project.name.clone();
+    let version = toml.project.version.clone();
 
     let install_dir = resolve_install_dir()?;
     let module_path = install_dir.join(&name);
@@ -51,21 +51,27 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
 
     // A dir/github install passes a lock read fresh from the source
     // project. A standalone .tar.gz has no project directory to read
-    // one from, fall back to whatever `baler bundle` baked into the
-    // archive's manifest.json at bundle time.
-    let manifest = tar::read_manifest(tar_path)?;
-    let embedded_lock = manifest.locked_packages.clone().map(BalerLock::from_packages);
+    // one from, fall back to whatever baler.lock the archive itself
+    // shipped, if the module was bundled with one.
+    let embedded_lock = tar::read_lock(tar_path)?;
     let effective_lock = lock.cloned().or(embedded_lock);
 
+    // `resolve`/`resolve_locked` take an absent dependency table as
+    // `None`, not `Some(<empty map>)`, matching how compile.rs and
+    // native.rs already call them.
+    let package_deps = (!toml.project.dependencies.packages.is_empty())
+        .then(|| toml.project.dependencies.packages.clone());
+    let module_deps = toml.project.dependencies.baler.clone();
+
     let plan = match &effective_lock {
-        Some(locked) => resolve::resolve_locked(&toml.package_deps, &toml.module_deps, locked)?,
-        None => resolve::resolve(&toml.package_deps, &toml.module_deps)?,
+        Some(locked) => resolve::resolve_locked(&package_deps, &module_deps, locked)?,
+        None => resolve::resolve(&package_deps, &module_deps)?,
     };
     println!("Dependencies:");
     resolve::print_plan(&plan);
     resolve::execute_plan(&plan, !install_deps, effective_lock.as_ref())?;
 
-    build_native_if_present(&module_path, &name, install_deps, manifest.native.as_ref())?;
+    build_native_if_present(&module_path, &name, install_deps, &toml)?;
 
     Ok(())
 }

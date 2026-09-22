@@ -122,10 +122,26 @@ impl ModuleDep {
     }
 }
 
+// ---- Dependencies ----
+
+/// Shared shape for both `[project.dependencies]` and `[development]`.
+/// Plain keys are R packages, resolved off CRAN (or `repo`, if set).
+/// The `baler` key is reserved for box modules, told apart from a
+/// package entry by table membership rather than a `type`/`mode`
+/// field on each entry. This does mean an R package literally named
+/// `baler` cannot be declared as a bare key here, an accepted
+/// tradeoff for not needing a discriminant field on every entry.
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct Dependencies {
+    #[serde(flatten)]
+    pub packages: BTreeMap<String, PackageDep>,
+    pub baler: Option<BTreeMap<String, ModuleDep>>,
+}
+
 // ---- NativePath ----
 
-/// `[native].path` accepts either a single string or an array, so a
-/// module with one compiled-code dir doesn't have to write
+/// `[compiled-code].path` accepts either a single string or an array,
+/// so a module with one compiled-code dir doesn't have to write
 /// `path = ["cpp/"]` just to satisfy a Vec-only field, and a module
 /// with several doesn't have to pick one arbitrarily.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -144,14 +160,14 @@ impl NativePath {
     }
 }
 
-// ---- NativeConfig ----
+// ---- CompiledCode ----
 /// Declares where a module's compiled code lives, and its build-time-
 /// only R package deps (e.g. `Rcpp`), whose headers a `Makevars` needs
 /// to find via `system.file()` before `R CMD SHLIB` can run.
 ///
 /// `path` is relative to the module's own source directory (whatever
 /// `resolve_src_dir()` resolves to), the same base `src` in
-/// `[module]` already uses, not the project root `baler.toml` lives
+/// `[project]` already uses, not the project root `baler.toml` lives
 /// in. `path = ["cpp", "extra/src"]` in a module's own `baler.toml`
 /// means exactly what it looks like: two dirs nested under that
 /// module's source tree.
@@ -160,7 +176,7 @@ impl NativePath {
 /// `resolve_native_dirs()` scans the module's whole source tree for
 /// compiled-code dirs instead of assuming one is where it must live.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct NativeConfig {
+pub struct CompiledCode {
     pub path: Option<NativePath>,
     pub build_deps: Option<BTreeMap<String, PackageDep>>,
 }
@@ -184,11 +200,11 @@ fn find_init_file(dir: &Path) -> Option<PathBuf> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BalerToml {
-    pub module: ModuleMeta,
-    pub package_deps: Option<BTreeMap<String, PackageDep>>,
-    pub module_deps: Option<BTreeMap<String, ModuleDep>>,
-    pub native: Option<NativeConfig>,
-    pub test: Option<TestConfig>,
+    pub project: ModuleMeta,
+    pub development: Option<Dependencies>,
+    #[serde(rename = "compiled-code")]
+    pub compiled_code: Option<CompiledCode>,
+    pub tool: Option<ToolConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -196,16 +212,41 @@ pub struct ModuleMeta {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub readme: Option<String>,
     pub authors: Vec<Author>,
     pub license: String,
     pub r_version: String,
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
     pub src: Option<String>,
+    #[serde(default)]
+    pub dependencies: Dependencies,
 }
 
 impl ModuleMeta {
     pub fn r_version_spec(&self) -> Result<VersionSpec> {
         VersionSpec::parse(&self.r_version)
     }
+
+    /// `version` must be strict semver (`MAJOR.MINOR.PATCH`), since
+    /// dependency ranges (`^`, `>=`, etc.) in another module's
+    /// `[project.dependencies.baler]` entry resolve against it. An
+    /// unvalidated `version` here doesn't fail where the mistake was
+    /// made, it fails later, inside whoever consumes this module.
+    pub fn semver(&self) -> Result<semver::Version> {
+        semver::Version::parse(&self.version).map_err(|e| anyhow::anyhow!(
+            "Invalid `version` '{}' in baler.toml: {}. \
+             `version` must be a valid semver string (e.g. \"1.2.3\"), \
+             since dependency ranges (^, >=, etc.) resolve against it.",
+            self.version, e
+        ))
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ToolConfig {
+    pub test: Option<TestConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,12 +264,15 @@ impl BalerToml {
                  Run `baler init` to create one.",
                 toml_path.display()
             ))?;
-        toml::from_str(&contents)
-            .with_context(|| format!("Failed to parse baler.toml at {}", toml_path.display()))
+        let parsed: Self = toml::from_str(&contents)
+            .with_context(|| format!("Failed to parse baler.toml at {}", toml_path.display()))?;
+        parsed.project.semver()
+            .with_context(|| format!("Invalid `version` in {}", toml_path.display()))?;
+        Ok(parsed)
     }
 
     pub fn resolve_src_dir(&self, project_root: &Path) -> Result<PathBuf> {
-        if let Some(src) = &self.module.src {
+        if let Some(src) = &self.project.src {
             let dir = project_root.join(src);
             if !dir.is_dir() {
                 bail!("`src` path '{}' is not a directory.", dir.display());
@@ -243,15 +287,15 @@ impl BalerToml {
             return Ok(dir);
         }
 
-        let dir = project_root.join(&self.module.name);
+        let dir = project_root.join(&self.project.name);
         if !dir.is_dir() {
             bail!(
                 "Source directory '{}' not found in '{}'.\n\
                  The source directory must match the module name '{}', \
                  or set `src` in baler.toml to point to the correct directory.",
-                self.module.name,
+                self.project.name,
                 project_root.display(),
-                self.module.name,
+                self.project.name,
             );
         }
         if find_init_file(&dir).is_none() {
@@ -266,21 +310,27 @@ impl BalerToml {
     }
 
     /// Every native code location this module actually has.
-    /// `[native].path`, when set, is resolved relative to the module's
-    /// own source directory, not the project root, a module can write
-    /// `path = "cpp"` for one location or `path = ["cpp", "extra/src"]`
-    /// for several, both resolved against that module's own source
-    /// tree. Without it, this scans the whole module source tree for
-    /// compiled-code dirs.
+    /// `[compiled-code].path`, when set, is resolved relative to the
+    /// module's own source directory, not the project root, a module
+    /// can write `path = "cpp"` for one location or
+    /// `path = ["cpp", "extra/src"]` for several, both resolved
+    /// against that module's own source tree. Without it, this scans
+    /// the whole module source tree for compiled-code dirs.
     pub fn resolve_native_dirs(&self, project_root: &Path) -> Result<Vec<PathBuf>> {
-        let native = self.native.as_ref();
         let src_dir = self.resolve_src_dir(project_root)?;
+        Ok(self.native_dirs_under(&src_dir))
+    }
 
-        if let Some(path) = native.and_then(|n| n.path.as_ref()) {
-            return Ok(path.as_paths().into_iter().map(|p| src_dir.join(p)).collect());
+    /// Same resolution `resolve_native_dirs` does, but rooted directly
+    /// at a known source directory instead of a project root that
+    /// still needs `resolve_src_dir`'s name-matching. Used post-install,
+    /// where the unpacked module directory already *is* the source
+    /// dir, there is no project root wrapping it to resolve against.
+    pub fn native_dirs_under(&self, src_dir: &Path) -> Vec<PathBuf> {
+        if let Some(path) = self.compiled_code.as_ref().and_then(|n| n.path.as_ref()) {
+            return path.as_paths().into_iter().map(|p| src_dir.join(p)).collect();
         }
-
-        Ok(find_native_dirs(&src_dir))
+        find_native_dirs(src_dir)
     }
 
     pub fn has_native_code(&self, project_root: &Path) -> Result<bool> {
@@ -302,7 +352,7 @@ impl BalerToml {
                     _ => "# build_deps = { Rcpp = \"*\" }".to_string(),
                 };
                 format!(
-                    r#"[native]
+                    r#"[compiled-code]
 # Native code is auto-detected under this module's source dir, no
 # path needed for the default src/ layout. Only set path if compiled
 # code lives somewhere else, or in more than one place.
@@ -310,11 +360,12 @@ impl BalerToml {
 # path can also be an array: path = ["native/", "extra/src"]
 {build_deps_line}
 # build_deps is resolved and installed before compiling.
-# Does not imply a runtime dependency; list in [package_deps]
-# too if the compiled code also needs it loaded at runtime"#
+# Does not imply a runtime dependency; list it in
+# [project.dependencies] too if the compiled code also needs it
+# loaded at runtime"#
                 )
             }
-            None => r#"[native]
+            None => r#"[compiled-code]
 # Only needed if native code doesn't live in the default location
 # (src/ under this module's source dir), or if `src/Makevars`
 # references headers from another R package (e.g. Rcpp).
@@ -322,13 +373,14 @@ impl BalerToml {
 # path can also be an array: path = ["native/", "extra/src"]
 # build_deps = { Rcpp = "*" }
 # build_deps is resolved and installed before compiling.
-# Does not imply a runtime dependency; list in [package_deps]
-# too if the compiled code also needs it loaded at runtime"#
+# Does not imply a runtime dependency; list it in
+# [project.dependencies] too if the compiled code also needs it
+# loaded at runtime"#
                 .to_string(),
         };
 
         format!(
-            r#"[module]
+            r#"[project]
 name = "{name}"
 version = "0.1.0"
 description = ""
@@ -337,20 +389,29 @@ authors = [
 ]
 license = "Unknown"
 r_version = ">=4.0.0"
+repository = ""
+keywords = []
+# readme = "README.md"
 # src = "{name}"    # path to the source directory containing __init__.R
                     # defaults to a directory named after the module
 
-[package_deps]
+[project.dependencies]
 # dplyr = "*"
 # ggplot2 = ">=3.4.0"
 # fable = {{ version = "*", repo = "https://tidyverts.r-universe.dev/" }}
 
-[module_deps]
-# other_module = "*"
+[project.dependencies.baler]
+# other_module = {{ version = "*", source = "https://github.com/user/repo" }}
+
+[development]
+# testthat = "*"
+
+[development.baler]
+# mock_module = {{ version = "*", source = "https://github.com/user/repo" }}
 
 {native_block}
 
-# [test]
+# [tool.test]
 # framework = "testthat"
 # dir = "tests"
 "#
