@@ -1,7 +1,11 @@
 /target
 *.tar.gz
+# *.rmbx
 .env
-.Rhistory
 *.html
 
-# *.rmbx
+# Blocking relevant in R and RStudio (if used for instance)
+.Rproj.user/
+.Rhistory
+*.Rproj
+.Renviron
