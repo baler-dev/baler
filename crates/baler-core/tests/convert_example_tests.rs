@@ -7,10 +7,13 @@
 //! Values are read from convert-proj's real `baler.toml` at test time
 //! (module name, version, ...) rather than hardcoded, so this doesn't
 //! silently go stale if that file changes.
+//!
+//! Assumes examples/modules/convert-proj/baler.toml has already been
+//! migrated to the [project] anatomy — this reads whatever the file
+//! on disk says, it doesn't hardcode the old shape.
 
 use baler_core::baler_toml::BalerToml;
 use baler_core::formats::tar;
-use baler_core::manifest::Manifest;
 use baler_core::ops::{install, remove};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -106,25 +109,12 @@ fn convert_proj_bundles_as_tar_gz_with_matching_metadata() {
     let files = tar::collect_files(&src).unwrap();
     assert!(!files.is_empty(), "convert-proj source tree should not be empty");
 
-    let manifest = Manifest::new(
-        &toml.module.name,
-        &toml.module.version,
-        &toml.module.description,
-        toml.module.authors.clone(),
-        &toml.module.license,
-        &toml.module.r_version,
-        Default::default(),
-        files,
-        None,
-        None,
-    );
-
-    tar::bundle(&src, &dir, &archive_path, &manifest, &[], &[]).unwrap();
+    tar::bundle(&src, &dir, &archive_path, &toml.project.name, &toml.project.version, &[], &[]).unwrap();
     assert!(archive_path.is_file());
 
     let read_back = tar::read_toml(&archive_path).unwrap();
-    assert_eq!(read_back.module.name, toml.module.name);
-    assert_eq!(read_back.module.version, toml.module.version);
+    assert_eq!(read_back.project.name, toml.project.name);
+    assert_eq!(read_back.project.version, toml.project.version);
 }
 
 #[test]
@@ -139,10 +129,10 @@ fn convert_proj_installs_via_baler_install_run() {
 
     // install_deps = false → dependency install stays a dry run, so this
     // never touches the network regardless of what convert-proj declares
-    // under [package_deps].
+    // under [project.dependencies].
     install::run(dir.to_str().unwrap(), false, None).expect("installing convert-proj should succeed");
 
-    let module_dir = lib.path().join(&toml.module.name);
+    let module_dir = lib.path().join(&toml.project.name);
     assert!(module_dir.join("__init__.R").is_file());
 
     // The submodules actually present in convert-proj (mass/, temp/) must
@@ -163,14 +153,16 @@ fn convert_proj_installs_via_baler_install_run() {
     assert!(!module_dir.join("baler.toml").exists());
     assert!(!module_dir.join("README.md").exists());
 
-    let dist_info = lib.path().join(format!("{}-{}.dist-info", toml.module.name, toml.module.version));
-    assert!(dist_info.join("manifest.json").is_file());
+    // baler.toml (the shipped source manifest, no longer a generated
+    // manifest.json) lands in .dist-info, and is still valid.
+    let dist_info = lib.path().join(format!("{}-{}.dist-info", toml.project.name, toml.project.version));
+    assert!(dist_info.join("baler.toml").is_file());
 
-    let manifest_json = std::fs::read_to_string(dist_info.join("manifest.json")).unwrap();
-    let manifest = Manifest::from_json(&manifest_json).unwrap();
-    assert_eq!(manifest.name, toml.module.name);
-    assert_eq!(manifest.version, toml.module.version);
+    let dist_toml_text = std::fs::read_to_string(dist_info.join("baler.toml")).unwrap();
+    let dist_toml: BalerToml = ::toml::from_str(&dist_toml_text).unwrap();
+    assert_eq!(dist_toml.project.name, toml.project.name);
+    assert_eq!(dist_toml.project.version, toml.project.version);
 
-    remove::run(&toml.module.name, true).expect("removing convert-proj should succeed");
+    remove::run(&toml.project.name, true).expect("removing convert-proj should succeed");
     assert!(!module_dir.exists());
 }
