@@ -76,21 +76,29 @@ The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you p
 
 ## Module installation
 
-As long as the `{box}` module is managed by `{baler}`, you can install a `{box}` module so other projects can load it with `box::use()`. This is `{baler}`'s equivalent of `install.packages()`.
+As long as the `{box}` module is configured by `{baler}`, you can install that `{box}` module so that other machines and/or projects can load it with `box::use()`. This is `{baler}`'s equivalent of `install.packages()`.
 
 ``` bash
-baler install <source> [--install-deps] [--repo <url>]
+baler install <name> --repo <url> [--version <constraint>] [--install-deps]
+baler install --path <dir-or-tar.gz> [--install-deps]
+baler install --git <url> [--branch <ref> | --tag <ref> | --rev <ref>] [--module-dir <dir>] [--install-deps]
+# Always look up at tarball source only
+baler install --url <tarball> [--install-deps]
 ```
 
-| Argument | Description |
+Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to install from. Using more than one, or none, is an error.
+
+| Form | What it does |
 |---|---|
-| `<source>` | Where to install from. Can be a local directory containing `baler.toml`, a `.tar.gz` archive (from `baler bundle`), or a GitHub repository written as `gh:user/repo`. You can pin a specific tag, branch, or commit with `gh:user/repo/tree/<ref>/<subpath>`; leaving out `<ref>` installs whatever the default branch currently has. |
-| `--install-deps` | Actually download and install the module's R package dependencies from CRAN. Without this flag, `{baler}` still figures out and prints what it *would* install, but doesn't fetch anything. |
-| `--repo <url>` | Points at a module registry to install `<source>` from. Registries aren't supported yet, this flag exists but has nothing behind it currently. |
+| `<name>` (positional) | A bare module name for a registry lookup, nothing else. Never guessed as a path, mirrors `cargo install <crate>`/`pip install <pkg>` exactly. Needs `--repo` or it errors, telling you to use `--repo`, `--path`, `--git`, or `--url` instead. |
+| `--path <dir-or-tar.gz>` | A directory containing `baler.toml`, or a `.tar.gz` produced by `baler bundle`. The only way to install from a local source, mirrors `cargo install --path`. |
+| `--git <url>` | A GitHub repository URL, e.g. `https://github.com/user/repo`. Fetches through GitHub's tarball API, not generic git, so a GitLab or self-hosted URL won't work despite the flag's name. Add `--branch`, `--tag`, or `--rev` to pin a ref (pick one), and `--module-dir <dir>` if the repo holds more than one module. |
+| `--url <tarball>` | Installs directly from an already-bundled archive URL, such as a GitHub Release asset from `baler bundle`. Must end in `.tar.gz`, checked up front. |
+| `--repo <url>` | Looks up `<name>` in a module registry at `<url>`. Registries aren't built yet, so this currently just fails with a clear "not implemented" error. Add `--version <constraint>` once registries exist. |
 
-Installing a module that's already installed under the same name replaces the old copy.
+The extra parameter, `--install-deps`, downloads and installs the module's R package dependencies from CRAN. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
 
-Installing from `gh:` needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `gh:` sources in a short window, for example in a CI pipeline, you can run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
+Installing via `--git` obviously needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `--git` sources in a short window, for example in a CI pipeline, you can run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
 
 ## Lock and lockfile
 
@@ -108,7 +116,7 @@ baler lock <path> [--update] [--with-rver] [--remove]
 | `--remove` | Delete `baler.lock` instead of writing one. Safe to run any time, if there's no lockfile, `{baler}` just resolves dependencies fresh each time, same as a project that never had one. |
 
 ::: callout-note
-`--update` and `--with-rver` can't be combined with `--remove`, since removing the lock and updating it are contradictory actions.
+The positional form isn't a fourth way to point at something — it always collapses to one of the three rows above (a sniffed local path, `gh:user/repo`, or a bare name for `--repo`). Note that `gh:user/repo` can't take `--branch`, `--tag`, `--rev`, or `--module-dir`; those need the explicit `--git <url>` flag instead.
 
 :::
 
