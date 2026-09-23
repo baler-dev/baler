@@ -133,7 +133,7 @@ There are patches along the source code of `{box}`. This way, the modules manage
 Try `{convert}` module, which belongs to `convert-proj` from the `examples/`: 
 
 ``` r
-# baler install gh:baler-dev/baler/tree/main/examples/modules/convert-proj
+# baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj
 box::use(cv = convert)
 cv$mass$mass_conversion_table(1000)
 ```

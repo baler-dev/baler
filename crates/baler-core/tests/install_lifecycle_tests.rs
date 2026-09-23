@@ -1,3 +1,4 @@
+use baler_core::ops::install::InstallRequest;
 use baler_core::ops::{init, install, remove};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -68,6 +69,24 @@ impl Drop for BalerLibGuard {
     }
 }
 
+/// Builds the `--path <dir>` shape of an install request — every
+/// install in this file is from a local directory, nothing here
+/// exercises --git/--url/registry lookups.
+fn install_from_path(path: &str) -> InstallRequest {
+    InstallRequest {
+        source: None,
+        repo: None,
+        version: None,
+        path: Some(path.to_owned()),
+        git: None,
+        branch: None,
+        tag: None,
+        rev: None,
+        url: None,
+        module_dir: None,
+    }
+}
+
 #[test]
 fn install_from_dir_then_remove_round_trip() {
     let _guard = ENV_LOCK.lock().unwrap();
@@ -82,7 +101,7 @@ fn install_from_dir_then_remove_round_trip() {
 
     // install_deps = false → dependency install is a dry run, so this
     // never touches the network even though the project has no deps.
-    install::run(project.path().to_str().unwrap(), false, None).unwrap();
+    install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap();
 
     let module_dir = lib.path().join("roundtripmod");
     assert!(module_dir.join("__init__.r").is_file());
@@ -115,7 +134,7 @@ fn reinstalling_replaces_the_previous_install() {
     let lib = Scratch::reserved("lib-reinstall");
     let _env = BalerLibGuard::set(lib.path());
 
-    install::run(project.path().to_str().unwrap(), false, None).unwrap();
+    install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap();
 
     // Add a stray file directly into the installed module dir that a
     // clean reinstall should wipe out.
@@ -123,7 +142,7 @@ fn reinstalling_replaces_the_previous_install() {
     std::fs::write(module_dir.join("stale.R"), "leftover").unwrap();
     assert!(module_dir.join("stale.R").exists());
 
-    install::run(project.path().to_str().unwrap(), false, None).unwrap();
+    install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap();
 
     assert!(!module_dir.join("stale.R").exists());
     assert!(module_dir.join("__init__.r").is_file());
@@ -144,10 +163,10 @@ fn remove_errors_when_module_not_installed() {
 fn install_errors_on_project_without_baler_toml() {
     let _guard = ENV_LOCK.lock().unwrap();
 
-    let project = Scratch::new("no-toml"); 
+    let project = Scratch::new("no-toml"); // pre-created, deliberately empty
     let lib = Scratch::reserved("lib-no-toml");
     let _env = BalerLibGuard::set(lib.path());
 
-    let err = install::run(project.path().to_str().unwrap(), false, None).unwrap_err();
+    let err = install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap_err();
     assert!(err.to_string().contains("baler.toml"));
 }

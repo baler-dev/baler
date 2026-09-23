@@ -82,19 +82,73 @@ enum Commands {
         rebuild: bool,
     },
 
-    /// Install a module from a .tar.gz, GitHub (gh:user/repo), or
-    /// a module registry (bare name + --repo; registries aren't
-    /// implemented yet)
+    /// Install a module: a registry name (positional, --repo/
+    /// --version), a local path or .tar.gz (--path), a GitHub repo
+    /// (--git, still GitHub-tarball-only underneath despite the
+    /// name), or a direct tarball URL (--url). --git takes
+    /// --module-dir for a repo holding more than one module.
     Install {
-        /// The module source
-        source: String,
+        /// Bare module name for a registry lookup (registries aren't
+        /// implemented yet)
+        #[arg(conflicts_with_all = ["path", "git", "url"])]
+        source: Option<String>,
+
         #[arg(long, help = "Automatically install R package dependencies from CRAN")]
         install_deps: bool,
-        #[arg(long, help = "Registry URL to install SOURCE from (registries aren't implemented yet)")]
+
+        #[arg(
+            long,
+            help = "Registry URL to look SOURCE up in (registries aren't implemented yet)",
+            requires = "source",
+            conflicts_with_all = ["path", "git", "url"]
+        )]
         repo: Option<String>,
-        // /// Build compiled code if present: c, rcpp, or rust
-        // #[arg(long)]
-        // native: Option<String>,
+
+        #[arg(
+            long,
+            help = "Version constraint for a registry lookup",
+            requires = "source",
+            conflicts_with_all = ["path", "git", "url"]
+        )]
+        version: Option<String>,
+
+        #[arg(
+            long,
+            help = "Install from a local directory or .tar.gz",
+            conflicts_with_all = ["source", "git", "url"]
+        )]
+        path: Option<String>,
+
+        #[arg(
+            long,
+            help = "Install from a GitHub repo, e.g. https://github.com/user/repo (GitHub-tarball fetch only, not generic git, despite the flag name)",
+            conflicts_with_all = ["source", "path", "url"]
+        )]
+        git: Option<String>,
+
+        #[arg(long, help = "Branch to install from --git", requires = "git", conflicts_with_all = ["tag", "rev"])]
+        branch: Option<String>,
+
+        #[arg(long, help = "Tag to install from --git", requires = "git", conflicts_with_all = ["branch", "rev"])]
+        tag: Option<String>,
+
+        #[arg(long, help = "Commit to install from --git", requires = "git", conflicts_with_all = ["branch", "tag"])]
+        rev: Option<String>,
+
+        #[arg(
+            long,
+            help = "Install directly from an already-bundled archive URL, e.g. a GitHub Release asset produced by `baler bundle`",
+            conflicts_with_all = ["source", "path", "git"]
+        )]
+        url: Option<String>,
+
+        #[arg(
+            long,
+            help = "Directory within --git's repo that holds the module, for a repo holding more than one",
+            requires = "git",
+            conflicts_with_all = ["source", "path", "url"]
+        )]
+        module_dir: Option<String>,
     },
 
     /// Resolve R package dependencies and write baler.lock, without
@@ -137,11 +191,10 @@ pub fn run() {
         Commands::Bundle { path, binary, keep_source } => {
             commands::bundle::run(BundleArgs { path, binary, keep_source })
         }
-        // Commands::Install { source, install_deps, repo, native } => {
-        //     commands::install::run(InstallArgs { source, install_deps, repo, native })
-        // }
-        Commands::Install { source, install_deps, repo } => {
-            commands::install::run(InstallArgs { source, install_deps, repo })
+        Commands::Install { source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir } => {
+            commands::install::run(InstallArgs {
+                source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir,
+            })
         }
         Commands::Lock { path, update, with_rver, remove } => {
             commands::lock::run(LockArgs { path, update, with_rver, remove })
