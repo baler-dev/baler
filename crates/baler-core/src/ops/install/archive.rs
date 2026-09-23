@@ -97,12 +97,17 @@ pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool) -> Re
 }
 
 /// Not implemented yet, there's no module registry protocol defined.
-/// This exists so the CLI surface (--repo flag, arg threading, mutual
-/// exclusivity with gh:/local sources) is already wired and tested; once
-/// a real registry protocol exists, only this function's body changes.
-pub(super) fn install_from_registry(name: &str, repo: &str, _install_deps: bool) -> Result<()> {
+/// This exists so the CLI surface (--repo/--version flags, arg
+/// threading, mutual exclusivity with --git/--url/local sources) is
+/// already wired and tested; once a real registry protocol exists,
+/// only this function's body changes.
+pub(super) fn install_from_registry(name: &str, repo: &str, version: Option<&str>, _install_deps: bool) -> Result<()> {
+    let wanted = match version {
+        Some(v) => format!("{name}@{v}"),
+        None => name.to_owned(),
+    };
     bail!(
-        "Module registries aren't implemented yet, wanted to install '{name}' from '{repo}'.\n\
-         For now, install directly: a local path, or gh:user/repo."
+        "Module registries aren't implemented yet, wanted to install '{wanted}' from '{repo}'.\n\
+         For now, install directly: a local path, --git <url>, or --url <tarball>."
     )
 }
