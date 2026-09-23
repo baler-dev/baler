@@ -14,6 +14,7 @@
 
 use baler_core::baler_toml::BalerToml;
 use baler_core::formats::tar;
+use baler_core::ops::install::InstallRequest;
 use baler_core::ops::{install, remove};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -76,6 +77,24 @@ impl Drop for BalerLibGuard {
     }
 }
 
+/// Builds the `--path <dir>` shape of an install request — every
+/// install in this file is from a local directory, nothing here
+/// exercises --git/--url/registry lookups.
+fn install_from_path(path: &str) -> InstallRequest {
+    InstallRequest {
+        source: None,
+        repo: None,
+        version: None,
+        path: Some(path.to_owned()),
+        git: None,
+        branch: None,
+        tag: None,
+        rev: None,
+        url: None,
+        module_dir: None,
+    }
+}
+
 /// Sanity check that the fixture is actually present before trusting any
 /// other test's results, if this fails, the other tests here are
 /// meaningless, not passing-by-accident.
@@ -130,7 +149,8 @@ fn convert_proj_installs_via_baler_install_run() {
     // install_deps = false → dependency install stays a dry run, so this
     // never touches the network regardless of what convert-proj declares
     // under [project.dependencies].
-    install::run(dir.to_str().unwrap(), false, None).expect("installing convert-proj should succeed");
+    let req = install_from_path(dir.to_str().unwrap());
+    install::run(req, false).expect("installing convert-proj should succeed");
 
     let module_dir = lib.path().join(&toml.project.name);
     assert!(module_dir.join("__init__.R").is_file());
