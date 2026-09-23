@@ -1,8 +1,8 @@
-# Contributing to carrier
+# Contributing to {baler}
 
 ## Building
 
-You need to know that `carrier` pins its toolchain via `rust-toolchain.toml`, so a plain `cargo build` uses the right stable toolchain automatically.
+First, you need to know that `{baler}` pins its toolchain via `rust-toolchain.toml`, so a plain `cargo build` uses the right stable toolchain automatically.
 
 ``` bash
 cargo build --workspace
@@ -12,19 +12,19 @@ cargo test --workspace
 Enable the GitHub-install path while working on it:
 
 ``` bash
-cargo build --workspace --features carrier-core/network
+cargo build --workspace --features baler-core/network
 ```
 
 ## Ways to contribute
 
 This section also explains the structure where the things live. 
 
-- Add a new CLI surface under `crates/carrier/src/commands/`. Keep it a thin wrapper that parses arguments and calls into `carrier-core`.
-- Put the actual logic in `crates/carrier-core/src/ops/`, which also mirrors the command name.
-- Anything that touches CRAN goes in `crates/carrier-core/src/cran/`.
-- Archive read/write (`.tar.gz`, `.rmbx`) goes in `crates/carrier-core/src/formats/`.
+- Add a new CLI surface under `crates/baler/src/commands/`. Keep it a thin wrapper that parses arguments and calls into `baler-core`.
+- Put the actual logic in `crates/baler-core/src/ops/`, which also mirrors the command name.
+- Anything that touches CRAN goes in `crates/baler-core/src/cran/`.
+- Archive read/write goes in `crates/baler-core/src/formats/`.
 
-This split exists so `carrier-core` stays usable outside the CLI. Don't reach into `clap` types from inside `ops/`.
+This split exists so `baler-core` stays usable outside the CLI. Don't reach into `clap` types from inside `ops/`.
 
 ## Docs
 
