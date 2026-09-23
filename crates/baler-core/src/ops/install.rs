@@ -10,41 +10,29 @@ pub use github::GitHubFetcher;
 use archive::{install_from_dir, install_from_registry, install_from_tar};
 use github::install_from_github;
 
-/// Everything `install` needs, already checked for mutual exclusivity
-/// at the CLI layer (see baler-cli's clap `conflicts_with`/`requires`
-/// wiring). This module re-checks the combinations that matter for
-/// correctness anyway, not just argument wiring, since a library
-/// caller (or a test) can build this directly without going through
-/// clap at all.
+/// Everything `install` needs. This mirrors CLI mutual-exclusivity, but
+/// re-checked here since a library caller can build this without clap.
 pub struct InstallRequest {
-    /// A bare module name for a registry lookup — nothing else.
-    /// Mirrors `cargo install <crate>` / `pip install <pkg>` exactly:
-    /// the positional never means a local path here, `--path` does.
+    /// A bare registry name, a local path (any of `./x`, `../x`, an
+    /// absolute path, a separator, or a `.tar.gz`), or `gh:user/repo`.
+    /// Judged by appearance only. `--path`/`--git` are explicit alternatives.
     pub source: Option<String>,
-    /// Registry URL for a bare-name lookup (registries aren't
-    /// implemented yet). Only meaningful with `source`.
+    /// Registry URL for a bare-name lookup (not implemented yet).
     pub repo: Option<String>,
-    /// Version constraint for a bare-name lookup. Only meaningful
-    /// with `source`.
+    /// Version constraint for a bare-name lookup.
     pub version: Option<String>,
-    /// Local directory or .tar.gz. Mirrors `cargo install --path`.
+    /// Local directory or .tar.gz. This inspired by `cargo install --path`.
     pub path: Option<String>,
-    /// A GitHub repository URL, e.g. `https://github.com/user/repo`.
-    /// Named `--git` to match Cargo's flag, but the fetch underneath
-    /// (see github.rs) only speaks GitHub's tarball API, not generic
-    /// git — a GitLab or self-hosted URL will fail here today.
+    /// A GitHub repo URL. Fetches via GitHub's tarball API only, not
+    /// generic git. A GitLab/self-hosted URL won't work.
     pub git: Option<String>,
     pub branch: Option<String>,
     pub tag: Option<String>,
     pub rev: Option<String>,
     /// A direct tarball URL, e.g. a GitHub Release asset.
     pub url: Option<String>,
-    /// Directory within a `--git` repo that holds the module, for a
-    /// repo that holds more than one (mirrors rcalc's own src/
-    /// layout). Only meaningful with `git` — `--git`'s URL names a
-    /// whole repository, not one file, so it needs this to know where
-    /// inside that repo to look. `--url` names one exact artifact
-    /// directly, there's nothing to navigate, so it has no equivalent.
+    /// Subdir within a `--git` repo holding the module, for repos with
+    /// more than one. No equivalent for `--url`, which names one artifact.
     pub module_dir: Option<String>,
 }
 
@@ -70,6 +58,16 @@ pub fn run(req: InstallRequest, install_deps: bool) -> Result<()> {
             install_from_registry(&name, &repo, version.as_deref(), install_deps)
         }
     }
+}
+
+/// pip's `_looks_like_path` heuristic: appearance only, never the
+/// filesystem. Anything else is reserved for a future registry lookup.
+fn looks_like_local_path(s: &str) -> bool {
+    std::path::Path::new(s).is_absolute()
+        || s.starts_with("./") || s.starts_with(".\\")
+        || s.starts_with("../") || s.starts_with("..\\")
+        || s.contains('/') || s.contains('\\')
+        || s.ends_with(".tar.gz")
 }
 
 fn resolve_source(req: InstallRequest) -> Result<InstallSource> {
@@ -126,14 +124,53 @@ fn resolve_source(req: InstallRequest) -> Result<InstallSource> {
     }
 
     let s = req.source.expect("checked above: exactly one of source/path/git/url is set");
+
+    // `gh:user/repo` shorthand for --git; checked before the path sniff
+    // below since it also contains a `/`.
+    if let Some(rest) = s.strip_prefix("gh:") {
+        if req.repo.is_some() {
+            bail!("--repo doesn't apply to gh: sources, it's already a direct GitHub reference.");
+        }
+        let ref_count = [req.branch.is_some(), req.tag.is_some(), req.rev.is_some()]
+            .into_iter()
+            .filter(|set| *set)
+            .count();
+        if ref_count > 1 {
+            bail!("--branch, --tag, and --rev are mutually exclusive, pick one ref.");
+        }
+        let (user, repo) = rest
+            .split_once('/')
+            .filter(|(u, r)| !u.is_empty() && !r.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Expected gh:username/repo, got '{}'.", s))?;
+        let url = format!("https://github.com/{user}/{repo}");
+        let git_ref = req.branch.or(req.tag).or(req.rev);
+        return Ok(InstallSource::GitHub { url, module_dir: req.module_dir, git_ref });
+    }
+
+    // Local path, judged by appearance only (see looks_like_local_path).
+    if looks_like_local_path(&s) {
+        if req.repo.is_some() {
+            bail!("--repo doesn't apply to local paths.");
+        }
+        if req.branch.is_some() || req.tag.is_some() || req.rev.is_some() || req.module_dir.is_some() {
+            bail!("--branch/--tag/--rev/--module-dir only apply to --git, not a local path.");
+        }
+        let path = PathBuf::from(&s);
+        if path.is_dir() {
+            return Ok(InstallSource::Dir(path));
+        }
+        return match path.extension().and_then(|e| e.to_str()) {
+            Some("gz") if s.ends_with(".tar.gz") => Ok(InstallSource::Tar(path)),
+            _ => bail!("Expected a directory, .tar.gz, or gh:username/repo, got '{}'.", s),
+        };
+    }
+
     if req.branch.is_some() || req.tag.is_some() || req.rev.is_some() || req.module_dir.is_some() {
         bail!("--branch/--tag/--rev/--module-dir only apply to --git, not a registry name.");
     }
 
-    // Bare name: --repo is what turns this into a registry lookup.
-    // Without it, the name is still reserved, just not resolvable to
-    // anything yet, same as `cargo install <crate>` needing a
-    // registry (crates.io, by default) to actually mean something.
+    // Bare name: --repo turns it into a registry lookup; without it,
+    // the name is just reserved, not resolvable to anything yet.
     match req.repo {
         Some(repo_url) => Ok(InstallSource::Registry { name: s, repo: repo_url, version: req.version }),
         None => bail!(
