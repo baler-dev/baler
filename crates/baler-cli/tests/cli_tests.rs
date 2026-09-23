@@ -1,14 +1,9 @@
-//! Integration tests for the `baler` CLI binary itself. These spawn
-//! the actual compiled executable via `assert_cmd` rather than calling
-//! into baler-core's library functions directly, so they catch bugs
-//! that only show up in the clap wiring (flag names, kebab-case
-//! conversion, exit codes, required-arg handling) which unit-level tests
-//! against `commands::*::run()` can't see.
+//! Integration tests for the `baler` CLI binary. These spawn the
+//! actual compiled executable via `assert_cmd`, so they catch clap
+//! wiring bugs that unit tests against `commands::*::run()` can't.
 //!
 //! Each test spawns its own subprocess, so env vars set via `.env(...)`
-//! (e.g. BALER_LIB) are isolated per test with no risk of cross-test
-//! interference (no mutex needed here), unlike the BALER_LIB-mutating
-//! tests in baler-core's own test suite.
+//! are isolated per test, unlike baler-core's BALER_LIB-mutating tests.
 
 use assert_cmd::Command;
 use std::path::{Path, PathBuf};
@@ -28,8 +23,7 @@ impl Scratch {
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)
     }
-    /// Reserves a unique path without creating it, for dirs the CLI
-    /// itself is expected to create (e.g. `baler init`'s target dir).
+    /// Reserves a path without creating it, for dirs the CLI itself creates.
     fn reserved(label: &str) -> Self {
         Self(unique_dir(label))
     }
@@ -45,9 +39,7 @@ impl Drop for Scratch {
 
 fn baler_cmd() -> Command {
     let mut cmd = Command::cargo_bin("baler").expect("baler binary should be built by `cargo test`");
-    // Backtraces are opt-in noise on stderr that depends on the
-    // developer's shell environment (RUST_BACKTRACE) — strip it so
-    // stderr assertions are deterministic across machines and CI.
+    // Strip RUST_BACKTRACE so stderr assertions stay deterministic.
     cmd.env_remove("RUST_BACKTRACE");
     cmd
 }
@@ -74,10 +66,7 @@ fn help_flag_lists_all_subcommands() {
 fn no_subcommand_exits_nonzero_with_usage() {
     let assert = baler_cmd().assert().failure();
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    // Deliberately not asserting on the exact "Usage: baler" text — the
-    // binary name in that line varies by platform (baler vs
-    // baler.exe) and build config, so pin to structural content that's
-    // stable either way.
+    // Binary name varies by platform, so pin to stable structural content.
     assert!(stderr.contains("Commands:"), "stderr was:\n{stderr}");
     assert!(stderr.contains("install"), "stderr was:\n{stderr}");
 }
@@ -100,10 +89,7 @@ fn init_creates_expected_project_layout() {
 
 #[test]
 fn init_dir_name_flag_is_wired_to_clap_correctly() {
-    // Specifically checks the --dir-name flag (kebab-case on the CLI)
-    // actually reaches InitArgs.dir_name (snake_case in Rust) — a wiring
-    // bug here wouldn't be caught by testing commands::init::run() with
-    // a hand-built InitArgs directly.
+    // Checks --dir-name (kebab-case) reaches InitArgs.dir_name (snake_case).
     let target = Scratch::reserved("dir-name-wiring");
 
     baler_cmd()
@@ -157,7 +143,7 @@ fn install_then_remove_round_trip() {
 
     baler_cmd()
         .env("BALER_LIB", lib.path())
-        .args(["install", project.to_str().unwrap()])
+        .args(["install", "--path", project.to_str().unwrap()])
         .assert()
         .success();
 
@@ -178,14 +164,14 @@ fn install_on_nonexistent_source_fails_with_clear_error() {
     let bogus = unique_dir("install-bogus-source");
 
     let assert = baler_cmd()
-        .args(["install", bogus.to_str().unwrap()])
+        .args(["install", "--path", bogus.to_str().unwrap()])
         .assert()
         .failure()
         .code(1);
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
     assert!(
-        stderr.contains("Expected a directory, .tar.gz, or gh:username/repo"),
+        stderr.contains("--path expects a directory or a .tar.gz"),
         "stderr was:\n{stderr}"
     );
 }
@@ -218,16 +204,15 @@ fn remove_without_force_respects_declined_confirmation() {
 
     baler_cmd()
         .env("BALER_LIB", lib.path())
-        .args(["install", project.to_str().unwrap()])
+        .args(["install", "--path", project.to_str().unwrap()])
         .assert()
         .success();
 
     let module_dir = lib.path().join("mymod");
     assert!(module_dir.exists());
 
-    // No --force: the CLI should prompt on stdin. Answering "n" must
-    // decline the removal, leave the module installed, and still exit
-    // successfully (matches ops::remove::run's "Aborted." path).
+    // No --force: answering "n" to the stdin prompt should decline,
+    // leave the module installed, and still exit successfully.
     let assert = baler_cmd()
         .env("BALER_LIB", lib.path())
         .args(["remove", "mymod"])
@@ -242,13 +227,9 @@ fn remove_without_force_respects_declined_confirmation() {
 
 // ---- bare-name reservation (module registry conflict) ----
 //
-// A bare argument with no path separator and no leading `.` must never
-// match a same-named local directory, even when one exists in the CWD.
-// That name is reserved for a future module registry lookup, mirroring
-// pip's `_looks_like_path` behavior (judged by appearance only, never by
-// checking the filesystem). Local installs require an explicit signal:
-// `./name`, `../name`, an absolute path, or a recognized archive
-// extension.
+// The positional <name> is always a bare registry name. It's never
+// sniffed as a path, archive, or GitHub reference. Local and GitHub
+// installs always require the explicit --path or --git flag.
 
 #[test]
 fn install_bare_name_matching_local_dir_is_reserved_not_silently_installed() {
@@ -260,8 +241,7 @@ fn install_bare_name_matching_local_dir_is_reserved_not_silently_installed() {
         .assert()
         .success();
 
-    // Bare name, no ./ prefix, even though convert-proj/ genuinely exists
-    // right here in cwd — must NOT silently install it.
+    // convert-proj/ genuinely exists in cwd, but must NOT be silently installed.
     let assert = baler_cmd()
         .current_dir(cwd.path())
         .args(["install", "convert-proj"])
@@ -275,21 +255,21 @@ fn install_bare_name_matching_local_dir_is_reserved_not_silently_installed() {
 }
 
 #[test]
-fn install_explicit_relative_path_still_installs_local_dir() {
-    let cwd = Scratch::new("explicit-relative-cwd");
+fn install_path_flag_installs_local_dir() {
+    let cwd = Scratch::new("path-flag-dir-cwd");
     let project = cwd.path().join("convert-proj");
-    let lib = Scratch::reserved("explicit-relative-lib");
+    let lib = Scratch::reserved("path-flag-dir-lib");
 
     baler_cmd()
         .args(["init", "convert", "--dir-name", project.to_str().unwrap()])
         .assert()
         .success();
 
-    // Same directory as above, but with an explicit ./ signal this time.
+    // Same directory as the reservation test above, via --path this time.
     baler_cmd()
         .current_dir(cwd.path())
         .env("BALER_LIB", lib.path())
-        .args(["install", "./convert-proj"])
+        .args(["install", "--path", "convert-proj"])
         .assert()
         .success();
 
@@ -297,10 +277,10 @@ fn install_explicit_relative_path_still_installs_local_dir() {
 }
 
 #[test]
-fn install_bare_archive_filename_still_works_without_dot_slash() {
-    let cwd = Scratch::new("bare-archive-cwd");
+fn install_path_flag_accepts_bare_archive_filename() {
+    let cwd = Scratch::new("path-flag-archive-cwd");
     let project = cwd.path().join("mymod-proj");
-    let lib = Scratch::reserved("bare-archive-lib");
+    let lib = Scratch::reserved("path-flag-archive-lib");
 
     baler_cmd()
         .args(["init", "mymod", "--dir-name", project.to_str().unwrap()])
@@ -313,24 +293,21 @@ fn install_bare_archive_filename_still_works_without_dot_slash() {
         .assert()
         .success();
 
-    // A bare .tar.gz filename (no separator, no leading dot) must still
-    // work without needing ./ — the archive-extension escape hatch.
+    // --path never sniffs shape, so a bare filename needs no ./ prefix.
     baler_cmd()
         .current_dir(cwd.path())
         .env("BALER_LIB", lib.path())
-        .args(["install", "mymod_0.1.0.tar.gz"])
+        .args(["install", "--path", "mymod_0.1.0.tar.gz"])
         .assert()
         .success();
 
     assert!(lib.path().join("mymod").join("__init__.r").is_file());
 }
 
-// ── --repo scaffolding (no registry backend yet) ─────────────────────
+// ---- --repo scaffolding (no registry backend yet) ----
 //
-// The flag, arg threading, and mutual-exclusivity checks are real and
-// tested here even though there's no registry protocol to actually talk
-// to yet — install_from_registry's body is the one piece intentionally
-// left as a stub.
+// install_from_registry's body is the one piece left as a stub; the
+// flag wiring and mutual-exclusivity checks are real and tested here.
 
 #[test]
 fn install_bare_name_with_repo_hits_the_not_implemented_stub() {
@@ -347,20 +324,26 @@ fn install_bare_name_with_repo_hits_the_not_implemented_stub() {
 }
 
 #[test]
-fn install_repo_flag_rejected_with_gh_source() {
+fn install_repo_flag_rejected_with_git_flag() {
+    // --repo and --git conflict at the clap layer (lib.rs).
     let assert = baler_cmd()
-        .args(["install", "gh:someuser/somerepo", "--repo", "https://modules.example.com"])
+        .args([
+            "install",
+            "--git",
+            "https://github.com/someuser/somerepo",
+            "--repo",
+            "https://modules.example.com",
+        ])
         .assert()
-        .failure()
-        .code(1);
+        .failure();
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    assert!(stderr.contains("--repo doesn't apply to gh:"), "stderr was:\n{stderr}");
+    assert!(stderr.contains("cannot be used with"), "stderr was:\n{stderr}");
 }
 
 #[test]
-fn install_repo_flag_rejected_with_local_path_source() {
-    let cwd = Scratch::new("repo-flag-local-path-cwd");
+fn install_repo_flag_rejected_with_path_flag() {
+    let cwd = Scratch::new("repo-flag-path-flag-cwd");
     let project = cwd.path().join("mymod-proj");
 
     baler_cmd()
@@ -369,20 +352,17 @@ fn install_repo_flag_rejected_with_local_path_source() {
         .success();
 
     let assert = baler_cmd()
-        .args(["install", "./mymod-proj", "--repo", "https://modules.example.com"])
+        .args(["install", "--path", "./mymod-proj", "--repo", "https://modules.example.com"])
         .current_dir(cwd.path())
         .assert()
-        .failure()
-        .code(1);
+        .failure();
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    assert!(stderr.contains("--repo doesn't apply to local paths"), "stderr was:\n{stderr}");
+    assert!(stderr.contains("cannot be used with"), "stderr was:\n{stderr}");
 }
 
 #[test]
 fn install_bare_name_without_repo_still_gets_the_original_reserved_error() {
-    // Unchanged behavior from before --repo existed: no --repo means the
-    // bare name is still just reserved, not resolvable to anything.
     let assert = baler_cmd().args(["install", "somepkg"]).assert().failure().code(1);
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
