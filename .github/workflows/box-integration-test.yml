@@ -42,16 +42,18 @@ jobs:
             - name: "Install modules from examples/modules via baler"
               shell: bash
               run: |
+                  # The GitHub alternative also works
+                  # Two options are interchangeable
                   if [ "${{ runner.os }}" = "Windows" ]; then
-                      # ./target/release/baler.exe install --path examples/modules/convert-proj --install-deps
-                      ./target/release/baler.exe install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj --install-deps
-                      # ./target/release/baler.exe install --path examples/modules/rcalc --install-deps
-                      ./target/release/baler.exe install --git https://github.com/baler-dev/baler --module-dir examples/modules/rcalc --install-deps
+                      # ./target/release/baler.exe install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj --install-deps
+                      ./target/release/baler.exe install --path examples/modules/convert-proj --install-deps
+                      # ./target/release/baler.exe install --git https://github.com/baler-dev/baler --module-dir examples/modules/rcalc --install-deps
+                      ./target/release/baler.exe install --path examples/modules/rcalc --install-deps
                   else
-                      # ./target/release/baler install --path examples/modules/convert-proj --install-deps
-                      ./target/release/baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj --install-deps
-                      # ./target/release/baler install --path examples/modules/rcalc --install-deps
-                      ./target/release/baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/rcalc --install-deps
+                      # ./target/release/baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj --install-deps
+                      ./target/release/baler install --path examples/modules/convert-proj --install-deps
+                      # ./target/release/baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/rcalc --install-deps
+                      ./target/release/baler install --path examples/modules/rcalc --install-deps
                   fi
 
             - name: "Verify box::use() resolves the installed module"
