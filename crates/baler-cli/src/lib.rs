@@ -45,6 +45,7 @@ enum Commands {
     /// Bundle a module into <name>_<version>.tar.gz
     Bundle {
         /// Path to the project root (e.g. `.` or `./my-project`)
+        #[arg(default_value = ".")]
         path: String,
 
         /// Also compile native code in place and include the tagged
