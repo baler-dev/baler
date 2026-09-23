@@ -23,7 +23,7 @@ say("== Using the attached entire package ==")
 say("")
 say("-- `{convert}` under the alias `cv` --")
 
-say("cv$mass$convert_mass(5, \"oz\", \"g\")")
+say("cv$mass$convert_mass(1:5, \"oz\", \"g\")")
 print(cv$mass$convert_mass(1:5, "oz", "g"))
 
 say("")
@@ -36,7 +36,7 @@ say("")
 say("== Using submodules imported directly ==")
 
 say("")
-say("mass$convert_mass(5, \"oz\", \"g\")")
+say("mass$convert_mass(1:5, \"oz\", \"g\")")
 print(mass$convert_mass(1:5, "oz", "g"))
 
 say("")
