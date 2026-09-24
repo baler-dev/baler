@@ -60,7 +60,8 @@ box::use(./hook[dlls])
 #' @export
 fit = function(x, y) {
     stopifnot(length(x) == length(y))
-    ptr = .Call(getNativeSymbolInfo("cpp_spline_fit", PACKAGE = dlls$cpp), as.double(x), as.double(y))
+    # ptr = .Call(getNativeSymbolInfo("cpp_spline_fit", PACKAGE = dlls$cpp), as.double(x), as.double(y))
+    ptr = .Call("cpp_spline_fit", as.double(x), as.double(y))
     structure(list(ptr = ptr), class = "rcalc_spline")
 }
 
@@ -92,5 +93,6 @@ fit = function(x, y) {
 #' @export
 eval = function(spline, query) {
     stopifnot(inherits(spline, "rcalc_spline"))
-    .Call(getNativeSymbolInfo("cpp_spline_eval", PACKAGE = dlls$cpp), spline$ptr, as.double(query))
+    # .Call(getNativeSymbolInfo("cpp_spline_eval", PACKAGE = dlls$cpp), spline$ptr, as.double(query))
+    .Call("cpp_spline_eval", spline$ptr, as.double(query))
 }

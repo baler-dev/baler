@@ -11,7 +11,9 @@ dlls = NULL
     }
     names(files) = tools::file_path_sans_ext(basename(files))
     ns$dll_paths = files
-    ns$dlls = lapply(files, dyn.load)
+    # ns$dlls = lapply(files, dyn.load)
+    for (file in files)
+        dyn.load(file)
 }
 
 .on_unload = function(ns) {
