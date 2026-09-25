@@ -3,6 +3,7 @@ members = [
     "crates/baler-cli",
     "crates/baler-core",
     "crates/native-code-handler",
+    "xtask", 
 ]
 resolver = "2"
 
@@ -31,3 +32,4 @@ assert_cmd = "2"
 insta = "1"
 semver = "1"
 sha2 = "0.10"
+schemars = "0.8"
