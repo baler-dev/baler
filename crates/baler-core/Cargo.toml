@@ -6,6 +6,7 @@ description = "Core logic for baler — bundling, installing, and managing box m
 
 [features]
 network = []
+schema = ["dep:schemars"]
 
 [dependencies]
 anyhow.workspace = true
@@ -22,7 +23,9 @@ dirs.workspace = true
 reqwest.workspace = true
 tempfile.workspace = true
 semver.workspace = true
+schemars = { version = "0.8", optional = true }
 baler-native = { path = "../native-code-handler" }
 
 [dev-dependencies]
 insta.workspace = true
+jsonschema = "0.17"
