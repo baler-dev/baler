@@ -12,6 +12,7 @@ pub const DEFAULT_CRAN_MIRROR: &str = "https://cloud.r-project.org";
 // ---- Author ----
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum Author {
     Simple(String),
@@ -73,6 +74,7 @@ impl std::fmt::Display for Author {
 // ---- PackageDep ----
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum PackageDep {
     Simple(String),
@@ -100,6 +102,7 @@ impl PackageDep {
 // ---- ModuleDep ----
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum ModuleDep {
     Simple(String),
@@ -132,6 +135,7 @@ impl ModuleDep {
 /// `baler` cannot be declared as a bare key here, an accepted
 /// tradeoff for not needing a discriminant field on every entry.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Dependencies {
     #[serde(flatten)]
     pub packages: BTreeMap<String, PackageDep>,
@@ -145,6 +149,7 @@ pub struct Dependencies {
 /// `path = ["cpp/"]` just to satisfy a Vec-only field, and a module
 /// with several doesn't have to pick one arbitrarily.
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum NativePath {
     Single(String),
@@ -176,6 +181,7 @@ impl NativePath {
 /// `resolve_native_dirs()` scans the module's whole source tree for
 /// compiled-code dirs instead of assuming one is where it must live.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CompiledCode {
     pub path: Option<NativePath>,
     pub build_deps: Option<BTreeMap<String, PackageDep>>,
@@ -199,6 +205,7 @@ fn find_init_file(dir: &Path) -> Option<PathBuf> {
 // ---- BalerToml (For metadata file) ----
 
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct BalerToml {
     pub project: ModuleMeta,
     pub development: Option<Dependencies>,
@@ -208,6 +215,7 @@ pub struct BalerToml {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ModuleMeta {
     pub name: String,
     pub version: String,
@@ -245,11 +253,13 @@ impl ModuleMeta {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ToolConfig {
     pub test: Option<TestConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TestConfig {
     pub framework: String,
     pub dir: Option<String>,

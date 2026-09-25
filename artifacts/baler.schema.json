@@ -1,0 +1,284 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BalerToml",
+  "type": "object",
+  "required": [
+    "project"
+  ],
+  "properties": {
+    "compiled-code": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/CompiledCode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "development": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Dependencies"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "project": {
+      "$ref": "#/definitions/ModuleMeta"
+    },
+    "tool": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ToolConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "Author": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "orcid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "CompiledCode": {
+      "description": "Declares where a module's compiled code lives, and its build-time- only R package deps (e.g. `Rcpp`), whose headers a `Makevars` needs to find via `system.file()` before `R CMD SHLIB` can run.\n\n`path` is relative to the module's own source directory (whatever `resolve_src_dir()` resolves to), the same base `src` in `[project]` already uses, not the project root `baler.toml` lives in. `path = [\"cpp\", \"extra/src\"]` in a module's own `baler.toml` means exactly what it looks like: two dirs nested under that module's source tree.\n\n`path` is optional and exists purely as an override. When omitted, `resolve_native_dirs()` scans the module's whole source tree for compiled-code dirs instead of assuming one is where it must live.",
+      "type": "object",
+      "properties": {
+        "build_deps": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/definitions/PackageDep"
+          }
+        },
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/NativePath"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Dependencies": {
+      "description": "Shared shape for both `[project.dependencies]` and `[development]`. Plain keys are R packages, resolved off CRAN (or `repo`, if set). The `baler` key is reserved for box modules, told apart from a package entry by table membership rather than a `type`/`mode` field on each entry. This does mean an R package literally named `baler` cannot be declared as a bare key here, an accepted tradeoff for not needing a discriminant field on every entry.",
+      "type": "object",
+      "properties": {
+        "baler": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/definitions/ModuleDep"
+          }
+        }
+      }
+    },
+    "ModuleDep": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ModuleMeta": {
+      "type": "object",
+      "required": [
+        "authors",
+        "description",
+        "license",
+        "name",
+        "r_version",
+        "version"
+      ],
+      "properties": {
+        "authors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Author"
+          }
+        },
+        "dependencies": {
+          "default": {
+            "baler": null
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/Dependencies"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "keywords": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "license": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "r_version": {
+          "type": "string"
+        },
+        "readme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repository": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "src": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "NativePath": {
+      "description": "`[compiled-code].path` accepts either a single string or an array, so a module with one compiled-code dir doesn't have to write `path = [\"cpp/\"]` just to satisfy a Vec-only field, and a module with several doesn't have to pick one arbitrarily.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "PackageDep": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "repo": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "TestConfig": {
+      "type": "object",
+      "required": [
+        "framework"
+      ],
+      "properties": {
+        "dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "framework": {
+          "type": "string"
+        }
+      }
+    },
+    "ToolConfig": {
+      "type": "object",
+      "properties": {
+        "test": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TestConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
