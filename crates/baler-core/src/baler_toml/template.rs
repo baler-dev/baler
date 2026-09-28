@@ -1,165 +1,93 @@
-use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use baler_native::{Backend, NativeLang};
 
-pub const DEFAULT_CRAN_MIRROR: &str = "https://cloud.r-project.org";
+use super::BalerToml;
 
-// ---- PackageDep ----
+impl BalerToml {
+    /// `native` is `Some((lang, backend))` when `baler init` was run
+    /// with `--native`. When it's `None`, the generated `baler.toml`
+    /// has no `[compiled-code]` section at all, not even a commented
+    /// placeholder, someone not working with native code shouldn't
+    /// see a block about it in a file they just scaffolded. `path`
+    /// inside that section is written relative to the module's own
+    /// source directory, matching how `resolve_native_dirs()` resolves
+    /// it, not the project root.
+    pub fn default_template(name: &str, native: Option<(NativeLang, Option<Backend>)>) -> String {
+        let mut out = format!(
+            r#"[project]
+name = "{name}"
+version = "0.1.0"
+description = ""
+authors = [
+    {{ name = "Your Name", email = "you@example.com" }},
+]
+license = "Unknown"
+r_version = ">=4.0.0"
+repository = ""
+keywords = []
+# readme = "README.md"
+# src = "{name}"    # path to the source directory containing __init__.R
+                    # defaults to a directory named after the module
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(untagged)]
-pub enum PackageDep {
-    Simple(String),
-    Extended { version: String, repo: Option<String> },
-}
+[dependencies]
+# dplyr = "*"
+# ggplot2 = ">=3.4.0"
+# fable = {{ version = "*", repo = "https://tidyverts.r-universe.dev/" }}
 
-impl PackageDep {
-    pub fn version(&self) -> &str {
-        match self {
-            PackageDep::Simple(v) => v,
-            PackageDep::Extended { version, .. } => version,
+[dependencies.baler]
+# A module needs a source: `git` (a github.com repo) or `url` (a
+# bundled .tar.gz). `git` can take one of branch/tag/rev, and
+# module_dir for a repo holding more than one module. `version` is
+# optional.
+# other_module = {{ git = "https://github.com/user/repo", tag = "v1.0.0" }}
+
+# [extras]/[extras.baler] hold deps only needed outside normal
+# runtime use (tests, mocks, dev tooling), same shape as
+# [dependencies]/[dependencies.baler] above. [extras.external] adds
+# one more kind found only here: external CLI tools, never loaded by
+# box, so never part of [dependencies] at all.
+[extras]
+# testthat = "*"
+
+[extras.baler]
+# mock_module = {{ git = "https://github.com/user/repo" }}
+
+[extras.external]
+# baler doesn't install these, only checks for them. A bare string is
+# a version spec; an inline table can carry whatever else that
+# particular tool needs, since baler itself only reads `version`.
+# quarto = ">=1.4"
+"#
+        );
+
+        if let Some((lang, backend)) = native {
+            let build_deps_line = match lang {
+                NativeLang::Cpp => match backend.unwrap_or_default() {
+                    Backend::Rcpp => "build_deps = { Rcpp = \"*\" }",
+                    Backend::Cpp11 => "build_deps = { cpp11 = \"*\" }",
+                },
+                _ => "# build_deps = { Rcpp = \"*\" }",
+            };
+            out.push_str(&format!(
+                "\n[compiled-code]\n\
+                 # Native code is auto-detected under this module's source dir, no\n\
+                 # path needed for the default src/ layout. Only set path if compiled\n\
+                 # code lives somewhere else, or in more than one place.\n\
+                 # path = \"native/\"\n\
+                 # path can also be an array: path = [\"native/\", \"extra/src\"]\n\
+                 {build_deps_line}\n\
+                 # build_deps is resolved and installed before compiling.\n\
+                 # Does not imply a runtime dependency; list it in\n\
+                 # [dependencies] too if the compiled code also needs it\n\
+                 # loaded at runtime\n"
+            ));
         }
+
+        out.push_str(
+            "\n# [tool.test]\n\
+             # framework = \"testthat\"\n\
+             # dir = \"tests\"\n"
+        );
+
+        out
     }
-
-    pub fn repo(&self) -> &str {
-        match self {
-            PackageDep::Simple(_) => DEFAULT_CRAN_MIRROR,
-            PackageDep::Extended { repo, .. } => {
-                repo.as_deref().unwrap_or(DEFAULT_CRAN_MIRROR)
-            }
-        }
-    }
-}
-
-// ---- ModuleDep ----
-
-/// A `[dependencies.baler]` entry. A bare string is only a version
-/// constraint, which would mean a registry lookup (not implemented
-/// yet). The table form names where the module comes from, using the
-/// same keys `baler install` takes as flags.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(untagged)]
-pub enum ModuleDep {
-    Simple(String),
-    Extended(ModuleDepSpec),
-}
-
-/// The table form of a module dependency. Unknown keys are rejected
-/// rather than silently dropped, so a misspelled `tag` fails loudly.
-/// Which keys may combine is checked by `ModuleDep::source()`.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(deny_unknown_fields)]
-pub struct ModuleDepSpec {
-    /// Optional, defaults to `"*"`. Still checked against the fetched
-    /// module's own `baler.toml` version.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    /// A github.com repository URL.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub git: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rev: Option<String>,
-    /// Directory inside the `git` repo that holds the module.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module_dir: Option<String>,
-    /// A direct link to an already-bundled `.tar.gz`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-/// Where a module dependency is fetched from, after `ModuleDepSpec`'s
-/// keys have been checked against each other. `branch`, `tag`, and
-/// `rev` all end up as one `git_ref`, since a GitHub tarball request
-/// treats them the same way.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModuleSource {
-    Git { url: String, git_ref: Option<String>, module_dir: Option<String> },
-    Url(String),
-}
-
-impl std::fmt::Display for ModuleSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ModuleSource::Git { url, git_ref, module_dir } => {
-                write!(f, "{url}")?;
-                if let Some(r) = git_ref { write!(f, "@{r}")?; }
-                if let Some(d) = module_dir { write!(f, " ({d})")?; }
-                Ok(())
-            }
-            ModuleSource::Url(u) => write!(f, "{u}"),
-        }
-    }
-}
-
-impl ModuleDep {
-    pub fn version(&self) -> &str {
-        match self {
-            ModuleDep::Simple(v) => v,
-            ModuleDep::Extended(spec) => spec.version.as_deref().unwrap_or("*"),
-        }
-    }
-
-    /// `Ok(None)` means no source was declared (a bare version string,
-    /// or a table with only `version`). An error means the keys
-    /// contradict each other. These are the same rules `baler install`
-    /// applies to its flags.
-    pub fn source(&self) -> Result<Option<ModuleSource>> {
-        let ModuleDep::Extended(s) = self else { return Ok(None) };
-
-        let ref_count = [&s.branch, &s.tag, &s.rev].iter().filter(|r| r.is_some()).count();
-        if ref_count > 1 {
-            bail!("`branch`, `tag`, and `rev` are mutually exclusive, pick one ref.");
-        }
-        let git_only_keys = ref_count > 0 || s.module_dir.is_some();
-
-        match (&s.git, &s.url) {
-            (Some(_), Some(_)) => {
-                bail!("`git` and `url` are mutually exclusive, a module comes from one place.")
-            }
-            (Some(url), None) => Ok(Some(ModuleSource::Git {
-                url: url.clone(),
-                git_ref: s.branch.clone().or_else(|| s.tag.clone()).or_else(|| s.rev.clone()),
-                module_dir: s.module_dir.clone(),
-            })),
-            (None, Some(url)) => {
-                if git_only_keys {
-                    bail!("`branch`, `tag`, `rev`, and `module_dir` only apply to `git`, not `url`.");
-                }
-                Ok(Some(ModuleSource::Url(url.clone())))
-            }
-            (None, None) => {
-                if git_only_keys {
-                    bail!("`branch`, `tag`, `rev`, and `module_dir` need a `git` source to apply to.");
-                }
-                Ok(None)
-            }
-        }
-    }
-}
-
-// ---- Dependencies ----
-
-/// Shape of `[dependencies]`: only things `{box}` actually loads at
-/// runtime, meaning R packages and other box modules. Plain keys are R
-/// packages, resolved off CRAN (or `repo`, if set); `baler` is box
-/// modules, told apart from a package entry by table membership
-/// rather than a `type`/`mode` field on each entry (an R package
-/// literally named `baler` therefore can't be a bare key here, an
-/// accepted tradeoff). An external tool (a linter, Quarto) is never
-/// loaded by `box`, so it has no place in this table at all. See
-/// `Extras::external` (in `extras.rs`), which is where it belongs
-/// instead.
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct Dependencies {
-    #[serde(flatten)]
-    pub packages: BTreeMap<String, PackageDep>,
-    pub baler: Option<BTreeMap<String, ModuleDep>>,
 }
