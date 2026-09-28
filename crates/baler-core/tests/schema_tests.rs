@@ -54,7 +54,7 @@ ggplot2 = { version = ">=3.4.0" }
 
 [dependencies.baler]
 other_module = "1.0"
-another_module = { version = "^2.0", source = "https://github.com/user/repo" }
+another_module = { version = "^2.0", git = "https://github.com/user/repo" }
 
 [compiled-code]
 path = ["cpp", "extra/src"]
