@@ -48,9 +48,9 @@ pub fn run(path: &str, update: bool, with_r_version: bool, remove: bool) -> Resu
 
     let existing = if update { None } else { lockfile::read(project_root)? };
 
-    let package_deps = (!toml.project.dependencies.packages.is_empty())
-        .then(|| toml.project.dependencies.packages.clone());
-    let module_deps = toml.project.dependencies.baler.clone();
+    let package_deps = (!toml.dependencies.packages.is_empty())
+        .then(|| toml.dependencies.packages.clone());
+    let module_deps = toml.dependencies.baler.clone();
     let plan = resolve::resolve(&package_deps, &module_deps)?;
     let resolved = resolve::resolve_only(&plan, existing.as_ref())?;
 
