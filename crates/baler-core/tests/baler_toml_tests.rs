@@ -218,12 +218,10 @@ fn default_template_contains_module_name_and_parses_as_toml() {
 }
 
 #[test]
-fn default_template_none_leaves_native_block_fully_commented() {
-    let template = BalerToml::default_template("mymod", None);
-    assert!(template.contains("# path = \"native/\""));
-    assert!(template.contains("# build_deps = { Rcpp = \"*\" }"));
-    assert!(!template.lines().any(|l| l.trim_start().starts_with("path =")));
-    assert!(!template.lines().any(|l| l.trim_start().starts_with("build_deps =")));
+fn default_template_none_omits_compiled_code() {
+    let template = BalerToml::default_template("demo", None);
+    assert!(!template.contains("[compiled-code]"));
+    assert!(!template.contains("build_deps"));
 }
 
 #[test]
