@@ -6,4 +6,4 @@ pub mod resolve;
 pub mod lock;
 pub mod module_graph;
 pub mod compile;
-pud mod external_tools;
+pub mod external_tools;
