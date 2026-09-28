@@ -1,3 +1,4 @@
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -33,26 +34,112 @@ impl PackageDep {
 
 // ---- ModuleDep ----
 
+/// A `[dependencies.baler]` entry. A bare string is only a version
+/// constraint, which would mean a registry lookup (not implemented
+/// yet). The table form names where the module comes from, using the
+/// same keys `baler install` takes as flags.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum ModuleDep {
     Simple(String),
-    Extended { version: String, source: Option<String> },
+    Extended(ModuleDepSpec),
+}
+
+/// The table form of a module dependency. Unknown keys are rejected
+/// rather than silently dropped, so a misspelled `tag` fails loudly.
+/// Which keys may combine is checked by `ModuleDep::source()`.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct ModuleDepSpec {
+    /// Optional, defaults to `"*"`. Still checked against the fetched
+    /// module's own `baler.toml` version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// A github.com repository URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
+    /// Directory inside the `git` repo that holds the module.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_dir: Option<String>,
+    /// A direct link to an already-bundled `.tar.gz`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// Where a module dependency is fetched from, after `ModuleDepSpec`'s
+/// keys have been checked against each other. `branch`, `tag`, and
+/// `rev` all end up as one `git_ref`, since a GitHub tarball request
+/// treats them the same way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModuleSource {
+    Git { url: String, git_ref: Option<String>, module_dir: Option<String> },
+    Url(String),
+}
+
+impl std::fmt::Display for ModuleSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModuleSource::Git { url, git_ref, module_dir } => {
+                write!(f, "{url}")?;
+                if let Some(r) = git_ref { write!(f, "@{r}")?; }
+                if let Some(d) = module_dir { write!(f, " ({d})")?; }
+                Ok(())
+            }
+            ModuleSource::Url(u) => write!(f, "{u}"),
+        }
+    }
 }
 
 impl ModuleDep {
     pub fn version(&self) -> &str {
         match self {
             ModuleDep::Simple(v) => v,
-            ModuleDep::Extended { version, .. } => version,
+            ModuleDep::Extended(spec) => spec.version.as_deref().unwrap_or("*"),
         }
     }
 
-    pub fn source(&self) -> Option<&str> {
-        match self {
-            ModuleDep::Simple(_) => None,
-            ModuleDep::Extended { source, .. } => source.as_deref(),
+    /// `Ok(None)` means no source was declared (a bare version string,
+    /// or a table with only `version`). An error means the keys
+    /// contradict each other. These are the same rules `baler install`
+    /// applies to its flags.
+    pub fn source(&self) -> Result<Option<ModuleSource>> {
+        let ModuleDep::Extended(s) = self else { return Ok(None) };
+
+        let ref_count = [&s.branch, &s.tag, &s.rev].iter().filter(|r| r.is_some()).count();
+        if ref_count > 1 {
+            bail!("`branch`, `tag`, and `rev` are mutually exclusive, pick one ref.");
+        }
+        let git_only_keys = ref_count > 0 || s.module_dir.is_some();
+
+        match (&s.git, &s.url) {
+            (Some(_), Some(_)) => {
+                bail!("`git` and `url` are mutually exclusive, a module comes from one place.")
+            }
+            (Some(url), None) => Ok(Some(ModuleSource::Git {
+                url: url.clone(),
+                git_ref: s.branch.clone().or_else(|| s.tag.clone()).or_else(|| s.rev.clone()),
+                module_dir: s.module_dir.clone(),
+            })),
+            (None, Some(url)) => {
+                if git_only_keys {
+                    bail!("`branch`, `tag`, `rev`, and `module_dir` only apply to `git`, not `url`.");
+                }
+                Ok(Some(ModuleSource::Url(url.clone())))
+            }
+            (None, None) => {
+                if git_only_keys {
+                    bail!("`branch`, `tag`, `rev`, and `module_dir` need a `git` source to apply to.");
+                }
+                Ok(None)
+            }
         }
     }
 }
