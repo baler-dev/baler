@@ -23,13 +23,13 @@ r_version = ">=4.0.0"
 
 #[test]
 fn accepts_bare_string_module_dep() {
-    let toml_str = format!("{BASE}\n[project.dependencies.baler]\nother_module = \"1.0\"");
+    let toml_str = format!("{BASE}\n[dependencies.baler]\nother_module = \"1.0\"");
     assert!(validates(&toml_str), "bare string ModuleDep should validate");
 }
 
 #[test]
 fn rejects_baler_named_package() {
-    let toml_str = format!("{BASE}\n[project.dependencies]\nbaler = \"1.0\"");
+    let toml_str = format!("{BASE}\n[dependencies]\nbaler = \"1.0\"");
     assert!(!validates(&toml_str), "a package literally named baler must not validate");
 }
 
@@ -48,11 +48,11 @@ license = "MIT"
 r_version = ">=4.0.0"
 keywords = ["stats"]
 
-[project.dependencies]
+[dependencies]
 dplyr = "*"
 ggplot2 = { version = ">=3.4.0" }
 
-[project.dependencies.baler]
+[dependencies.baler]
 other_module = "1.0"
 another_module = { version = "^2.0", source = "https://github.com/user/repo" }
 

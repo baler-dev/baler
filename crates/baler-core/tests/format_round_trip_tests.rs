@@ -63,7 +63,7 @@ authors = [
 license = "MIT"
 r_version = "4.0.0"
 
-[project.dependencies]
+[dependencies]
 dplyr = "*"
 
 [tool.test]
@@ -121,7 +121,7 @@ fn tar_bundle_and_unpack_round_trip() {
     let toml_text = std::fs::read_to_string(dist_info.join("baler.toml")).unwrap();
     let read_back: BalerToml = ::toml::from_str(&toml_text).unwrap();
     assert_eq!(read_back.project.name, "mymod");
-    assert!(read_back.project.dependencies.packages.contains_key("dplyr"));
+    assert!(read_back.dependencies.packages.contains_key("dplyr"));
 
     let lock_text = std::fs::read_to_string(dist_info.join("baler.lock")).unwrap();
     let locked: BalerLock = ::toml::from_str(&lock_text).unwrap();
@@ -142,7 +142,7 @@ fn tar_read_toml_reads_embedded_baler_toml() {
     assert_eq!(toml.project.name, "readback");
     assert_eq!(toml.project.version, "0.1.0");
     assert_eq!(toml.project.license, "MIT");
-    assert!(toml.project.dependencies.packages.contains_key("dplyr"));
+    assert!(toml.dependencies.packages.contains_key("dplyr"));
 
     let test_cfg = toml.tool.and_then(|t| t.test)
         .expect("test config should survive the round trip");

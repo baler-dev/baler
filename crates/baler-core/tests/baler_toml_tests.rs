@@ -41,7 +41,6 @@ fn module_meta(name: &str, src: Option<&str>) -> ModuleMeta {
         repository: None,
         keywords: Vec::new(),
         src: src.map(|s| s.to_owned()),
-        dependencies: Dependencies::default(),
     }
 }
 
@@ -134,7 +133,8 @@ fn resolve_src_dir_defaults_to_module_name() {
 
     let toml = BalerToml {
         project: module_meta("mymod", None),
-        development: None,
+        dependencies: Dependencies::default(),
+        extras: None,
         compiled_code: None,
         tool: None,
     };
@@ -148,7 +148,8 @@ fn resolve_src_dir_errors_when_default_dir_missing() {
     let scratch = TempScratchDir::new("missing-default");
     let toml = BalerToml {
         project: module_meta("mymod", None),
-        development: None,
+        dependencies: Dependencies::default(),
+        extras: None,
         compiled_code: None,
         tool: None,
     };
@@ -164,7 +165,8 @@ fn resolve_src_dir_errors_when_init_r_missing() {
 
     let toml = BalerToml {
         project: module_meta("mymod", None),
-        development: None,
+        dependencies: Dependencies::default(),
+        extras: None,
         compiled_code: None,
         tool: None,
     };
@@ -182,7 +184,8 @@ fn resolve_src_dir_uses_explicit_src_override() {
 
     let toml = BalerToml {
         project: module_meta("mymod", Some("custom_source")),
-        development: None,
+        dependencies: Dependencies::default(),
+        extras: None,
         compiled_code: None,
         tool: None,
     };
@@ -196,7 +199,8 @@ fn resolve_src_dir_errors_when_explicit_src_not_a_directory() {
     let scratch = TempScratchDir::new("explicit-src-not-dir");
     let toml = BalerToml {
         project: module_meta("mymod", Some("does_not_exist")),
-        development: None,
+        dependencies: Dependencies::default(),
+        extras: None,
         compiled_code: None,
         tool: None,
     };
