@@ -1,4 +1,4 @@
-# box::use(./hook[dlls])
+box::use(./hook[dlls])
 
 #' @export
 brentq = function(f, lower, upper, xtol = 1e-12, rtol = 1e-15, maxiter = 100) {
