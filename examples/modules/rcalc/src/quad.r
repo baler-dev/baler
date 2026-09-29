@@ -1,5 +1,4 @@
-#' @export
-box::use(./hook[dlls])
+# box::use(./hook[dlls])
 
 #' @export
 quad = function(f, lower, upper, tol = 1e-8, max_depth = 50) {
