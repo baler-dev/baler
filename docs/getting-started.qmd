@@ -48,7 +48,7 @@ Now, if you plan to attach the namespace under `{rmod}` module after installing 
 box::use(
     rmod, 
     rmod[add, hello_world], 
-    # You can access the submodule under rmod
+    # You can attach the submodule under rmod through ff
     rmod/add, 
     rmod/hello, 
 )
@@ -62,8 +62,6 @@ This step is similar to `R CMD build` command or `devtools::build()`, so this wo
 baler bundle .
 #> Bundled 'rmod' (0.1.0) -> /path/to/rmod_0.1.0.tar.gz
 ```
-
-<!-- Pass `--rmbx` to produce a `.rmbx` archive instead of `.tar.gz`. Either way, the archive embeds a `manifest.json` built from `baler.toml` (see [Architecture](internals/architecture.qmd) for what goes into it). -->
 
 ## 4. Install it
 
@@ -87,7 +85,7 @@ This is your typical package installation step. There are few ways to install th
     baler install gh:username/path/to/rmod-proj
     ```
 
-Installing prints where the module landed and the dependency plan baler worked out from `[package_deps]` / `[module_deps]`:
+Installing prints where the module landed and the dependency plan baler worked out from `[dependencies]` / `[dependencies.baler]`:
 
 ```
 Installed 'rmod' (0.1.0) -> ~/.baler/modules/rmod
