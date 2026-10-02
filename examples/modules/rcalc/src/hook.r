@@ -1,7 +1,7 @@
 box::use(Rcpp[...])
 
-#' @export
-dlls = NULL
+# #' @export
+# dlls = NULL
 
 .on_load = function(ns) {
     lib_dir = box::file(".lib")
@@ -11,9 +11,9 @@ dlls = NULL
     }
     names(files) = tools::file_path_sans_ext(basename(files))
     ns$dll_paths = files
-    # ns$dlls = lapply(files, dyn.load)
-    for (file in files)
-        dyn.load(file)
+    ns$dlls = lapply(files, dyn.load)
+    # for (file in files)
+    #     dyn.load(file)
 }
 
 .on_unload = function(ns) {
