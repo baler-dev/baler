@@ -36,11 +36,7 @@ pub fn run(path: &str, update: bool, with_r_version: bool, remove: bool) -> Resu
         return Ok(());
     }
 
-    let toml_path = project_root.join("baler.toml");
-    let contents = std::fs::read_to_string(&toml_path)
-        .with_context(|| format!("Failed to read {}", toml_path.display()))?;
-    let toml: BalerToml = ::toml::from_str(&contents)
-        .with_context(|| format!("Failed to parse {}", toml_path.display()))?;
+    let toml = BalerToml::from_dir(project_root)?;
 
     let r_spec = toml.project.r_version_spec()?;
     crate::version::check_r_version(&r_spec)?;
