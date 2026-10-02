@@ -76,6 +76,8 @@ impl BalerToml {
             .with_context(|| format!("Invalid `version` in {}", toml_path.display()))?;
         parsed.validate_module_deps()
             .with_context(|| format!("Invalid dependency in {}", toml_path.display()))?;
+        parsed.validate_external_tools()
+            .with_context(|| format!("Invalid external tool in {}", toml_path.display()))?;
         Ok(parsed)
     }
 
@@ -90,6 +92,21 @@ impl BalerToml {
         for (name, dep) in tables.into_iter().flatten().flatten() {
             dep.source()
                 .with_context(|| format!("Module dependency '{name}'"))?;
+        }
+        Ok(())
+    }
+
+    /// An `[extras.external]` key is looked up as a command name on
+    /// PATH, so it must be a bare name. A path separator would make
+    /// `Path::join` discard or escape the PATH directory it is joined to.
+    fn validate_external_tools(&self) -> Result<()> {
+        let Some(tools) = self.extras.as_ref().and_then(|e| e.external.as_ref()) else {
+            return Ok(());
+        };
+        for name in tools.keys() {
+            if name.is_empty() || name.contains(['/', '\\']) {
+                bail!("External tool '{name}' must be a bare command name, not a path.");
+            }
         }
         Ok(())
     }
