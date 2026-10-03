@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use ::tar::Archive as TarArchive;
-use crate::baler_toml::BalerToml;
+use crate::baler_toml::{BalerToml, ModuleSource};
 use crate::lockfile;
 use crate::ops::module_graph::ModuleFetcher;
 
@@ -27,13 +27,21 @@ fn parse_github_repo_url(url: &str) -> Result<(String, String)> {
     }
 }
 
+/// GitHub's tarball endpoint for a repo, at `git_ref` if given, else
+/// the default branch. Shared by `--git` installs and by
+/// `[dependencies.baler]` entries with a `git` key.
+#[cfg(feature = "network")]
+fn github_tarball_url(user: &str, repo: &str, git_ref: Option<&str>) -> String {
+    match git_ref {
+        Some(r) => format!("https://api.github.com/repos/{user}/{repo}/tarball/{r}"),
+        None => format!("https://api.github.com/repos/{user}/{repo}/tarball"),
+    }
+}
+
 #[cfg(feature = "network")]
 pub(super) fn install_from_github(url: &str, module_dir: Option<&str>, git_ref: Option<&str>, install_deps: bool) -> Result<()> {
     let (user, repo) = parse_github_repo_url(url)?;
-    let tarball_url = match git_ref {
-        Some(r) => format!("https://api.github.com/repos/{}/{}/tarball/{}", user, repo, r),
-        None => format!("https://api.github.com/repos/{}/{}/tarball", user, repo),
-    };
+    let tarball_url = github_tarball_url(&user, &repo, git_ref);
     match git_ref {
         Some(r) => println!("Fetching {}/{}@{}...", user, repo, r),
         None => println!("Fetching {}/{} (default branch)...", user, repo),
@@ -132,84 +140,59 @@ fn fetch_and_install(url: &str, module_dir: Option<&str>, install_deps: bool) ->
     install_from_tar(&output_path, install_deps, lock.as_ref())
 }
 
-/// A parsed `[project.dependencies.baler]` entry's `source`. Unlike
-/// `--git`/`--module-dir` at the CLI, this still parses an
-/// embedded `/tree/<ref>/<subpath>` out of one URL string, since
-/// that's the shape `baler.toml`'s own `source` field uses. A TOML
-/// string field is naturally single-valued; the CLI has room for a
-/// separate flag a config file doesn't. Two different conventions for
-/// two different contexts, not an inconsistency introduced by
-/// accident.
-fn parse_module_dep_source(source: &str) -> Result<(String, Option<String>, Option<String>)> {
-    let rest = source
-        .strip_prefix("https://github.com/")
-        .or_else(|| source.strip_prefix("http://github.com/"))
-        .ok_or_else(|| anyhow::anyhow!("Unsupported module source '{source}', only github.com URLs can be fetched right now."))?;
-
-    let mut parts = rest.splitn(2, '/');
-    let user = parts.next().filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("Invalid GitHub source '{source}'"))?;
-    let remainder = parts.next().unwrap_or("");
-    let mut repo_and_rest = remainder.splitn(2, '/');
-    let repo = repo_and_rest.next().filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("Invalid GitHub source '{source}'"))?;
-    let after_repo = repo_and_rest.next();
-
-    let (git_ref, subpath) = match after_repo {
-        Some(after) => match after.strip_prefix("tree/") {
-            Some(tree_rest) => {
-                let mut segments = tree_rest.splitn(2, '/');
-                let git_ref = segments.next().filter(|s| !s.is_empty()).map(str::to_owned);
-                let subpath = segments.next().filter(|s| !s.is_empty()).map(str::to_owned);
-                (git_ref, subpath)
-            }
-            None => (None, if after.is_empty() { None } else { Some(after.to_owned()) }),
-        },
-        None => (None, None),
-    };
-
-    let repo_url = format!("https://github.com/{user}/{repo}");
-    Ok((repo_url, subpath, git_ref))
-}
-
 /// The real ModuleFetcher used by resolve_transitive() outside of
-/// tests, for `[project.dependencies.baler]` entries whose `source`
-/// is a GitHub URL. Only understands github.com URLs today.
+/// tests, for `[dependencies.baler]` entries with a `git` or `url`
+/// key. `git` only understands github.com URLs today, same as
+/// `baler install --git`.
 #[cfg(feature = "network")]
 pub struct GitHubFetcher;
 
 #[cfg(feature = "network")]
 impl ModuleFetcher for GitHubFetcher {
-    fn fetch(&self, source: &str) -> Result<BalerToml> {
-        let (repo_url, subdir, git_ref) = parse_module_dep_source(source)?;
-        let (user, repo) = parse_github_repo_url(&repo_url)?;
-
-        let tarball_url = match &git_ref {
-            Some(r) => format!("https://api.github.com/repos/{}/{}/tarball/{}", user, repo, r),
-            None => format!("https://api.github.com/repos/{}/{}/tarball", user, repo),
-        };
-
+    fn fetch(&self, source: &ModuleSource) -> Result<BalerToml> {
         let tmp = TempDir::new().context("Failed to create temp directory")?;
-        let tarball_path = tmp.path().join("repo.tar.gz");
-        download_file(&tarball_url, &tarball_path)
-            .with_context(|| format!("Failed to download module source '{source}'"))?;
 
-        let extract_dir = tmp.path().join("extracted");
-        std::fs::create_dir_all(&extract_dir)
-            .context("Failed to create extraction directory")?;
-        extract_tarball(&tarball_path, &extract_dir)
-            .context("Failed to extract tarball")?;
+        match source {
+            ModuleSource::Git { url, git_ref, module_dir } => {
+                let (user, repo) = parse_github_repo_url(url)?;
+                let tarball_url = github_tarball_url(&user, &repo, git_ref.as_deref());
 
-        let extracted_root = find_single_subdir(&extract_dir)
-            .context("Could not find module directory in downloaded archive")?;
+                let tarball_path = tmp.path().join("repo.tar.gz");
+                download_file(&tarball_url, &tarball_path)
+                    .with_context(|| format!("Failed to download module source '{source}'"))?;
 
-        let project_root = match &subdir {
-            Some(sub) => extracted_root.join(sub),
-            None => extracted_root,
-        };
+                let extract_dir = tmp.path().join("extracted");
+                std::fs::create_dir_all(&extract_dir)
+                    .context("Failed to create extraction directory")?;
+                extract_tarball(&tarball_path, &extract_dir)
+                    .context("Failed to extract tarball")?;
 
-        BalerToml::from_dir(&project_root)
-            .with_context(|| format!("Module source '{source}' does not contain a valid baler.toml"))
+                let extracted_root = find_single_subdir(&extract_dir)
+                    .context("Could not find module directory in downloaded archive")?;
+
+                let project_root = match module_dir {
+                    Some(sub) => extracted_root.join(sub),
+                    None => extracted_root,
+                };
+
+                BalerToml::from_dir(&project_root).with_context(|| {
+                    format!("Module source '{source}' does not contain a valid baler.toml")
+                })
+            }
+            ModuleSource::Url(url) => {
+                if !url.ends_with(".tar.gz") {
+                    bail!("A module `url` must be a .tar.gz archive, got '{url}'.");
+                }
+
+                let tarball_path = tmp.path().join("module.tar.gz");
+                download_file(url, &tarball_path)
+                    .with_context(|| format!("Failed to download module source '{source}'"))?;
+
+                crate::formats::tar::read_toml(&tarball_path).with_context(|| {
+                    format!("Module source '{source}' does not contain a valid baler.toml")
+                })
+            }
+        }
     }
 }
 
@@ -218,7 +201,7 @@ pub struct GitHubFetcher;
 
 #[cfg(not(feature = "network"))]
 impl ModuleFetcher for GitHubFetcher {
-    fn fetch(&self, _source: &str) -> Result<BalerToml> {
+    fn fetch(&self, _source: &ModuleSource) -> Result<BalerToml> {
         bail!(
             "GitHub module fetching requires the 'network' feature.\n\
              Rebuild with: cargo build --features network"

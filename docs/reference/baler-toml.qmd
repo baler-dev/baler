@@ -2,71 +2,86 @@
 title: "baler.toml"
 ---
 
-When we compose a (re)usable codes to be shared as a library, one must contain a file that declares the metadata, including the info of the authors, the required version, and package dependencies the library used. Composing a `{box}`-`{baler}` module library requires one file: `baler.toml`. This metadata file sits at the root of a module project, one level above the source directory. It may contain up to five tables:
+A `{box}`-`{baler}` module needs one metadata file: `baler.toml`. It sits at the root of the module project, one level above the source directory, and declares identity, dependencies, and (optionally) compiled code. It can contain up to five tables:
 
 | Table | Required | Purpose |
 |--------------------|----------------------------|-------------------------|
-| `[module]` | yes | Module identity and source location |
-| `[package_deps]` | no | Runtime R package dependencies |
-| `[module_deps]` | no | Other baler modules this module depends on |
-| `[native]` | no | Location(s) of compiled code and build-time-only package deps |
-| `[test]` | no | Test framework configuration (currently advisory only) |
+| `[project]` | yes | Module identity and source location |
+| `[dependencies]` | no | Runtime R package and baler-module dependencies |
+| `[extras]` | no | Dev-only dependencies (test frameworks, mocks) and external tools (doc generators, linters) |
+| `[compiled-code]` | no | Location(s) of compiled code and build-time-only package deps |
+| `[tool.test]` | no | Test framework configuration (currently advisory only) |
 
-## `[module]`
+## `[project]`
 
-This block is always required. As what the table below said, this contains the info of the author of `{box}`-`{baler}` module library 
+This block defines the authorship of the module, and this block is always required. As what the table below said, this contains the info of the author of `{box}`-`{baler}` module library:
 
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `name` | string | yes | Module name. Also the default source-directory name when `src` is omitted. |
-| `version` | string | yes | Free-form version string. `baler bundle` embeds it verbatim in the archive filename. |
+| `version` | string | yes | Strict semver (`MAJOR.MINOR.PATCH`). Parsed when the file loads; a malformed version fails there, not later inside whoever depends on this module. Dependency ranges (`^`, `>=`, etc.) in another module's `[dependencies.baler]` entry resolve against it. |
 | `description` | string | yes | May be empty. |
 | `authors` | array | yes | See [Authors](#authors) below. |
 | `license` | string | yes | SPDX identifier or free-form text. |
-| `r_version` | string | yes | Declarative minimum R version (e.g. `">=4.0.0"`). See note below. |
-| `src` | string | no | Path to the source directory, relative to the project root. Defaults to a directory named exactly `name`. The chosen directory **must** contain `__init__.r` or `__init__.R`. |
+| `r_version` | string | yes | Minimum R version (e.g. `">=4.0.0"`). See note below. |
+| `readme` | string | no | Path to a README file. |
+| `repository` | string | no | |
+| `keywords` | array of strings | no | Defaults to empty. |
+| `src` | string | no | Path to the source directory, relative to the project root. Defaults to a directory named exactly `name`. The chosen directory *must* contain `__init__.r` or `__init__.R`. |
 
 ::: {.callout-note title="Technical Notes"}
--   `r_version` is recorded in the archive manifest but is *not* currently enforced against the R installation that runs `baler install` / `baler compile`.
--   Both `__init__.r` and `__init__.R` are accepted (case-insensitive entry-point detection). This matches `{box}`'s own behaviour. 
+-  `r_version` is enforced against the R installation on `PATH`, at both `baler install` and `baler lock` time. A mismatch fails loudly rather than letting a module load under an R it wasn't declared compatible with.
+
+-  Both `__init__.r` and `__init__.R` are accepted (case-insensitive entry-point detection). This matches `{box}` module's internal behaviour.
 :::
 
 ### Authors {#authors}
 
-The entry accepts either a single string, an array, a dictionary / hash table, or all of them in an array. Each entry is either a plain string or an inline table:
+Each entry is either a plain string or an inline table:
 
 ``` toml
 authors = [
     "Jane Doe",
-    { name = "Joshua Marie", email = "joshua.marie.k@gmail.com", url = "https://example.com", orcid = "0000-0000-0000-0000" },
+    { name = "Joshua Marie", email = "joshua.marie.k@gmail.com", url = "https://joshuamarie.com", orcid = "0000-0000-0000-0000" },
 ]
 ```
 
-When a table `{}` syntax is used, here are the entry fields to be declared: 
+Inline-table fields:
 
 | Field   | Required | Notes                               |
 |---------|----------|-------------------------------------|
 | `name`  | yes      | Display name                        |
-| `email` | no       |                                     |
+| `email` | no       |                                      |
 | `url`   | no       | Personal or organisational homepage |
 | `orcid` | no       | ORCID iD                            |
 
-## `[package_deps]`
+## `[dependencies]`
 
-If you write R packages before, this is just like `Imports` in R packages' `DESCRIPTION`. In this block, it maps an R package name to a version requirement. A value may be a bare string (CRAN, default mirror) or an inline table that also specifies a repository:
+Runtime dependencies, both R packages and other baler modules, live in the same top-level table (a sibling of `[project]`, not nested under it):
+
+- A bare key is an R package, resolved off CRAN (or a custom `repo`). This is the equivalent of `Imports` in an R package's `DESCRIPTION`.
+- A nested `[dependencies.baler]` table holds other baler modules this module depends on.
 
 ``` toml
-[package_deps]
+[dependencies]
 dplyr = "*"
 ggplot2 = ">=3.4.0"
 fable = { version = "*", repo = "https://tidyverts.r-universe.dev/" }
+
+[dependencies.baler]
+other_module = { git = "https://github.com/<user>/<repo>", tag = "v1.2.0" }
+utils = { git = "https://github.com/<user>/<repo>", branch = "main", module_dir = "utils" }
 ```
 
-When it is just a single string, not in a table `{}` syntax, the `repo` refers to the default mirror which is `https://cloud.r-project.org`.
+A bare string value works the same as a table with only `version` set: the `repo` used is the default mirror, `https://cloud.r-project.org`.
+
+::: {.callout-note title="Technical Notes"}
+Because module deps and package deps share one table, told apart by whether an entry sits under the reserved `baler` key rather than by any `type`/`mode` field, an R package literally named `baler` cannot be declared as a bare key here.
+:::
 
 ### Version-spec syntax
 
-The idea behind the declaration of the version takes from how `Cargo.toml` package dependencies version must be declared, and they are always in strings. The table below summarizes the syntax of the version declaration. 
+Version requirements follow `Cargo.toml`-style syntax, always written as strings:
 
 | Syntax              | Meaning                                  |
 |---------------------|------------------------------------------|
@@ -78,36 +93,66 @@ The idea behind the declaration of the version takes from how `Cargo.toml` packa
 
 CRAN version strings that use dashes (e.g. `4.0-3`) are normalised to dots before parsing.
 
-## `[module_deps]`
+### Module dependencies: `git` and `url`
 
-Maps another baler module to a version requirement, using the same version-spec syntax as `[package_deps]`. Unlike package dependencies, there is no default registry...yet. Every resolvable entry must therefore supply a `source`:
+A `[dependencies.baler]` entry names where the module comes from, using the same keys `baler install` takes as flags:
+
+| Field | Required | Notes |
+|---|---|---|
+| `version` | no | Constraint string, e.g. `"^1.0"`. Defaults to `"*"` when omitted. Still checked against the fetched module's own declared `version`. |
+| `git` | one of `git` / `url` | A `https://github.com/...` repository URL. Only `github.com` URLs are supported, the same as `baler install --git`. |
+| `branch`, `tag`, `rev` | no | At most one of these, and only together with `git`. Selects a specific ref to fetch. |
+| `module_dir` | no | Directory inside the `git` repo that holds the module, for a repo holding more than one. Only valid with `git`. |
+| `url` | one of `git` / `url` | A direct link to an already-bundled `.tar.gz`, e.g. a GitHub Release asset produced by `baler bundle`. |
 
 ``` toml
-[module_deps]
-other_module = { version = "*", source = "gh:user/repo" }
-# pin a tag / branch / commit and optional sub-directory:
-utils = { version = ">=0.2", source = "gh:user/repo/tree/v0.3.1/modules/utils" }
+[dependencies.baler]
+helpers = { git = "https://github.com/user/repo", tag = "v1.2.0", module_dir = "helpers" }
+tools = { url = "https://github.com/user/repo/releases/download/v1.0.0/tools_1.0.0.tar.gz" }
+core = "^2.0"    # bare string: registry lookup, not implemented yet
 ```
 
-`source` accepts the same forms as the `<source>` argument of `baler install` (currently `gh:user/repo` and the `/tree/<ref>/<subpath>` variant). See [CLI reference](cli.qmd#baler-install).
+Exactly one of `git` or `url` may be set. Setting both, or setting `branch`/`tag`/`rev`/`module_dir` without `git`, fails to load `baler.toml` immediately, before any resolution or fetch is attempted. Unknown keys (a typo such as `tga`) are rejected the same way, rather than being silently ignored.
 
-A bare-string form is accepted by the parser but cannot be resolved:
+A bare-string entry, or a table with only `version` set, parses fine but has no source to resolve against, since there's no default module registry yet:
 
 ``` toml
-[module_deps]
-other_module = "*"   # will fail at resolution time
+[dependencies.baler]
+other_module = "*"   # will fail at resolution time, no registry yet
 ```
 
-::: {.callout-note title="Technical Notes"}
-As of current version, an entry without a `source` (whether written as a bare string or as an inline table that omits the field) produces an explicit resolution error. There is deliberately no silent fallback. It has to have the source to be declared, since there's no default registry for `{box}`-`{baler}` modules, yet. 
-:::
+## Extra dependencies for development 
 
-## `[native]`
-
-Declares the location(s) of compiled code belonging to the module and any build-time-only R packages whose headers are needed by `Makevars` / `R CMD SHLIB` (most commonly `Rcpp` or `cpp11`).
+`[extras]`, by default, has the same shape as `[dependencies]`, bare keys for R packages, a nested `.baler` table for baler modules, except dependencies under this block are only needed during development (a test framework, a mock module), not at runtime. It also has one thing `[dependencies]` doesn't: `[extras.external]`, for non-R tools.
 
 ``` toml
-[native]
+[extras]
+testthat = "*"
+
+[extras.baler]
+mock_module = { git = "https://github.com/user/repo" }
+```
+
+### `[extras.external]`
+
+In this block, you can declares anything else a module or its development needs that isn't an R package or a box module, a system library, a non-R language package, a dataset, or whatsoever. There's no fixed category: baler doesn't fetch, install, or check for any of it. This table is purely declarative.
+
+``` toml
+[extras.external]
+quarto = ">=1.4"
+some_tool = { version = "*", config = ".sometoolrc" }
+```
+
+A bare string is just a version spec. An inline table can carry whatever extra fields that particular tool needs, since baler itself only ever reads `version`.
+
+`baler compile` and a `--path` install (installing straight from a project directory) check each declared tool for a matching binary on `PATH` and print a note for anything missing. This is informational only: it never fails the command, and it doesn't verify the declared version against what's actually installed, since there's no generic way to ask an arbitrary CLI for its version. A `--git`, `--url`, or registry install skips this check entirely, since those fetch something closer to a finished release than a project someone is actively developing.
+
+## Configuration for handling native compiled codes
+
+The `[compiled-code]` block is not always required, until there exist codes written in native languages which requires compilation. In this block, you only declare where a module's compiled code lives, and any build-time-only R packages whose headers `Makevars` / `R CMD SHLIB` needs (most commonly `Rcpp` or `cpp11`).
+
+``` toml
+[compiled-code]
 path = "cpp/"                 # single directory, relative to the module's source dir
 # path = ["cpp/", "extra/"]   # or an array, for multiple directories
 
@@ -116,37 +161,37 @@ build_deps = { Rcpp = "*" }   # installed before compilation; not a runtime depe
 
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
-| `path` | string or array of strings | between yes and no | Directory, or directories, containing native sources + `Makevars`. Relative to the module's own source directory (the same base used by `src`). A single location can be written as a plain string; more than one as an array. |
-| `build_deps` | table | no | Map of package name → version requirement (same syntax as `[package_deps]`). These packages are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[package_deps]` if the compiled code also needs them loaded at runtime. |
+| `path` | string or array of strings | no | Directory, or directories, containing native sources + `Makevars`. Relative to the module's own source directory (the same base `src` uses), not the project root `baler.toml` lives in. A single location can be written as a plain string; more than one as an array. |
+| `build_deps` | table | no | Map of package name -> version requirement (same syntax as `[dependencies]`). These are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[dependencies]` if the compiled code also needs them loaded at runtime. |
 
 ### Resolution rules
 
-1.  If `path` is set, those directories (relative to the module source dir) are used, whether it's written as a single string or an array.
-2.  Else, `{baler}` scans the whole module source tree for directories that contain a `Makevars` (or recognised C/C++ sources). This is the behaviour you get when the `[native]` table is omitted entirely.
+1.  If `path` is set, those directories (relative to the module's source dir) are used, whether written as a single string or an array. 
+2.  Otherwise, `{baler}` scans the whole module source tree for directories that contain a `Makevars` (or recognised C/C++ sources). This is the behaviour you get when `[compiled-code]` is omitted entirely. 
 
-The directory name itself is free (`c/`, `cpp/`, `fortran/`, `src/`, …). Detection is driven by the presence of build artefacts, not by a fixed folder name. See also the native-code scaffolding produced by `baler init --native`.
+The directory name itself is free (`c/`, `cpp/`, `fortran/`, `src/`, ...); detection is driven by the presence of build artefacts, not by a fixed folder name. See also the scaffolding produced by `baler init --native`.
 
 ::: {.callout-note title="Technical Notes"}
--   Fortran scaffolding is recognised by the language parser but is not yet supported by the build pipeline (`R CMD SHLIB` is only invoked for `.c`/`.cpp`/`.cc`/`.cxx` sources).
--   Compiled artefacts are placed in `<module>/.lib/` (next to `__init__.R`) so that `box::file()` resolves them correctly.
+-   FORTRAN scaffolding is recognised by the language parser but not yet supported by the build pipeline (`R CMD SHLIB` is only invoked for `.c`/`.cpp`/`.cc`/`.cxx` sources). 
+-   Compiled shared objects are placed in `<module>/.lib/` (next to `__init__.R`) so that `box::file()` resolves them correctly.
 -   Build results are cached by source hash + R platform + R version.
 :::
 
-## `[test]`
+## Unit Testing
 
-Advisory configuration for a future test runner. Carrier does not yet execute tests.
+Under `[tool.test]` block, advisory configuration for a future test runner. As of now, `{baler}` does not yet execute tests.
 
-| Field       | Type   | Required | Notes                                          |
-|------------|------------|------------|-------------------------------------|
-| `framework` | string | yes      | e.g. `"testthat"`                              |
-| `dir`       | string | no       | Directory containing tests (default `"tests"`) |
+| Field       | Type   | Required | Notes                                              |
+|-------------|--------|----------|----------------------------------------------------|
+| `framework` | string | yes      | e.g. `"testthat"`                                  |
+| `dir`       | string | yes      | Directory containing tests (auto-detected when `"__tests__"`) is used |
 
 ## Full template
 
-This is the exact text written by `baler init` (the `[native]` block appears only when `--native` is supplied):
+This is the exact text written by `baler init`. `[compiled-code]` is only included at all when `--native` is passed; a plain `baler init` leaves it out entirely rather than writing a commented-out placeholder for it.
 
 ``` toml
-[module]
+[project]
 name = "convert"
 version = "0.1.0"
 description = ""
@@ -155,31 +200,58 @@ authors = [
 ]
 license = "Unknown"
 r_version = ">=4.0.0"
+repository = ""
+keywords = []
+# readme = "README.md"
 # src = "convert"    # path to the source directory containing __init__.R
                     # defaults to a directory named after the module
 
-[package_deps]
+[dependencies]
 # dplyr = "*"
 # ggplot2 = ">=3.4.0"
 # fable = { version = "*", repo = "https://tidyverts.r-universe.dev/" }
 
-[module_deps]
-# other_module = "*"
+[dependencies.baler]
+# A module needs a source: `git` (a github.com repo) or `url` (a
+# bundled .tar.gz). `git` can take one of branch/tag/rev, and
+# module_dir for a repo holding more than one module. `version` is
+# optional.
+# other_module = { git = "https://github.com/user/repo", tag = "v1.0.0" }
 
-[native]
-# Only needed if native code doesn't live in the default location
-# (src/ under this module's source dir), or if `src/Makevars`
-# references headers from another R package (e.g. Rcpp).
-# path = "native/"
-# path can also be an array: path = ["native/", "extra/src"]
-# build_deps = { Rcpp = "*" }
-# build_deps is resolved and installed before compiling.
-# Does not imply a runtime dependency; list in [package_deps]
-# too if the compiled code also needs it loaded at runtime
+# [extras]/[extras.baler] hold deps only needed outside normal
+# runtime use (tests, mocks, dev tooling), same shape as
+# [dependencies]/[dependencies.baler] above. [extras.external] adds
+# one more kind found only here: external CLI tools, never loaded by
+# box, so never part of [dependencies] at all.
+[extras]
+# testthat = "*"
 
-[test]
-framework = "testthat"
-dir = "tests"
+[extras.baler]
+# mock_module = { git = "https://github.com/user/repo" }
+
+[extras.external]
+# baler doesn't install these, only checks for them. A bare string is
+# a version spec; an inline table can carry whatever else that
+# particular tool needs, since baler itself only reads `version`.
+# quarto = ">=1.4"
+
+# [tool.test]
+# framework = "testthat"
+# dir = "tests"
 ```
 
-When `baler init --native cpp` (or `--native c`, etc.) is used, the `[native]` block is un-commented and populated with the appropriate `path` and `build_deps` for the chosen language / backend.
+When `baler init --native cpp` (or `--native c`, etc.) is used, a `[compiled-code]` block is added, populated with the appropriate `path` and `build_deps` for the chosen language / backend:
+
+``` toml
+[compiled-code]
+# Native code is auto-detected under this module's source dir, no
+# path needed for the default src/ layout. Only set path if compiled
+# code lives somewhere else, or in more than one place.
+# path = "native/"
+# path can also be an array: path = ["native/", "extra/src"]
+build_deps = { Rcpp = "*" }
+# build_deps is resolved and installed before compiling.
+# Does not imply a runtime dependency; list it in
+# [dependencies] too if the compiled code also needs it
+# loaded at runtime
+```

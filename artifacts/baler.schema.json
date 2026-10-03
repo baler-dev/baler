@@ -16,10 +16,22 @@
         }
       ]
     },
-    "development": {
-      "anyOf": [
+    "dependencies": {
+      "description": "`[dependencies]` and `[dependencies.baler]`. Runtime deps: R packages loaded by this module's code, and box modules it imports. Top-level, a sibling of `[project]`, not nested under it, matching where `[compiled-code]` and `[tool]` already sit.",
+      "default": {
+        "baler": null
+      },
+      "allOf": [
         {
           "$ref": "#/definitions/Dependencies"
+        }
+      ]
+    },
+    "extras": {
+      "description": "`[extras]`, `[extras.baler]`, and `[extras.external]`. Deps only needed outside normal runtime use: tests and mocks (`packages`/`baler`, same shape as `[dependencies]`), plus external CLI tools like Quarto or a linter (`external`, which has no `[dependencies]` counterpart at all). Named after Julia's `Project.toml` `[extras]`, not Cargo's `dev-dependencies`, since that name is already spoken for by the Cargo workspace this tool itself is built with.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Extras"
         },
         {
           "type": "null"
@@ -103,7 +115,7 @@
       }
     },
     "Dependencies": {
-      "description": "Shared shape for both `[project.dependencies]` and `[development]`. Plain keys are R packages, resolved off CRAN (or `repo`, if set). The `baler` key is reserved for box modules, told apart from a package entry by table membership rather than a `type`/`mode` field on each entry. This does mean an R package literally named `baler` cannot be declared as a bare key here, an accepted tradeoff for not needing a discriminant field on every entry.",
+      "description": "Shape of `[dependencies]`: only things `{box}` actually loads at runtime, meaning R packages and other box modules. Plain keys are R packages, resolved off CRAN (or `repo`, if set); `baler` is box modules, told apart from a package entry by table membership rather than a `type`/`mode` field on each entry (an R package literally named `baler` therefore can't be a bare key here, an accepted tradeoff). An external tool (a linter, Quarto) is never loaded by `box`, so it has no place in this table at all. See `Extras::external` (in `extras.rs`), which is where it belongs instead.",
       "type": "object",
       "properties": {
         "baler": {
@@ -117,7 +129,8 @@
         }
       }
     },
-    "ModuleDep": {
+    "ExternalToolDep": {
+      "description": "A `[extras.external]` entry: some CLI tool baler doesn't fetch or install itself. There's no CRAN mirror or GitHub tarball convention for an arbitrary system binary the way there is for R packages and box modules, so baler can only check for one and report on it, the same relationship `[project].r_version` already has to R itself.\n\n`Extended`'s flattened `extra` map is what keeps this tool-agnostic. Quarto might need nothing past a version, a linter might need a config path, some other tool three unrelated fields entirely. baler's own schema shouldn't have to grow a field for every tool's particular needs. baler itself only ever reads `version`; whatever else an entry carries is between whoever wrote it and whatever eventually consumes it.",
       "anyOf": [
         {
           "type": "string"
@@ -128,18 +141,101 @@
             "version"
           ],
           "properties": {
-            "source": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "version": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": true
         }
       ]
+    },
+    "Extras": {
+      "description": "Shape of `[extras]`: everything `[dependencies]` holds (`packages`, `baler`), plus `external`: CLI tools/binaries used outside `box`'s runtime entirely (Quarto for docs, a linter, a formatter). `external` has no counterpart under `[dependencies]` on purpose: nothing in it is ever loaded by `box`, so it was never a runtime dependency to begin with, only ever a `[extras]` one.",
+      "type": "object",
+      "properties": {
+        "baler": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/definitions/ModuleDep"
+          }
+        },
+        "external": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/definitions/ExternalToolDep"
+          }
+        }
+      }
+    },
+    "ModuleDep": {
+      "description": "A `[dependencies.baler]` entry. A bare string is only a version constraint, which would mean a registry lookup (not implemented yet). The table form names where the module comes from, using the same keys `baler install` takes as flags.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/ModuleDepSpec"
+        }
+      ]
+    },
+    "ModuleDepSpec": {
+      "description": "The table form of a module dependency. Unknown keys are rejected rather than silently dropped, so a misspelled `tag` fails loudly. Which keys may combine is checked by `ModuleDep::source()`.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "A github.com repository URL.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "module_dir": {
+          "description": "Directory inside the `git` repo that holds the module.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rev": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "A direct link to an already-bundled `.tar.gz`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "Optional, defaults to `\"*\"`. Still checked against the fetched module's own `baler.toml` version.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "ModuleMeta": {
       "type": "object",
@@ -157,16 +253,6 @@
           "items": {
             "$ref": "#/definitions/Author"
           }
-        },
-        "dependencies": {
-          "default": {
-            "baler": null
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/Dependencies"
-            }
-          ]
         },
         "description": {
           "type": "string"

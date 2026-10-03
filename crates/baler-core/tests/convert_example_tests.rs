@@ -148,7 +148,7 @@ fn convert_proj_installs_via_baler_install_run() {
 
     // install_deps = false → dependency install stays a dry run, so this
     // never touches the network regardless of what convert-proj declares
-    // under [project.dependencies].
+    // under [dependencies].
     let req = install_from_path(dir.to_str().unwrap());
     install::run(req, false).expect("installing convert-proj should succeed");
 

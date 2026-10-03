@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::baler_toml::BalerToml;
 use crate::cran::client::read_installed_version;
+use crate::ops::external_tools::check_external_tools;
 use crate::ops::resolve;
 use crate::paths::resolve_r_lib_dir;
 use crate::version::VersionSpec;
@@ -33,6 +34,10 @@ pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifac
     }
 
     let toml = BalerToml::from_dir(project_root)?;
+    // Informational only, unrelated to whether this module has native
+    // code at all, so it runs before that check rather than after it.
+    check_external_tools(toml.extras.as_ref());
+
     let name = toml.project.name.clone();
     let native_dirs = toml.resolve_native_dirs(project_root)?;
 

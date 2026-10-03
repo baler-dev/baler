@@ -6,3 +6,4 @@ pub mod resolve;
 pub mod lock;
 pub mod module_graph;
 pub mod compile;
+pub mod external_tools;

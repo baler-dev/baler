@@ -84,7 +84,11 @@ pub fn resolve_locked(
     let declared = package_deps.as_ref().unwrap_or(&empty);
 
     for (name, dep) in declared {
-        let Some(locked) = lock.packages.iter().find(|locked| &locked.name == name) else {
+        let Some(locked) = lock
+            .packages
+            .iter()
+            .find(|locked| locked.is_runtime() && &locked.name == name)
+        else {
             bail!(
                 "'{name}' is declared in baler.toml but missing from baler.lock. \
                  The lock is stale. Run `baler lock --update` and commit the result."
@@ -100,9 +104,12 @@ pub fn resolve_locked(
         }
     }
 
+    // Build and extras pins stay in the lock but are not installed here,
+    // so a normal install never pulls in compile-time or dev-only packages.
     let packages = lock
         .packages
         .iter()
+        .filter(|locked| locked.is_runtime())
         .map(|locked| {
             let version_spec = match declared.get(&locked.name) {
                 Some(dep) => dep.version().to_owned(),
