@@ -81,6 +81,7 @@ fn fixture_lock_contents() -> String {
             name: "dplyr".to_owned(),
             version: "1.1.4".to_owned(),
             repo: "https://cloud.r-project.org".to_owned(),
+            groups: Vec::new(),
         }],
     };
     ::toml::to_string_pretty(&lock).unwrap()
