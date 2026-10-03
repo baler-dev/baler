@@ -1,7 +1,7 @@
 box::use(Rcpp[...])
 
-# #' @export
-# dlls = NULL
+#' @export
+dlls = NULL
 
 .on_load = function(ns) {
     lib_dir = box::file(".lib")
