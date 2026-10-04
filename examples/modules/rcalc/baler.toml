@@ -10,9 +10,9 @@ license = "Unknown"
 r_version = ">=4.1.0"
 src = "src/"
 
-# [project.dependencies]
+# [dependencies]
 
-# [project.dependencies.baler]
+# [dependencies.baler]
 
 [compiled-code]
 path = ["c/", "cpp/"]

@@ -21,7 +21,7 @@ use crate::ops::resolve;
 ///
 /// Gated behind `install_deps`: `[compiled-code].build_deps` are
 /// resolved and installed here, separately from
-/// `[project.dependencies]` and skipping `baler.lock`, since they're
+/// `[dependencies]` and skipping `baler.lock`, since they're
 /// compile-time-only, not a runtime contract.
 pub(super) fn build_native_if_present(
     module_path: &PathBuf,

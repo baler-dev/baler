@@ -6,7 +6,24 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 pub const LOCK_FILE_NAME: &str = "baler.lock";
-const LOCK_FORMAT_VERSION: u32 = 1;
+const LOCK_FORMAT_VERSION: u32 = 2;
+/// Oldest lock format still readable. Version 2 only added the optional
+/// `groups` field, and a package without it is a runtime package, so a
+/// version 1 file means the same thing under version 2.
+const MIN_LOCK_FORMAT_VERSION: u32 = 1;
+
+/// What a locked package is needed for. Unknown names in a lock are
+/// rejected, so a typo fails loudly instead of being ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LockGroup {
+    /// Loaded by the module's code at run time.
+    Runtime,
+    /// A `[compiled-code].build_deps` package, only needed to compile.
+    Build,
+    /// An `[extras]` package, only needed for tests and dev tooling.
+    Extras,
+}
 
 /// One package pinned to the exact version and repo baler resolved it
 /// to the last time the lock was written. R packages only for now —
@@ -19,6 +36,18 @@ pub struct LockedPackage {
     pub name: String,
     pub version: String,
     pub repo: String,
+    /// Absent means runtime only, the common case, so it stays out of
+    /// the file. A package needed by more than one group lists all of
+    /// them, `runtime` included.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<LockGroup>,
+}
+
+impl LockedPackage {
+    /// True when a normal install needs this package.
+    pub fn is_runtime(&self) -> bool {
+        self.groups.is_empty() || self.groups.contains(&LockGroup::Runtime)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -78,12 +107,13 @@ pub fn read(project_root: &Path) -> Result<Option<BalerLock>> {
     let lock: BalerLock = toml::from_str(&contents)
         .with_context(|| format!("Failed to parse {}", path.display()))?;
 
-    if lock.version != LOCK_FORMAT_VERSION {
+    if lock.version < MIN_LOCK_FORMAT_VERSION || lock.version > LOCK_FORMAT_VERSION {
         bail!(
             "{} declares lock format version {}, but this build of baler \
-             only understands version {}. Regenerate it with `baler lock`.",
+             only understands versions {} to {}. Regenerate it with `baler lock`.",
             path.display(),
             lock.version,
+            MIN_LOCK_FORMAT_VERSION,
             LOCK_FORMAT_VERSION
         );
     }
@@ -107,12 +137,42 @@ pub fn write(
     resolved: &BTreeMap<String, (Version, String)>,
     r_version: Option<&str>,
 ) -> Result<()> {
-    let mut packages: Vec<LockedPackage> = resolved
+    let pinned = resolved
         .iter()
-        .map(|(name, (version, repo))| LockedPackage {
+        .map(|(name, (version, repo))| {
+            let pin = PinnedPackage {
+                version: version.clone(),
+                repo: repo.clone(),
+                groups: Vec::new(),
+            };
+            (name.clone(), pin)
+        })
+        .collect();
+    write_grouped(project_root, &pinned, r_version)
+}
+
+/// One package ready to be written by `write_grouped`.
+pub struct PinnedPackage {
+    pub version: Version,
+    pub repo: String,
+    pub groups: Vec<LockGroup>,
+}
+
+/// Same as `write`, but each package also records the groups that need
+/// it. A package whose only group is `runtime` is written without a
+/// `groups` line.
+pub fn write_grouped(
+    project_root: &Path,
+    pinned: &BTreeMap<String, PinnedPackage>,
+    r_version: Option<&str>,
+) -> Result<()> {
+    let mut packages: Vec<LockedPackage> = pinned
+        .iter()
+        .map(|(name, pin)| LockedPackage {
             name: name.clone(),
-            version: version.to_string(),
-            repo: repo.clone(),
+            version: pin.version.to_string(),
+            repo: pin.repo.clone(),
+            groups: normalize_groups(&pin.groups),
         })
         .collect();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
@@ -131,4 +191,15 @@ pub fn write(
     std::fs::rename(&tmp_path, &path)
         .with_context(|| format!("Failed to finalize {}", path.display()))?;
     Ok(())
+}
+
+fn normalize_groups(groups: &[LockGroup]) -> Vec<LockGroup> {
+    let mut sorted = groups.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    if sorted == [LockGroup::Runtime] {
+        Vec::new()
+    } else {
+        sorted
+    }
 }

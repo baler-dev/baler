@@ -2,18 +2,18 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, Context, Result};
 
-use crate::baler_toml::{BalerToml, ModuleDep};
+use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource};
 use crate::ops::resolve::{resolve_packages_from_specs, ResolvedPlan};
 use crate::version::VersionSpec;
 
-/// Fetches a module's baler.toml given the `source` string declared
-/// in its dependent's `[project.dependencies.baler]` entry.
+/// Fetches a module's baler.toml given the source (`git` or `url`)
+/// declared in its dependent's `[dependencies.baler]` entry.
 /// resolve_transitive() only knows how to walk the dependency graph.
 /// It never touches the network itself, so who implements this
 /// decides that policy: a real fetch over GitHub in production, a
 /// HashMap in a test.
 pub trait ModuleFetcher {
-    fn fetch(&self, source: &str) -> Result<BalerToml>;
+    fn fetch(&self, source: &ModuleSource) -> Result<BalerToml>;
 }
 
 /// Walk the full module dependency graph, starting from `root`,
@@ -39,7 +39,7 @@ pub fn resolve_transitive(
     let mut pkg_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
     let mut pkg_repos: BTreeMap<String, String> = BTreeMap::new();
 
-    for (name, dep) in &root.project.dependencies.packages {
+    for (name, dep) in &root.dependencies.packages {
         let spec = VersionSpec::parse(dep.version())?;
         pkg_specs.entry(name.clone()).or_default().push(spec);
         pkg_repos.insert(name.clone(), dep.repo().to_owned());
@@ -50,7 +50,7 @@ pub fn resolve_transitive(
     // consistency instead of being fetched again. This is what makes a
     // diamond dependency cheap: the second path to reach it is a lookup,
     // not a re-fetch.
-    let mut resolved_modules: BTreeMap<String, (semver::Version, String)> = BTreeMap::new();
+    let mut resolved_modules: BTreeMap<String, (semver::Version, ModuleSource)> = BTreeMap::new();
 
     // The chain of module names currently being resolved, root to leaf.
     // If resolving some module's deps leads back to a name already on
@@ -58,7 +58,7 @@ pub fn resolve_transitive(
     // to fetch these in.
     let mut path: Vec<String> = Vec::new();
 
-    for (name, dep) in root.project.dependencies.baler.as_ref().unwrap_or(&BTreeMap::new()) {
+    for (name, dep) in root.dependencies.baler.as_ref().unwrap_or(&BTreeMap::new()) {
         resolve_module(
             name,
             dep,
@@ -86,19 +86,14 @@ fn resolve_module(
     name: &str,
     dep: &ModuleDep,
     fetcher: &dyn ModuleFetcher,
-    resolved_modules: &mut BTreeMap<String, (semver::Version, String)>,
+    resolved_modules: &mut BTreeMap<String, (semver::Version, ModuleSource)>,
     path: &mut Vec<String>,
     pkg_specs: &mut BTreeMap<String, Vec<VersionSpec>>,
     pkg_repos: &mut BTreeMap<String, String>,
 ) -> Result<()> {
     if let Some((existing_version, existing_source)) = resolved_modules.get(name) {
-        let source = dep.source().ok_or_else(|| {
-            anyhow::anyhow!(
-                "'{name}' has no source declared — baler has no default module registry.\n\
-                 Declare it as: {name} = {{ version = \"...\", source = \"gh:user/repo\" }}"
-            )
-        })?;
-        if source != existing_source {
+        let source = declared_source(name, dep)?;
+        if &source != existing_source {
             bail!(
                 "'{name}' is required from two different sources: '{}' and '{}' — \
                  baler doesn't merge these.",
@@ -122,15 +117,10 @@ fn resolve_module(
         bail!("Dependency cycle detected: {}", chain.join(" -> "));
     }
 
-    let source = dep.source().ok_or_else(|| {
-        anyhow::anyhow!(
-            "'{name}' has no source declared — baler has no default module registry.\n\
-             Declare it as: {name} = {{ version = \"...\", source = \"gh:user/repo\" }}"
-        )
-    })?;
+    let source = declared_source(name, dep)?;
 
     let fetched = fetcher
-        .fetch(source)
+        .fetch(&source)
         .with_context(|| format!("Failed to fetch module '{name}' from '{source}'"))?;
 
     // Reuses ModuleMeta::semver() (the same check `from_dir` runs on a
@@ -148,18 +138,32 @@ fn resolve_module(
         );
     }
 
-    for (pkg_name, pkg_dep) in fetched.project.dependencies.packages {
+    for (pkg_name, pkg_dep) in fetched.dependencies.packages {
         let pkg_spec = VersionSpec::parse(pkg_dep.version())?;
         pkg_specs.entry(pkg_name.clone()).or_default().push(pkg_spec);
         pkg_repos.insert(pkg_name, pkg_dep.repo().to_owned());
     }
 
     path.push(name.to_owned());
-    for (dep_name, dep_dep) in fetched.project.dependencies.baler.unwrap_or_default() {
+    for (dep_name, dep_dep) in fetched.dependencies.baler.unwrap_or_default() {
         resolve_module(&dep_name, &dep_dep, fetcher, resolved_modules, path, pkg_specs, pkg_repos)?;
     }
     path.pop();
 
-    resolved_modules.insert(name.to_owned(), (fetched_version, source.to_owned()));
+    resolved_modules.insert(name.to_owned(), (fetched_version, source));
     Ok(())
+}
+
+/// The declared source of a module dep, or an error saying what to
+/// write. There is no default module registry, so a dep without a
+/// `git` or `url` has nowhere to be fetched from.
+fn declared_source(name: &str, dep: &ModuleDep) -> Result<ModuleSource> {
+    dep.source()
+        .with_context(|| format!("Invalid source for module '{name}'"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "'{name}' has no source declared, and baler has no default module registry.\n\
+                 Declare it as: {name} = {{ git = \"https://github.com/user/repo\", tag = \"...\" }}"
+            )
+        })
 }

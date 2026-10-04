@@ -2,8 +2,10 @@ use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+use crate::baler_toml::BalerToml;
 use crate::formats::tar;
 use crate::lockfile::{self, BalerLock};
+use crate::ops::external_tools::check_external_tools;
 use crate::ops::resolve;
 use crate::paths::resolve_install_dir;
 
@@ -59,9 +61,9 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
     // `resolve`/`resolve_locked` take an absent dependency table as
     // `None`, not `Some(<empty map>)`, matching how compile.rs and
     // native.rs already call them.
-    let package_deps = (!toml.project.dependencies.packages.is_empty())
-        .then(|| toml.project.dependencies.packages.clone());
-    let module_deps = toml.project.dependencies.baler.clone();
+    let package_deps = (!toml.dependencies.packages.is_empty())
+        .then(|| toml.dependencies.packages.clone());
+    let module_deps = toml.dependencies.baler.clone();
 
     let plan = match &effective_lock {
         Some(locked) => resolve::resolve_locked(&package_deps, &module_deps, locked)?,
@@ -83,6 +85,15 @@ pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool) -> Re
             project_root.display()
         );
     }
+
+    // Only a --path install reads straight from a project directory
+    // that's still being worked on, so [extras.external] (dev-only
+    // tooling: docs generators, linters) is worth surfacing here. A
+    // --git/--url/registry install fetches something closer to a
+    // finished release than a project someone's actively developing,
+    // so those paths skip this.
+    let toml = BalerToml::from_dir(project_root)?;
+    check_external_tools(toml.extras.as_ref());
 
     let lock = lockfile::read(project_root)
         .with_context(|| format!("Failed to read baler.lock in {}", project_root.display()))?;

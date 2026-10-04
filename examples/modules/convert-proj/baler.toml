@@ -9,9 +9,9 @@ license = "Unknown"
 r_version = "4.0.0"
 readme = "README.md"
 
-# [project.dependencies]
+# [dependencies]
 
-# [project.dependencies.baler]
+# [dependencies.baler]
 
 # [tool.test]
 # framework = "testthat"

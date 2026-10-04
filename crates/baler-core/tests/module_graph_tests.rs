@@ -10,7 +10,9 @@ struct MockFetcher {
 }
 
 impl ModuleFetcher for MockFetcher {
-    fn fetch(&self, source: &str) -> Result<BalerToml> {
+    fn fetch(&self, source: &baler_core::baler_toml::ModuleSource) -> Result<BalerToml> {
+        let source = source.to_string();
+        let source = source.as_str();
         self.by_source
             .get(source)
             .map(toml_clone)
@@ -34,9 +36,9 @@ fn toml_clone(t: &BalerToml) -> BalerToml {
             repository: t.project.repository.clone(),
             keywords: t.project.keywords.clone(),
             src: t.project.src.clone(),
-            dependencies: t.project.dependencies.clone(),
         },
-        development: None,
+        dependencies: t.dependencies.clone(),
+        extras: None,
         compiled_code: None,
         tool: None,
     }
@@ -55,9 +57,9 @@ fn minimal_toml(name: &str, version: &str, module_deps: Option<BTreeMap<String, 
             repository: None,
             keywords: Vec::new(),
             src: None,
-            dependencies: Dependencies { packages: BTreeMap::new(), baler: module_deps },
         },
-        development: None,
+        dependencies: Dependencies { packages: BTreeMap::new(), baler: module_deps },
+        extras: None,
         compiled_code: None,
         tool: None,
     }
@@ -68,7 +70,7 @@ fn walks_a_two_level_chain() {
     let mut b_deps = BTreeMap::new();
     b_deps.insert(
         "b".to_owned(),
-        ModuleDep::Extended { version: "*".to_owned(), source: Some("gh:x/b".to_owned()) },
+        ModuleDep::Extended(baler_core::baler_toml::ModuleDepSpec { version: Some("*".to_owned()), url: Some("gh:x/b".to_owned()), ..Default::default() }),
     );
     let root = minimal_toml("root", "0.1.0", Some(b_deps));
 
@@ -87,7 +89,7 @@ fn detects_a_cycle_instead_of_hanging() {
     let mut a_deps = BTreeMap::new();
     a_deps.insert(
         "b".to_owned(),
-        ModuleDep::Extended { version: "*".to_owned(), source: Some("gh:x/b".to_owned()) },
+        ModuleDep::Extended(baler_core::baler_toml::ModuleDepSpec { version: Some("*".to_owned()), url: Some("gh:x/b".to_owned()), ..Default::default() }),
     );
     let root = minimal_toml("a", "0.1.0", Some(a_deps.clone()));
 
@@ -95,7 +97,7 @@ fn detects_a_cycle_instead_of_hanging() {
     let mut b_deps = BTreeMap::new();
     b_deps.insert(
         "a".to_owned(),
-        ModuleDep::Extended { version: "*".to_owned(), source: Some("gh:x/a".to_owned()) },
+        ModuleDep::Extended(baler_core::baler_toml::ModuleDepSpec { version: Some("*".to_owned()), url: Some("gh:x/a".to_owned()), ..Default::default() }),
     );
     let b = minimal_toml("b", "1.0.0", Some(b_deps));
 

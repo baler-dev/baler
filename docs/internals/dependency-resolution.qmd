@@ -1,7 +1,7 @@
 ---
 title: "Dependency Resolution"
 subtitle: "{baler} internals explanations"
-description: "Articles only suitable for developers"
+description: "Article for developers"
 ---
 
 This article covers how `{baler}` resolves dependencies internally, walking through two Rust functions: `cran::client::install_packages` for R package dependencies, and `ops::module_graph::resolve_transitive` for `baler`-installed module dependencies. Specifically: what runs when `baler install --install-deps` resolves and installs R packages, and what runs when a module's `module_deps` gets walked transitively.
@@ -34,13 +34,13 @@ Installation prefers a binary archive over building from source, but what counts
 
 ### Where the binary URL comes from
 
-1.  If you are on Windows, `{baler}` tries to fetch at   `bin/windows/contrib/<r-version>/<pkg>_<version>.zip`, against whatever repo is configured. CRAN's default mirror has always served this.
+1.  If you are on Windows, `{baler}` tries to fetch at `bin/windows/contrib/<r-version>/<pkg>_<version>.zip`, against whatever repo is configured. CRAN's default mirror has always served this.
 2.  If you are on MacOS, `{baler}` then tries to fetch at `bin/macosx/<macos-arch>/contrib/<r-version>/<pkg>_<version>.tgz`, also against the configured repo directly, no special repo required. `<macos-arch>` is `big-sur-arm64` or `big-sur-x86_64`, picked from `R.version$arch`. This is deliberately not the flat `bin/macosx/contrib/` path some mirrors still serve: that legacy path is x86_64-only, and using it unconditionally hands an Intel binary to an Apple Silicon machine, which only fails later at `dlopen()` time, not at install time. An architecture `binary_url_for` doesn't recognize skips the binary attempt entirely and goes straight to source, with a warning.
 3.  If you work on some Linux distros, it only works against a Package Manager-style repo (Posit Package Manager, formerly RSPM), and only when a distro codename could be detected from `/etc/os-release`'s `VERSION_CODENAME` field (Ubuntu and Debian set this; RHEL and openSUSE generally don't). When both hold, the URL is `<repo>/bin/linux/<distro>-<arch>/<r-version>/src/contrib/<pkg>_<version>.tar.gz`. CRAN's default mirror has no such tree at all, so on a plain `cloud.r-project.org` repo, or an unrecognized distro, this step never even fires. There's no dependency on `install.packages()`'s usual user-agent sniffing here: distro, architecture, and R version are all spelled out in the URL itself, which is exactly why this scheme was picked over Package Manager's other `__linux__/<distro>` URL format.
 
 ### Verifying what came back
 
-A downloaded binary archive is only trusted if it contains `Meta/package.rds`. A real, pre-built package always has it — a source tree never does. This catches a source tarball served where a binary was expected, or a truncated download, before either is ever unpacked into the library.
+A downloaded binary archive is only trusted if it contains `Meta/package.rds`. A real, pre-built package always has it, a source tree never does. This catches a source tarball served where a binary was expected, or a truncated download, before either is ever unpacked into the library.
 
 Every compiled library inside the archive (`.so`, `.dll`, `.dylib`) gets its actual architecture read straight out of its own header (ELF, PE, or Mach-O respectively) and checked against what the current machine needs. This isn't redundant with picking the right URL: Package Manager has been observed returning HTTP 200 for an architecture-tagged URL even when the file it serves doesn't match, instead of the clean 404 a plain CRAN mirror gives for the same kind of miss. A URL-only check would silently accept that.
 
@@ -60,7 +60,7 @@ Both the `.zip` and `.tar.gz` binary-extraction paths sanitize every entry path 
 *This is for developers under development*
 :::
 
-`baler`-installed modules (`module_deps` in `baler.toml`) resolve through a completely separate path from R packages: `resolve_transitive` in `ops::module_graph`. It shares no code with the CRAN resolution above. No repo grouping, no binary/source install step, no CRAN index. A module dependency gets fetched as a whole `baler.toml` from its declared `source` (see [baler.toml](../reference/baler-toml.qmd#module_deps)), not resolved against a package index.
+`{baler}`-installed modules (under `[dependencies.baler]` in `baler.toml`) resolve through a completely separate path from R packages: `resolve_transitive` in `ops::module_graph`. It shares no code with the CRAN resolution above. No repo grouping, no binary/source install step, no CRAN index. A module dependency gets fetched as a whole `baler.toml` from its declared `git` or `url` source (see the [baler.toml reference](../reference/baler-toml.md#dependencies)), not resolved against a package index.
 
 ### Why this walk is DFS, not BFS
 
@@ -68,14 +68,16 @@ The graph is walked depth-first on purpose, keeping an explicit ancestor path: t
 
 ### Resolution steps, per module dependency
 
-1.  If the module name is already fully resolved, from an earlier branch of the walk, a diamond, its resolved version and source get checked for consistency against the current dependent's constraint instead of being fetched again. A mismatched `source` or an incompatible version constraint fails loudly, and will name both requesters.
+1.  If the module name is already fully resolved, from an earlier branch of the walk, a diamond, its resolved version and source get checked for consistency against the current dependent's constraint instead of being fetched again. A mismatched source or an incompatible version constraint fails loudly, and will name both requesters.
 2.  If you have a module name that is already on the current ancestor path, that's a real cycle. The walk fails with the full chain (e.g. `a -> b -> a`) instead of looping forever.
-3.  If ever you have module dependencies carried by `{baler}` and it is written under `module_deps` entry with no `source`, the resolution fails immediately as of current version, since there's no default module registry to fall back to (unlike `package_deps`, which defaults to CRAN).
-4.  Otherwise, the dependency's `baler.toml` gets fetched from its `source`. Its declared `module.version` is checked against the requesting constraint, its own `package_deps` fold into the same package-resolution set used everywhere else, and its own `module_deps` get recursed into.
+3.  A module dependency declared with neither `git` nor `url` (a bare string, or a table with only `version`) fails at this step, since there's no default module registry to fall back to (unlike package deps, which default to CRAN). A table that combines contradictory keys, both `git` and `url`, or `branch`/`tag`/`rev`/`module_dir` without `git`, never reaches this walk at all: it fails when `baler.toml` is loaded, before resolution starts.
+4.  Otherwise, the dependency's `baler.toml` gets fetched from its declared source. Its declared `module.version` is checked against the requesting constraint, its own `package_deps` fold into the same package-resolution set used everywhere else, and its own `module_deps` get recursed into.
 
 ### What fetches a module
 
-`ModuleFetcher` is a small trait. `resolve_transitive()` only knows how to walk the graph, not how to fetch a `baler.toml`. The production implementation, `GitHubFetcher`, understands `gh:user/repo` sources (optionally pinned via `gh:user/repo/tree/<ref>/<subpath>`, see [CLI Commands](cli.qmd#baler-install)) and requires the `network` feature, same as `baler install`'s own `gh:` handling.
+`ModuleFetcher` is a small trait: `fn fetch(&self, source: &ModuleSource) -> Result<BalerToml>`. `resolve_transitive()` only knows how to walk the graph, not how to fetch a `baler.toml`. `ModuleSource` is either a `git` source (a github.com URL, plus an optional ref and `module_dir`) or a `url` source (a direct link to an already-bundled `.tar.gz`).
+
+The production implementation, `GitHubFetcher`, handles both. A `git` source builds the same GitHub tarball URL `baler install --git` uses, downloads and extracts it, then reads `baler.toml` from the resolved `module_dir`. A `url` source downloads the tarball directly and reads its `baler.toml` without extracting anything else. Both require the `network` feature, same as `baler install`'s own `--git`/`--url` handling (see [CLI Commands](cli.md#baler-install)).
 
 ::: {.callout-note title="Technical Notes"}
 `resolve_transitive()` exists and is tested, but `baler lock` doesn't call it yet. The current `baler lock` uses the shallow, single-level `resolve()`, which doesn't fetch anything for `module_deps`. Transitive module resolution isn't wired into any CLI command yet.
