@@ -90,9 +90,14 @@
       ]
     },
     "CompiledCode": {
-      "description": "Declares where a module's compiled code lives, and its build-time- only R package deps (e.g. `Rcpp`), whose headers a `Makevars` needs to find via `system.file()` before `R CMD SHLIB` can run.\n\n`path` is relative to the module's own source directory (whatever `resolve_src_dir()` resolves to), the same base `src` in `[project]` already uses, not the project root `baler.toml` lives in. `path = [\"cpp\", \"extra/src\"]` in a module's own `baler.toml` means exactly what it looks like: two dirs nested under that module's source tree.\n\n`path` is optional and exists purely as an override. When omitted, `resolve_native_dirs()` scans the module's whole source tree for compiled-code dirs instead of assuming one is where it must live.",
+      "description": "Declares where a module's compiled code lives, its build-time- only R package deps (e.g. `Rcpp`), whose headers a `Makevars` needs to find via `system.file()` before `R CMD SHLIB` can run, and how `baler bundle` packages it.\n\n`path` is relative to the module's own source directory (whatever `resolve_src_dir()` resolves to), the same base `src` in `[project]` already uses, not the project root `baler.toml` lives in. `path = [\"cpp\", \"extra/src\"]` in a module's own `baler.toml` means exactly what it looks like: two dirs nested under that module's source tree.\n\n`path` is optional and exists purely as an override. When omitted, `resolve_native_dirs()` scans the module's whole source tree for compiled-code dirs instead of assuming one is where it must live.\n\n`binary` and `keep_source` replaced the `--binary` and `--keep-source` flags of `baler bundle`. They describe what a module ships, which belongs to the module and not to whoever happens to run the command.",
       "type": "object",
       "properties": {
+        "binary": {
+          "description": "`baler bundle` compiles the native code in place and ships the tagged binary. Native source is stripped from the archive unless `keep_source` is also set.",
+          "default": false,
+          "type": "boolean"
+        },
         "build_deps": {
           "type": [
             "object",
@@ -101,6 +106,11 @@
           "additionalProperties": {
             "$ref": "#/definitions/PackageDep"
           }
+        },
+        "keep_source": {
+          "description": "Only valid together with `binary = true`. Also ships native source next to the binary, so install can fall back to compiling when the binary's tag doesn't match the machine.",
+          "default": false,
+          "type": "boolean"
         },
         "path": {
           "anyOf": [
@@ -130,27 +140,76 @@
       }
     },
     "ExternalToolDep": {
-      "description": "A `[extras.external]` entry: some CLI tool baler doesn't fetch or install itself. There's no CRAN mirror or GitHub tarball convention for an arbitrary system binary the way there is for R packages and box modules, so baler can only check for one and report on it, the same relationship `[project].r_version` already has to R itself.\n\n`Extended`'s flattened `extra` map is what keeps this tool-agnostic. Quarto might need nothing past a version, a linter might need a config path, some other tool three unrelated fields entirely. baler's own schema shouldn't have to grow a field for every tool's particular needs. baler itself only ever reads `version`; whatever else an entry carries is between whoever wrote it and whatever eventually consumes it.",
-      "anyOf": [
+      "description": "A `[extras.external]` entry: something baler neither fetches nor installs itself, so it can only check for it and report. Which kind of thing it is decides what \"check\" means:\n\n- `cli` (the default): the key is a command name on PATH, the version comes from `<tool> --version`, and `version` is a semver requirement. - `python`: the key is a Python distribution name (`scikit-learn`, not `sklearn`), looked up in one resolved interpreter's package metadata, and `version` is a PEP 440 specifier (`>=1.24,<2`). `index` and `git` say where the package comes from when that isn't PyPI. They only change the install hint baler prints, because detection doesn't care where a package came from.\n\nA bare string (`pandoc = \">=3.0\"`) is a `cli` entry, so manifests written before `type` existed keep parsing. Deserialization goes through `RawExternalToolDep` because a missing `type` has to default to `cli`, which `#[serde(tag = ...)]` can't express.",
+      "oneOf": [
         {
-          "type": "string"
+          "type": "object",
+          "required": [
+            "type",
+            "version"
+          ],
+          "properties": {
+            "hint": {
+              "description": "Shown when the tool is missing, e.g. a download page.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "cli"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          }
         },
         {
           "type": "object",
           "required": [
+            "type",
             "version"
           ],
           "properties": {
+            "git": {
+              "description": "Git URL. Install hint only. Conflicts with `index`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "index": {
+              "description": "Private index URL. Install hint only.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "python": {
+              "description": "Interpreter to check instead of the auto-resolved one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "python"
+              ]
+            },
             "version": {
               "type": "string"
             }
-          },
-          "additionalProperties": true
+          }
         }
       ]
     },
     "Extras": {
-      "description": "Shape of `[extras]`: everything `[dependencies]` holds (`packages`, `baler`), plus `external`: CLI tools/binaries used outside `box`'s runtime entirely (Quarto for docs, a linter, a formatter). `external` has no counterpart under `[dependencies]` on purpose: nothing in it is ever loaded by `box`, so it was never a runtime dependency to begin with, only ever a `[extras]` one.",
+      "description": "Shape of `[extras]`: everything `[dependencies]` holds (`packages`, `baler`), plus `external`: tools used outside `box`'s runtime entirely (Quarto for docs, a linter, a Python package a script shells out to). `external` has no counterpart under `[dependencies]` on purpose: nothing in it is ever loaded by `box`, so it was never a runtime dependency to begin with, only ever an `[extras]` one.",
       "type": "object",
       "properties": {
         "baler": {
