@@ -4,11 +4,10 @@ use std::path::{Path, PathBuf};
 use crate::baler_toml::BalerToml;
 use crate::formats::tar;
 
-pub fn run(path: &str, binary: bool, keep_source: bool) -> Result<()> {
-    if keep_source && !binary {
-        bail!("--keep-source only applies together with --binary.");
-    }
-
+/// `binary` and `keep_source` come from `[compiled-code]` in
+/// baler.toml, not from flags. `keep_source` without `binary` is
+/// rejected when the manifest is parsed (`BalerToml::from_dir`).
+pub fn run(path: &str) -> Result<()> {
     let project_root = PathBuf::from(path);
 
     if !project_root.exists() {
@@ -22,24 +21,40 @@ pub fn run(path: &str, binary: bool, keep_source: bool) -> Result<()> {
     let src_path = toml.resolve_src_dir(&project_root)?;
     let meta = &toml.project;
 
+    let (binary, keep_source) = toml
+        .compiled_code
+        .as_ref()
+        .map(|c| (c.binary, c.keep_source))
+        .unwrap_or((false, false));
+
     if binary {
         // Compiled here for the side effect, the .lib/ artifacts it
         // produces. There used to be a return value captured for
         // manifest.json's native artifact metadata; nothing ever read
-        // that back, so it is no longer captured.
-        crate::ops::compile::run(&project_root, crate::ops::compile::CompileMode::Normal)?;
+        // that back, so only its emptiness is checked.
+        let compiled =
+            crate::ops::compile::run(&project_root, crate::ops::compile::CompileMode::Normal)?;
+        if compiled.is_empty() {
+            eprintln!(
+                "warning: [compiled-code] sets `binary = true`, but '{}' has no \
+                 native code to compile. Bundling without a binary.",
+                meta.name
+            );
+        }
     }
 
-    // .lib/ is now dot-prefixed, so the archive writer's own
-    // hidden-file filter excludes it from a plain bundle automatically
-    // — no explicit exclusion needed there anymore. --binary needs the
+    // .lib/ is dot-prefixed, so the archive writer's own hidden-file
+    // filter excludes it from a plain bundle automatically, no
+    // explicit exclusion needed there. `binary = true` needs the
     // opposite: force it back in despite the dot, since shipping it is
-    // the whole point. --binary without --keep-source additionally
-    // excludes native source; a mismatched/missing tag on install then
-    // has nothing to fall back to and must error clearly (not yet
-    // implemented on the install side — see the TODO on install.rs).
+    // the whole point. `binary = true` without `keep_source`
+    // additionally excludes native source; a mismatched/missing tag
+    // on install then has nothing to fall back to and must error
+    // clearly (not yet implemented on the install side, see the TODO
+    // on install.rs).
     let (exclude, force_include): (Vec<PathBuf>, Vec<PathBuf>) = if binary {
-        let lib_dirs: Vec<PathBuf> = toml.resolve_native_dirs(&project_root)
+        let lib_dirs: Vec<PathBuf> = toml
+            .resolve_native_dirs(&project_root)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|d| d.parent().map(|p| p.join(".lib")))
