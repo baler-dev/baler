@@ -42,24 +42,13 @@ enum Commands {
         backend: Option<String>,
     },
 
-    /// Bundle a module into <name>_<version>.tar.gz
+    /// Bundle a module into <name>_<version>.tar.gz. Whether a compiled
+    /// binary and native source are shipped is set by `binary` and
+    /// `keep_source` under `[compiled-code]` in baler.toml.
     Bundle {
         /// Path to the project root (e.g. `.` or `./my-project`)
         #[arg(default_value = ".")]
         path: String,
-
-        /// Also compile native code in place and include the tagged
-        /// binary in the archive. Native source is stripped from the
-        /// archive unless --keep-source is also passed — a mismatched
-        /// or missing tag on install then has nothing to fall back to.
-        #[arg(long)]
-        binary: bool,
-
-        /// Only valid with --binary. Also ships native source
-        /// alongside the compiled binary, so install can fall back to
-        /// compiling if the tag doesn't match this machine.
-        #[arg(long)]
-        keep_source: bool,
     },
 
     /// Compile a module's native code in place for local dev/testing.
@@ -189,8 +178,8 @@ pub fn run() {
         Commands::Compile { path, clean, rebuild } => {
             commands::compile::run(CompileArgs { path, clean, rebuild })
         }
-        Commands::Bundle { path, binary, keep_source } => {
-            commands::bundle::run(BundleArgs { path, binary, keep_source })
+        Commands::Bundle { path } => {
+            commands::bundle::run(BundleArgs { path })
         }
         Commands::Install { source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir } => {
             commands::install::run(InstallArgs {
