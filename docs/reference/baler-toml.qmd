@@ -19,7 +19,7 @@ This block defines the authorship of the module, and this block is always requir
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `name` | string | yes | Module name. Also the default source-directory name when `src` is omitted. |
-| `version` | string | yes | Strict semver (`MAJOR.MINOR.PATCH`). Parsed when the file loads; a malformed version fails there, not later inside whoever depends on this module. Dependency ranges (`^`, `>=`, etc.) in another module's `[dependencies.baler]` entry resolve against it. |
+| `version` | string | yes | Semver (`MAJOR.MINOR.PATCH`), optionally with a pre-release tag. Use one to mark a development version, for example `0.3.0-dev` or `0.3.0-dev.1`, which sorts before `0.3.0`. A requirement is checked as if the tag were absent, so `0.3.0-dev` satisfies `>=0.3.0`. Parsed when the file loads; a malformed version fails there, not later inside whoever depends on this module. Dependency ranges (`^`, `>=`, etc.) in another module's `[dependencies.baler]` entry resolve against it. |
 | `description` | string | yes | May be empty. |
 | `authors` | array | yes | See [Authors](#authors) below. |
 | `license` | string | yes | SPDX identifier or free-form text. |
