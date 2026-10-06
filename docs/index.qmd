@@ -24,7 +24,7 @@ A following usage is `baler <command> ...` on the command line. Here are the fol
 
 -   `init` (Optional): scaffold a new module project together with the most important file: `baler.toml`.
 -   `bundle`: package a module in a `.tar.gz` archive.
--   `install`: install a bundled archive, a local module directory, or a module living in a repo (for instance, for GitHub repo: `gh:user/repo`), and optionally resolve its R package dependencies (it looks up from CRAN by default). It also checks the installed R against the module's declared `r_version` constraint before proceeding.
+-   `install`: install a bundled archive, a local module directory, or a module living in a repo (for instance, for GitHub repo: `--git https://github.com/user/repo`), and optionally resolve its R package dependencies (it looks up from CRAN by default). It also checks the installed R against the module's declared `r_version` constraint before proceeding.
 -   `lock`: resolve a module's R package dependencies to exact versions and write `baler.lock`, so a later install reuses those pins instead of re-resolving against CRAN. Also checks `r_version` and records the resolving R version in the lock. The lockfile is NOT always required. 
 -   `remove`: uninstall a module. Use `--force` to skip the prompt and outright uninstall the module.
 
