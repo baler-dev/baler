@@ -12,10 +12,6 @@ use semver::{Version, VersionReq};
 ///
 /// Note: R version strings sometimes use dashes (e.g. `"4.0-3"`).
 /// Normalise those to dots before calling `parse` if reading from R metadata.
-///
-/// Pre-release versions, which is how a development version is
-/// declared (`0.3.0-dev`), are matched as if the tag were absent. See
-/// `matches`.
 #[derive(Debug, Clone)]
 pub struct VersionSpec(VersionReq);
 
@@ -28,13 +24,10 @@ impl VersionSpec {
             .map_err(|e| anyhow::anyhow!("Invalid version spec {:?}: {}", s, e))
     }
 
-    /// semver excludes pre-release versions from ranges and a bare `*`
-    /// by design. Two kinds of version here are pre-releases that still
-    /// have to match: CRAN versions with a fourth component
-    /// (`normalize_r_version` encodes `1.2.3.9000` as `1.2.3-9000`), and
-    /// a module's own development version (`0.3.0-dev`). If the strict
-    /// match fails, retry with the pre-release tag stripped, so a
-    /// development build of 0.3.0 satisfies a requirement on 0.3.0.
+    /// semver excludes pre-release versions from a bare `*` by design.
+    /// normalize_r_version's dash-as-pre-release encoding makes CRAN
+    /// versions like some older packages such as `{BayesFactor}`. 
+    /// Retry with it stripped if the strict match fails because of that.
     pub fn matches(&self, v: &Version) -> bool {
         if self.0.matches(v) {
             return true;

@@ -1,89 +1,42 @@
-use anyhow::{bail, Result};
-use semver::{Version, VersionReq};
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
-/// A parsed version requirement, wrapping semver's `VersionReq`.
-///
-/// Supported syntax:
-///   `"*"`                 — any version
-///   `">=1.0.0"`           — lower bound only
-///   `">=1.0.0, <2.0.0"`  — range (comma-separated bounds)
-///   `"^1.2.0"`            — semver-compatible with 1.2.0
-///   `"=1.2.3"`            — exact version pin
-///
-/// Note: R version strings sometimes use dashes (e.g. `"4.0-3"`).
-/// Normalise those to dots before calling `parse` if reading from R metadata.
-///
-/// Pre-release versions, which is how a development version is
-/// declared (`0.3.0-dev`), are matched as if the tag were absent. See
-/// `matches`.
-#[derive(Debug, Clone)]
-pub struct VersionSpec(VersionReq);
+use crate::version::VersionSpec;
 
-impl VersionSpec {
-    pub fn parse(s: &str) -> Result<Self> {
-        let s = s.trim();
-        let req_str = if s == "*" { "*" } else { s };
-        VersionReq::parse(req_str)
-            .map(VersionSpec)
-            .map_err(|e| anyhow::anyhow!("Invalid version spec {:?}: {}", s, e))
-    }
+use super::author::Author;
 
-    /// semver excludes pre-release versions from ranges and a bare `*`
-    /// by design. Two kinds of version here are pre-releases that still
-    /// have to match: CRAN versions with a fourth component
-    /// (`normalize_r_version` encodes `1.2.3.9000` as `1.2.3-9000`), and
-    /// a module's own development version (`0.3.0-dev`). If the strict
-    /// match fails, retry with the pre-release tag stripped, so a
-    /// development build of 0.3.0 satisfies a requirement on 0.3.0.
-    pub fn matches(&self, v: &Version) -> bool {
-        if self.0.matches(v) {
-            return true;
-        }
-        if !v.pre.is_empty() {
-            let mut stripped = v.clone();
-            stripped.pre = semver::Prerelease::EMPTY;
-            return self.0.matches(&stripped);
-        }
-        false
-    }
-
-    /// Given a list of specs and candidate versions (sorted newest-first),
-    /// return the best version satisfying ALL specs simultaneously.
-    pub fn resolve<'a>(specs: &[VersionSpec], candidates: &'a [Version]) -> Option<&'a Version> {
-        candidates.iter().find(|v| specs.iter().all(|s| s.matches(v)))
-    }
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ModuleMeta {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub readme: Option<String>,
+    pub authors: Vec<Author>,
+    pub license: String,
+    pub r_version: String,
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    pub src: Option<String>,
 }
 
-/// Verify that at least one candidate version satisfies all collected specs.
-/// Call this during resolution once real candidate lists are available.
-pub fn check_conflicts(name: &str, specs: &[VersionSpec], candidates: &[Version]) -> Result<()> {
-    if VersionSpec::resolve(specs, candidates).is_none() {
-        bail!(
-            "Version conflict for '{}': no version satisfies all constraints.\n\
-             Constraints: {}",
-            name,
-            specs.iter().map(|s| format!("{:?}", s.0)).collect::<Vec<_>>().join(", ")
-        );
+impl ModuleMeta {
+    pub fn r_version_spec(&self) -> Result<VersionSpec> {
+        VersionSpec::parse(&self.r_version)
     }
-    Ok(())
-}
 
-/// Verify the R currently on PATH satisfies `spec`. Called at install
-/// and lock time — this is the one place a version mismatch has to
-/// fail loudly instead of letting a module load under an R it was
-/// never declared compatible with.
-pub fn check_r_version(spec: &VersionSpec) -> Result<()> {
-    let detected = crate::paths::detect_r_version()?;
-    if !spec.matches(&detected) {
-        bail!(
-            "Installed R is {detected}, but this module requires r_version = \"{spec}\"."
-        );
-    }
-    Ok(())
-}
-
-impl std::fmt::Display for VersionSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+    /// `version` must be strict semver (`MAJOR.MINOR.PATCH`), since
+    /// dependency ranges (`^`, `>=`, etc.) in another module's
+    /// `[dependencies.baler]` entry resolve against it. An
+    /// unvalidated `version` here doesn't fail where the mistake was
+    /// made, it fails later, inside whoever consumes this module.
+    pub fn semver(&self) -> Result<semver::Version> {
+        semver::Version::parse(&self.version).map_err(|e| anyhow::anyhow!(
+            "Invalid `version` '{}' in baler.toml: {}. \
+             `version` must be a valid semver string (e.g. \"1.2.3\"), \
+             since dependency ranges (^, >=, etc.) resolve against it.",
+            self.version, e
+        ))
     }
 }
