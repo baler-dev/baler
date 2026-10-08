@@ -18,6 +18,7 @@ pub use dependencies::{
 };
 pub use extras::{Extras, ExternalToolDep};
 pub use project::ModuleMeta;
+pub use template::TemplateDefaults;
 pub use tool::{TestConfig, ToolConfig};
 
 /// `box` accepts either case for a module's `.r`/`.R` extension, so
@@ -25,7 +26,7 @@ pub use tool::{TestConfig, ToolConfig};
 /// scaffolded with either convention, or hand-authored either way,
 /// must resolve the same regardless of which case the author used or
 /// which filesystem baler itself happens to be running on.
-fn find_init_file(dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_init_file(dir: &Path) -> Option<PathBuf> {
     for name in ["__init__.r", "__init__.R"] {
         let candidate = dir.join(name);
         if candidate.exists() {
@@ -78,6 +79,8 @@ impl BalerToml {
             .with_context(|| format!("Invalid dependency in {}", toml_path.display()))?;
         parsed.validate_external_tools()
             .with_context(|| format!("Invalid external tool in {}", toml_path.display()))?;
+        parsed.validate_compiled_code()
+            .with_context(|| format!("Invalid [compiled-code] in {}", toml_path.display()))?;
         Ok(parsed)
     }
 
@@ -96,16 +99,43 @@ impl BalerToml {
         Ok(())
     }
 
-    /// An `[extras.external]` key is looked up as a command name on
-    /// PATH, so it must be a bare name. A path separator would make
-    /// `Path::join` discard or escape the PATH directory it is joined to.
+    /// An `[extras.external]` `cli` key is looked up as a command name
+    /// on PATH, so it must be a bare name. A path separator would make
+    /// `Path::join` discard or escape the PATH directory it is joined
+    /// to. A `python` key is a distribution name, not a command, so it
+    /// is checked against Python's naming rules instead.
     fn validate_external_tools(&self) -> Result<()> {
         let Some(tools) = self.extras.as_ref().and_then(|e| e.external.as_ref()) else {
             return Ok(());
         };
-        for name in tools.keys() {
-            if name.is_empty() || name.contains(['/', '\\']) {
-                bail!("External tool '{name}' must be a bare command name, not a path.");
+        for (name, dep) in tools {
+            match dep {
+                ExternalToolDep::Cli { .. } => {
+                    if name.is_empty() || name.contains(['/', '\\']) {
+                        bail!("External tool '{name}' must be a bare command name, not a path.");
+                    }
+                }
+                ExternalToolDep::Python { .. } => {
+                    if !is_valid_dist_name(name) {
+                        bail!(
+                            "External Python package '{name}' is not a valid distribution name \
+                             (letters, digits, '-', '_' and '.', starting and ending with a \
+                             letter or digit)."
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `keep_source` ships native source next to a compiled binary, so
+    /// it means nothing without `binary = true`. Caught here, when the
+    /// manifest loads, instead of when `baler bundle` starts.
+    fn validate_compiled_code(&self) -> Result<()> {
+        if let Some(cc) = &self.compiled_code {
+            if cc.keep_source && !cc.binary {
+                bail!("`keep_source` only applies together with `binary = true`.");
             }
         }
         Ok(())
@@ -175,5 +205,17 @@ impl BalerToml {
 
     pub fn has_native_code(&self, project_root: &Path) -> Result<bool> {
         Ok(!self.resolve_native_dirs(project_root)?.is_empty())
+    }
+}
+
+/// A Python distribution name: ASCII letters, digits, `-`, `_` and
+/// `.`, starting and ending with a letter or digit (PEP 508).
+fn is_valid_dist_name(name: &str) -> bool {
+    let alnum = |c: char| c.is_ascii_alphanumeric();
+    match (name.chars().next(), name.chars().last()) {
+        (Some(first), Some(last)) if alnum(first) && alnum(last) => {
+            name.chars().all(|c| alnum(c) || matches!(c, '-' | '_' | '.'))
+        }
+        _ => false,
     }
 }

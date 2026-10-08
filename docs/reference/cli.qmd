@@ -59,20 +59,20 @@ A plain `baler compile`, with neither flag, only recompiles when the source has 
 
 ## Bundling and Packaging
 
-Similar to `pkgbuild::build()` (or `devtools::build()`) and `R CMD build`, `baler bundle` now bundles a module's source, creating into a single `.tar.gz` archive that can be installed elsewhere, shared with someone else, or attached to a GitHub release. Here's the anatomy of the `baler bundle` command: 
+Similar to `pkgbuild::build()` (or `devtools::build()`) and an analogue for `R CMD build`, `baler bundle` now bundles a module's source, creating into a single `.tar.gz` archive that can be installed elsewhere, shared with someone else, or attached to a GitHub release. Here's the anatomy of the `baler bundle` command: 
 
 ``` bash
 # If `<path>` isn't supplied, then `.` argument is passed by default
-baler bundle <path> [--binary] [--keep-source]
+baler bundle [<path>]
 ```
 
-| Argument | Description |
-|---|---|
-| `<path>` | The project's root directory, wherever `baler.toml` lives. Almost always just `.`. |
-| `--binary` | Also compile any native code in the module first, and include the compiled artifact in the archive. Without this flag, only R source is bundled, compiled code has to be built again on install. |
-| `--keep-source` | Only meaningful together with `--binary`. Ships the native source *alongside* the compiled artifact, instead of stripping it out, so an install on a different platform or R version can fall back to compiling from source if the precompiled binary doesn't match. |
+The only argument for this command is the `<path>`, which refers to the project's root directory, wherever `baler.toml` lives. What the archive contains is decided by `[compiled-code]` in `baler.toml`, not by passing `--binary` or `--keep-source`:
 
-The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you passed on `name` from `[module]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A `--binary` bundle only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, unless `--keep-source` was also used at bundle time.
+-  When `binary = true` is declared under the `[compiled-code]` from `baler.toml`, `{baler}` will compile any native code in the module first, and include the compiled artifact in the archive. Without it, only source is bundled, and compiled code has to be built again on install.
+
+-  When `keep_source = true` is declared under the `[compiled-code]` from `baler.toml`, the native source code will be kept on the archives. This is only valid together with `binary = true`. 
+
+The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you set as `name` under `[project]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A bundle built with `binary = true` only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, even if `keep_source = true` was set at bundle time.
 
 ## Module installation
 

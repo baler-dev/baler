@@ -92,3 +92,29 @@ fn check_conflicts_errors_when_unsatisfiable() {
     let err = check_conflicts("pkg", &specs, &candidates).unwrap_err();
     assert!(err.to_string().contains("pkg"));
 }
+
+// ---- development versions (semver pre-releases) ----
+
+#[test]
+fn development_versions_parse() {
+    for s in ["0.3.0-dev", "0.3.0-dev.1", "1.2.3-9000", "1.0.0-rc.1"] {
+        assert!(Version::parse(s).is_ok(), "{s} should parse");
+    }
+}
+
+#[test]
+fn development_version_sorts_before_its_release() {
+    assert!(v("0.3.0-dev") < v("0.3.0"));
+    assert!(v("0.3.0-dev.1") < v("0.3.0-dev.2"));
+    assert!(v("0.2.9") < v("0.3.0-dev"));
+}
+
+#[test]
+fn requirements_treat_a_development_version_as_its_release() {
+    // matches() retries a pre-release with the tag stripped, so a dev
+    // build of 0.3.0 satisfies requirements on 0.3.0.
+    assert!(VersionSpec::parse(">=0.3.0").unwrap().matches(&v("0.3.0-dev")));
+    assert!(VersionSpec::parse("^1.2.0").unwrap().matches(&v("1.3.0-dev")));
+    assert!(VersionSpec::parse("*").unwrap().matches(&v("0.3.0-dev")));
+    assert!(!VersionSpec::parse(">=0.4.0").unwrap().matches(&v("0.3.0-dev")));
+}

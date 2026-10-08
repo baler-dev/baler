@@ -8,8 +8,8 @@ A `{box}`-`{baler}` module needs one metadata file: `baler.toml`. It sits at the
 |--------------------|----------------------------|-------------------------|
 | `[project]` | yes | Module identity and source location |
 | `[dependencies]` | no | Runtime R package and baler-module dependencies |
-| `[extras]` | no | Dev-only dependencies (test frameworks, mocks) and external tools (doc generators, linters) |
-| `[compiled-code]` | no | Location(s) of compiled code and build-time-only package deps |
+| `[extras]` | no | Dev-only dependencies (test frameworks, mocks) and external tools and Python packages (doc generators, linters, Python libraries) |
+| `[compiled-code]` | no | Location(s) of compiled code, build-time-only package deps, and what `baler bundle` ships |
 | `[tool.test]` | no | Test framework configuration (currently advisory only) |
 
 ## `[project]`
@@ -19,7 +19,7 @@ This block defines the authorship of the module, and this block is always requir
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `name` | string | yes | Module name. Also the default source-directory name when `src` is omitted. |
-| `version` | string | yes | Strict semver (`MAJOR.MINOR.PATCH`). Parsed when the file loads; a malformed version fails there, not later inside whoever depends on this module. Dependency ranges (`^`, `>=`, etc.) in another module's `[dependencies.baler]` entry resolve against it. |
+| `version` | string | yes | Semver (`MAJOR.MINOR.PATCH`), optionally with a pre-release tag. Use one to mark a development version, for example `0.3.0-dev` or `0.3.0-dev.1`, which sorts before `0.3.0`. A requirement is checked as if the tag were absent, so `0.3.0-dev` satisfies `>=0.3.0`. Parsed when the file loads; a malformed version fails there, not later inside whoever depends on this module. Dependency ranges (`^`, `>=`, etc.) in another module's `[dependencies.baler]` entry resolve against it. |
 | `description` | string | yes | May be empty. |
 | `authors` | array | yes | See [Authors](#authors) below. |
 | `license` | string | yes | SPDX identifier or free-form text. |
@@ -123,33 +123,91 @@ other_module = "*"   # will fail at resolution time, no registry yet
 
 ## Extra dependencies for development 
 
-`[extras]`, by default, has the same shape as `[dependencies]`, bare keys for R packages, a nested `.baler` table for baler modules, except dependencies under this block are only needed during development (a test framework, a mock module), not at runtime. It also has one thing `[dependencies]` doesn't: `[extras.external]`, for non-R tools.
+`[extras]`, by default, has the same shape as `[dependencies]`, bare keys for R packages, a nested `.baler` table for baler modules, except dependencies under this block are only needed during development (a test framework, a mock module), not at runtime. It also has one thing `[dependencies]` doesn't: `[extras.external]`, for non-R tools and Python packages. Here's an example: 
 
 ``` toml
 [extras]
 testthat = "*"
+covr = "*"
+# rlang = "*"
 
 [extras.baler]
-mock_module = { git = "https://github.com/user/repo" }
+# mock_module = { url = "https://github.com/user/repo/archive/refs/tags/vX.Y.Z.tar.gz" }
+# utils = { git = "https://github.com/<user>/<utils>" }
 ```
 
-### `[extras.external]`
+### External development tools
 
-In this block, you can declares anything else a module or its development needs that isn't an R package or a box module, a system library, a non-R language package, a dataset, or whatsoever. There's no fixed category: baler doesn't fetch, install, or check for any of it. This table is purely declarative.
+Under `[extras.external]` block, you can declare anything a module's development needs that isn't a traditional R package or a `box-bale` module: a command-line tool such as Quarto, or a Python package. `{baler}` never fetches or installs any of it, it only checks for it and reports. Each entry picks its kind with `type` (two, as of now):
+
+1.  `cli`: A command binary name on `PATH`. The declared tools under this type are checked through running `<tool> --version`. 
+
+2.  `python`: A Python distribution name (strictly on this sense, so for the `{sklean}` library instance, it should be written as `scikit-learn`, not `sklearn`). The declared packages are checked by reading the package's installed version from one Python interpreter. 
+
+Here's an example:
 
 ``` toml
 [extras.external]
-quarto = ">=1.4"
-some_tool = { version = "*", config = ".sometoolrc" }
+pandoc = ">=3.0"            # a bare string is a `cli` entry
+
+[extras.external.quarto]
+type = "cli"                # the default when `type` is left out
+version = ">=1.4"
+hint = "https://quarto.org/docs/get-started/"
+
+[extras.external.numpy]
+type = "python"
+version = ">=1.24,<3"
+
+[extras.external.internal-stats]
+type = "python"
+version = ">=2.0"
+index = "https://pypi.internal.example/simple"
 ```
 
-A bare string is just a version spec. An inline table can carry whatever extra fields that particular tool needs, since baler itself only ever reads `version`.
+#### `cli` entries
 
-`baler compile` and a `--path` install (installing straight from a project directory) check each declared tool for a matching binary on `PATH` and print a note for anything missing. This is informational only: it never fails the command, and it doesn't verify the declared version against what's actually installed, since there's no generic way to ask an arbitrary CLI for its version. A `--git`, `--url`, or registry install skips this check entirely, since those fetch something closer to a finished release than a project someone is actively developing.
+| Field | Required | Notes |
+|---|---|---|
+| `version` | yes | A requirement in the same syntax as [Version-spec syntax](#version-spec-syntax) above. |
+| `hint` | no | Printed when the tool is missing, e.g. a download page. |
+
+The key must be a bare command name. A path separator is rejected when `baler.toml` loads. The version is read from the first dotted number in the tool's `--version` output (`3.1` is read as `3.1.0`). A tool that prints its version some other way is reported as unreadable, not as a mismatch. Messages include the path of the tool that was checked.
+
+#### `python` entries
+
+| Field | Required | Notes |
+|---|---|---|
+| `version` | yes | A [PEP 440](https://peps.python.org/pep-0440/) specifier such as `>=1.24,<2` or `~=1.24`. This is *not* the Cargo-style syntax used elsewhere in this file, but it is the same string `pip` accepts. |
+| `python` | no | Interpreter to check, instead of the automatically resolved one. A bare name is looked up on `PATH`, anything with a path separator is used as given. |
+| `index` | no | A private package index URL. Only changes the install hint. |
+| `git` | no | A git URL. Only changes the install hint. Cannot be combined with `index`. |
+
+All `python` entries are checked in one interpreter run, so which interpreter is used matters. It is the first of:
+
+1.  The entry's own `python` field.
+2.  `RETICULATE_PYTHON`, since that is the interpreter R's `{reticulate}` will use.
+3.  An active `VIRTUAL_ENV` or `CONDA_PREFIX`.
+4.  `python3`, then `python`, on `PATH`.
+
+An explicit setting (1 or 2) that doesn't resolve is reported as an error instead of quietly falling through to a different interpreter. Versions are read from package metadata, so checking a package never imports it.
+
+Every message names the interpreter that was checked, and a missing or outdated package comes with an install hint that targets that same interpreter, for example `/home/me/.venv/bin/python -m pip install "numpy>=1.24"`. `index` and `git` only change the wording of that hint, since detection doesn't depend on where a package came from.
+
+#### Checking
+
+`baler compile` and a `--path` install (installing straight from a project directory) check the root project's entries and print a note for anything missing or out of range. This is informational only: it never fails the command. A `--git`, `--url`, or registry install skips this check entirely, since those fetch something closer to a finished release than a project someone is actively developing. A fetched module's own `[extras.external]` is never checked, because checking runs external programs.
+
+Entries are validated when `baler.toml` loads. These fail immediately:
+
+-   An unknown `type`, or an unknown key in an entry (a typo such as `hnit`).
+-   `python`, `index`, or `git` on a `cli` entry, or `hint` on a `python` entry.
+-   `index` and `git` on the same entry.
+-   A `cli` key that is not a bare command name, or a `python` key that is not a valid distribution name.
 
 ## Configuration for handling native compiled codes
 
-The `[compiled-code]` block is not always required, until there exist codes written in native languages which requires compilation. In this block, you only declare where a module's compiled code lives, and any build-time-only R packages whose headers `Makevars` / `R CMD SHLIB` needs (most commonly `Rcpp` or `cpp11`).
+The `[compiled-code]` block is not always required, until there exist codes written in native languages which requires compilation. In this block, you declare where a module's compiled code lives, any build-time-only R packages whose headers `Makevars` / `R CMD SHLIB` needs (most commonly `Rcpp` or `cpp11`), and what `baler bundle` ships.
 
 ``` toml
 [compiled-code]
@@ -157,12 +215,29 @@ path = "cpp/"                 # single directory, relative to the module's sourc
 # path = ["cpp/", "extra/"]   # or an array, for multiple directories
 
 build_deps = { Rcpp = "*" }   # installed before compilation; not a runtime dependency
+binary = true                 # `baler bundle` compiles and ships the binary
+keep_source = false           # only with binary = true: also ship native source
 ```
 
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `path` | string or array of strings | no | Directory, or directories, containing native sources + `Makevars`. Relative to the module's own source directory (the same base `src` uses), not the project root `baler.toml` lives in. A single location can be written as a plain string; more than one as an array. |
 | `build_deps` | table | no | Map of package name -> version requirement (same syntax as `[dependencies]`). These are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[dependencies]` if the compiled code also needs them loaded at runtime. |
+| `binary` | boolean | no | Defaults to `false`. When `true`, `baler bundle` compiles the native code in place first and ships the compiled `.lib/` in the archive, without the native source. See [Bundle settings](#bundle-settings). |
+| `keep_source` | boolean | no | Defaults to `false`. Only valid together with `binary = true`. Also ships the native source next to the compiled binary. |
+
+### Bundle settings {#bundle-settings}
+
+The `binary` and `keep_source` options describe what the module ships, so they live with the module instead of being retyped on every run. The flags no longer exist, and passing one is now a command-line error. The following table below summarizes the result when those options clash each other: 
+
+| `binary` | `keep_source` | The result of the archive |
+|---|---|---|
+| `false` (default) | `false` (default) | R source and native code source, no compiled binary. Compiled code is built on install. |
+| `true` | `false` | Compiled `.lib/` binary, native source left out. |
+| `true` | `true` | Compiled `.lib/` binary and native source. |
+| `false` | `true` | Rejected when `baler.toml` loads: `keep_source` needs `binary = true`. |
+
+If `binary = true` but the module has no native code, `baler bundle` prints a warning and bundles without a binary. A binary bundle only works reliably on the platform and R version it was built for, see [Binary bundles](native-code.qmd#binary-bundles).
 
 ### Resolution rules
 

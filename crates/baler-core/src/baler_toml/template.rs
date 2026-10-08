@@ -2,6 +2,22 @@ use baler_native::{Backend, NativeLang};
 
 use super::BalerToml;
 
+/// What `baler init` found in an existing directory and wants written
+/// into the manifest in place of the placeholder defaults.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TemplateDefaults<'a> {
+    /// A source directory that isn't named after the module. Written as
+    /// a real `src = "..."` line instead of the commented-out default.
+    pub src: Option<&'a str>,
+    /// An existing README to point `readme` at.
+    pub readme: Option<&'a str>,
+}
+
+/// Escapes a value for a TOML basic string.
+fn toml_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 impl BalerToml {
     /// `native` is `Some((lang, backend))` when `baler init` was run
     /// with `--native`. When it's `None`, the generated `baler.toml`
@@ -12,6 +28,30 @@ impl BalerToml {
     /// source directory, matching how `resolve_native_dirs()` resolves
     /// it, not the project root.
     pub fn default_template(name: &str, native: Option<(NativeLang, Option<Backend>)>) -> String {
+        Self::default_template_with(name, native, TemplateDefaults::default())
+    }
+
+    /// Same as `default_template`, with the values `baler init` worked
+    /// out from an existing directory filled in.
+    pub fn default_template_with(
+        name: &str,
+        native: Option<(NativeLang, Option<Backend>)>,
+        defaults: TemplateDefaults<'_>,
+    ) -> String {
+        let readme_line = match defaults.readme {
+            Some(path) => format!("readme = \"{}\"", toml_str(path)),
+            None => "# readme = \"README.md\"".to_owned(),
+        };
+        let src_line = match defaults.src {
+            Some(dir) => format!(
+                "src = \"{}\"    # path to the source directory containing __init__.R",
+                toml_str(dir)
+            ),
+            None => format!(
+                "# src = \"{name}\"    # path to the source directory containing __init__.R"
+            ),
+        };
+
         let mut out = format!(
             r#"[project]
 name = "{name}"
@@ -24,8 +64,8 @@ license = "Unknown"
 r_version = ">=4.0.0"
 repository = ""
 keywords = []
-# readme = "README.md"
-# src = "{name}"    # path to the source directory containing __init__.R
+{readme_line}
+{src_line}
                     # defaults to a directory named after the module
 
 [dependencies]
@@ -43,8 +83,9 @@ keywords = []
 # [extras]/[extras.baler] hold deps only needed outside normal
 # runtime use (tests, mocks, dev tooling), same shape as
 # [dependencies]/[dependencies.baler] above. [extras.external] adds
-# one more kind found only here: external CLI tools, never loaded by
-# box, so never part of [dependencies] at all.
+# one more kind found only here: external tools (command-line
+# programs, Python packages), never loaded by box, so never part of
+# [dependencies] at all.
 [extras]
 # testthat = "*"
 
@@ -53,9 +94,11 @@ keywords = []
 
 [extras.external]
 # baler doesn't install these, only checks for them. A bare string is
-# a version spec; an inline table can carry whatever else that
-# particular tool needs, since baler itself only reads `version`.
+# a command-line tool with that version requirement. A table picks a
+# type: "cli" (the default, with an optional `hint`) or "python" (a
+# PyPI package, checked in one Python interpreter).
 # quarto = ">=1.4"
+# numpy = {{ type = "python", version = ">=1.24" }}
 "#
         );
 
@@ -85,7 +128,7 @@ keywords = []
         out.push_str(
             "\n# [tool.test]\n\
              # framework = \"testthat\"\n\
-             # dir = \"tests\"\n"
+             # dir = \"tests\"\n",
         );
 
         out

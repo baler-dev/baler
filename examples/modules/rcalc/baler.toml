@@ -16,6 +16,8 @@ src = "src/"
 
 [compiled-code]
 path = ["c/", "cpp/"]
+binary = true
+keep_source = false
 # build_deps = { Rcpp = "*" }
 
 [compiled-code.build_deps]
