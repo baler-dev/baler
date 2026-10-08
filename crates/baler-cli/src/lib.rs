@@ -23,17 +23,33 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Scaffold a new box module
+    /// Scaffold a box module. With a NAME, creates <NAME>-proj/. Without
+    /// one, initializes the current directory in place, like `uv init`:
+    /// writes baler.toml, finds an existing module directory, and never
+    /// overwrites a file.
     Init {
-        /// Name of the module to create
-        name: String,
+        /// Name of the module to create in a new directory. Leave out to
+        /// initialize the current directory instead.
+        name: Option<String>,
 
         /// Override the project directory name.
         /// Defaults to <name>-proj if not specified.
-        #[arg(long)]
+        #[arg(long, requires = "name")]
         dir_name: Option<String>,
 
-        /// Scaffold compiled-code support: c or cpp
+        /// In-place only: name of the module. Defaults to the name of
+        /// the module directory found, or of the current directory.
+        #[arg(long = "name", conflicts_with = "name")]
+        module_name: Option<String>,
+
+        /// In-place only: the directory holding the module's source,
+        /// relative to here. Defaults to searching for one with an
+        /// __init__.r, or else one holding R files.
+        #[arg(long, conflicts_with = "name")]
+        src: Option<String>,
+
+        /// Scaffold compiled-code support: c or cpp. Only for a new
+        /// module, not one that already has files.
         #[arg(long)]
         native: Option<String>,
 
@@ -172,8 +188,8 @@ pub fn run() {
     let cli = Cli::parse();
 
     let result: Result<()> = match cli.command {
-        Commands::Init { name, dir_name, native, backend } => {
-            commands::init::run(InitArgs { name, dir_name, native, backend })
+        Commands::Init { name, dir_name, module_name, src, native, backend } => {
+            commands::init::run(InitArgs { name, dir_name, module_name, src, native, backend })
         }
         Commands::Compile { path, clean, rebuild } => {
             commands::compile::run(CompileArgs { path, clean, rebuild })

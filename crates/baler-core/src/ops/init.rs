@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+
 use std::fs;
 use std::path::PathBuf;
 
@@ -6,6 +7,15 @@ use baler_native::{Backend, NativeLang};
 
 use crate::baler_toml::BalerToml;
 
+mod in_place;
+mod naming;
+mod project_dir;
+
+pub use in_place::{run_in_place, InPlaceOptions};
+
+/// Scaffolds a new project in a new directory: `<name>-proj/` unless
+/// `dir_name` says otherwise. See `run_in_place` for initializing a
+/// directory that already exists.
 pub fn run(
     name: &str,
     dir_name: Option<&str>,
@@ -15,38 +25,38 @@ pub fn run(
     let default_dir = format!("{}-proj", name);
     let project_dir_name = dir_name.unwrap_or(&default_dir);
     let project_root = PathBuf::from(project_dir_name);
-    
+
     if project_root.exists() {
         bail!("'{}' already exists.", project_root.display());
     }
-    
+
     fs::create_dir_all(&project_root)
-    .with_context(|| format!("Failed to create directory: {}", project_root.display()))?;
-    
+        .with_context(|| format!("Failed to create directory: {}", project_root.display()))?;
+
     fs::write(
         project_root.join("baler.toml"),
         BalerToml::default_template(name, native.map(|lang| (lang, backend))),
     )
     .context("Failed to write baler.toml")?;
-    
+
     fs::write(
         project_root.join("README.md"),
         format!("# {}\n\nA box module.\n", name),
     )
     .context("Failed to write README.md")?;
-    
-    // The default convention: Source directory named after the module 
+
+    // The default convention: Source directory named after the module
     let src_dir = project_root.join(name);
     fs::create_dir_all(&src_dir)
-    .with_context(|| format!("Failed to create source directory: {}", src_dir.display()))?;
-    
+        .with_context(|| format!("Failed to create source directory: {}", src_dir.display()))?;
+
     let mut files = vec![
         "baler.toml".to_string(),
         "README.md".to_string(),
     ];
-    
+
     // Scaffolds the native dir with real, buildable example code, and
-    // default_template() already writes a [native] block with
+    // default_template() already writes a [compiled-code] block with
     // build_deps. path is deliberately omitted there — resolve_native_dirs()
     // auto-detects src/ (and any other native dir) on its own.
     if let Some(lang) = native {
@@ -62,7 +72,7 @@ pub fn run(
             files.push(format!("{}/{}", name, f));
         }
     }
-    
+
     println!("Initialized module '{}' in '{}'", name, project_dir_name);
     for f in &files {
         println!("  {}", f);
@@ -73,6 +83,6 @@ pub fn run(
          Rename it and set `src` in baler.toml if you prefer a different name.",
         name
     );
-    
+
     Ok(())
 }
