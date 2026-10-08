@@ -108,7 +108,7 @@ pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
     let manifest = BalerToml::default_template_with(
         &name,
         opts.native.map(|lang| (lang, opts.backend)),
-        TemplateDefaults { src: (module_rel != name).then_some(module_rel.as_str()) },
+        TemplateDefaults { src: (module_rel != name).then_some(module_rel.as_str()), ..Default::default() },
     );
     fs::write(project_root.join("baler.toml"), manifest).context("Failed to write baler.toml")?;
     files.insert(0, "baler.toml".to_string());
