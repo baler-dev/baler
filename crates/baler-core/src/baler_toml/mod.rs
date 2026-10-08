@@ -18,6 +18,7 @@ pub use dependencies::{
 };
 pub use extras::{Extras, ExternalToolDep};
 pub use project::ModuleMeta;
+pub use template::TemplateDefaults;
 pub use tool::{TestConfig, ToolConfig};
 
 /// `box` accepts either case for a module's `.r`/`.R` extension, so
@@ -25,7 +26,7 @@ pub use tool::{TestConfig, ToolConfig};
 /// scaffolded with either convention, or hand-authored either way,
 /// must resolve the same regardless of which case the author used or
 /// which filesystem baler itself happens to be running on.
-fn find_init_file(dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_init_file(dir: &Path) -> Option<PathBuf> {
     for name in ["__init__.r", "__init__.R"] {
         let candidate = dir.join(name);
         if candidate.exists() {
