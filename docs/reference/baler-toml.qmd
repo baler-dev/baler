@@ -136,9 +136,11 @@ covr = "*"
 # utils = { git = "https://github.com/<user>/<utils>" }
 ```
 
+`[extras]` packages are recorded in [`baler.lock`](baler-lock.qmd) under the `extras` group. A normal `baler install` does not install them.
+
 ### External development tools
 
-Under `[extras.external]` block, you can declare anything a module's development needs that isn't a traditional R package or a `box-bale` module: a command-line tool such as Quarto, or a Python package. `{baler}` never fetches or installs any of it, it only checks for it and reports. Each entry picks its kind with `type` (two, as of now):
+Under `[extras.external]` block, you can declare anything a module's development needs that isn't a traditional R package or a `box-bale` module: a command-line tool such as Quarto, or a Python package. `{baler}` never fetches or installs any of it, it only checks for it and reports. Nothing under this table is written to `baler.lock`, since what is installed on a machine isn't something `baler.toml` can pin. Each entry picks its kind with `type` (two, as of now):
 
 1.  `cli`: A command binary name on `PATH`. The declared tools under this type are checked through running `<tool> --version`. 
 
@@ -222,7 +224,7 @@ keep_source = false           # only with binary = true: also ship native source
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `path` | string or array of strings | no | Directory, or directories, containing native sources + `Makevars`. Relative to the module's own source directory (the same base `src` uses), not the project root `baler.toml` lives in. A single location can be written as a plain string; more than one as an array. |
-| `build_deps` | table | no | Map of package name -> version requirement (same syntax as `[dependencies]`). These are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[dependencies]` if the compiled code also needs them loaded at runtime. |
+| `build_deps` | table | no | Map of package name -> version requirement (same syntax as `[dependencies]`). These are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[dependencies]` if the compiled code also needs them loaded at runtime. They are recorded in `baler.lock` under the `build` group. |
 | `binary` | boolean | no | Defaults to `false`. When `true`, `baler bundle` compiles the native code in place first and ships the compiled `.lib/` in the archive, without the native source. See [Bundle settings](#bundle-settings). |
 | `keep_source` | boolean | no | Defaults to `false`. Only valid together with `binary = true`. Also ships the native source next to the compiled binary. |
 
