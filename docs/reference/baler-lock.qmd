@@ -70,7 +70,7 @@ Generating the lockfile runs a simple command through `baler lock <path/of/the/p
 baler lock .
 ```
 
-What happens is that `{baler}` will read and validate `baler.toml` (the same checks `baler install` makes: a strict semver `version`, consistent keys in each `[dependencies.baler]` entry, and bare command names under `[extras.external]`), then resolves the runtime packages, the `[compiled-code]` build deps, and the `[extras]` packages, each on its own (honoring any existing lock unless you pass `--update`). The three sets are merged into one entry per package, and `baler.lock` is written next to `baler.toml`. If the sets resolve the same package to different versions, `baler lock` stops with an error instead of picking one. Align the version constraints in `baler.toml` and run it again. You are also allowed to re-resolve the pinned dependencies under the lockfile by passing `--update`. Here's an example:
+What happens is that `{baler}` will read and validate `baler.toml` (the same checks `baler install` makes: a valid semver `version`, consistent keys in each `[dependencies.baler]` entry, and valid entries under `[extras.external]`), then resolves the runtime packages, the `[compiled-code]` build deps, and the `[extras]` packages, each on its own (honoring any existing lock unless you pass `--update`). The three sets are merged into one entry per package, and `baler.lock` is written next to `baler.toml`. If the sets resolve the same package to different versions, `baler lock` stops with an error instead of picking one. Align the version constraints in `baler.toml` and run it again. You are also allowed to re-resolve the pinned dependencies under the lockfile by passing `--update`. Here's an example:
 
 ``` bash
 baler lock . --update
