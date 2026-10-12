@@ -1,130 +1,134 @@
-use anyhow::{anyhow, bail, Context, Result};
-
-use std::fs;
-use std::path::Path;
-
 use baler_native::{Backend, NativeLang};
 
-use super::naming::project_dir_name;
-use super::project_dir::{explicit_src, is_fresh};
-use crate::baler_toml::{BalerToml, TemplateDefaults};
+use super::BalerToml;
 
-#[derive(Clone, Copy, Default)]
-pub struct InPlaceOptions<'a> {
-    /// Module name. Defaults to the project directory's own name, as is.
-    pub name: Option<&'a str>,
-    /// The directory holding the module's source, relative to the project.
-    /// Written to `src` in baler.toml. Defaults to a directory named after
-    /// the module.
+/// What `baler init` was told about an existing directory, written into
+/// the manifest in place of the placeholder default.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TemplateDefaults<'a> {
+    /// A source directory that isn't named after the module. Written as
+    /// a real `src = "..."` line instead of the commented-out default.
     pub src: Option<&'a str>,
-    pub native: Option<NativeLang>,
-    pub backend: Option<Backend>,
 }
 
-/// Initializes `project_root`, which already exists, like `uv init` or
-/// `cargo init`. It never overwrites or deletes a file, and it never
-/// looks at the code in the project.
-///
-/// - An empty directory (hidden entries such as `.git` don't count) is
-///   set up the way `baler init <name>` does it, only in place:
-///   `baler.toml`, `README.md`, and an example module in `<name>/`.
-/// - Any other directory gets `baler.toml` and nothing else. `src` says
-///   where the module's source is: a directory named after the module by
-///   default, or whatever `--src` names.
-///
-/// Everything that can fail is checked before the first file is written,
-/// and `baler.toml` is written last, so a failed run leaves the directory
-/// ready for another attempt.
-pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
-    if !project_root.is_dir() {
-        bail!("'{}' is not a directory.", project_root.display());
-    }
-    if project_root.join("baler.toml").exists() {
-        bail!(
-            "baler.toml already exists in '{}', so there is nothing to initialize.",
-            project_root.display()
-        );
+/// Escapes a value for a TOML basic string.
+fn toml_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+impl BalerToml {
+    /// `native` is `Some((lang, backend))` when `baler init` was run
+    /// with `--native`. When it's `None`, the generated `baler.toml`
+    /// has no `[compiled-code]` section at all, not even a commented
+    /// placeholder, someone not working with native code shouldn't
+    /// see a block about it in a file they just scaffolded. `path`
+    /// inside that section is written relative to the module's own
+    /// source directory, matching how `resolve_native_dirs()` resolves
+    /// it, not the project root.
+    pub fn default_template(name: &str, native: Option<(NativeLang, Option<Backend>)>) -> String {
+        Self::default_template_with(name, native, TemplateDefaults::default())
     }
 
-    let name = match opts.name {
-        Some(n) => n.to_owned(),
-        None => project_dir_name(project_root).ok_or_else(|| {
-            anyhow!("Could not work out a module name. Pass `--name <name>`.")
-        })?,
-    };
-    let src = opts.src.map(|raw| explicit_src(project_root, raw)).transpose()?;
-    let fresh = is_fresh(project_root)?;
-
-    if opts.native.is_some() && !fresh {
-        bail!(
-            "`--native` scaffolds a new module, but this directory already has files in it. \
-             Add the native code yourself (a `src/` directory with a Makevars) and leave \
-             `--native` off."
-        );
-    }
-
-    let module_rel = src.clone().unwrap_or_else(|| name.clone());
-    let mut files: Vec<String> = Vec::new();
-
-    if fresh {
-        let module_dir = project_root.join(&name);
-        fs::create_dir_all(&module_dir).with_context(|| {
-            format!("Failed to create source directory: {}", module_dir.display())
-        })?;
-        let result = match opts.native {
-            Some(lang) => baler_native::scaffold::scaffold(&module_dir, &name, lang, opts.backend),
-            None => baler_native::scaffold::scaffold_pure_r(&module_dir),
+    /// Same as `default_template`, with the values `baler init` worked
+    /// out from an existing directory filled in.
+    pub fn default_template_with(
+        name: &str,
+        native: Option<(NativeLang, Option<Backend>)>,
+        defaults: TemplateDefaults<'_>,
+    ) -> String {
+        // The name can be anything a directory is called, so it has to be
+        // safe inside a TOML string.
+        let name = toml_str(name);
+        let name = name.as_str();
+        let src_line = match defaults.src {
+            Some(dir) => format!(
+                "src = \"{}\"    # path to the source directory containing __init__.R",
+                toml_str(dir)
+            ),
+            None => format!(
+                "# src = \"{name}\"    # path to the source directory containing __init__.R"
+            ),
         };
-        let scaffolded = match result {
-            Ok(written) => written,
-            Err(e) => {
-                // Only the directory created just above, inside a project that
-                // had nothing in it. Left behind, it would make a retry think
-                // the project already has files and skip the scaffold.
-                let _ = fs::remove_dir_all(&module_dir);
-                return Err(e.context(format!(
-                    "Failed to scaffold the example module in {}",
-                    module_dir.display()
-                )));
-            }
-        };
-        files.extend(scaffolded.into_iter().map(|f| format!("{name}/{f}")));
-        fs::write(
-            project_root.join("README.md"),
-            format!("# {}\n\nA box module.\n", name),
-        )
-        .context("Failed to write README.md")?;
-        files.insert(0, "README.md".to_string());
-    }
 
-    let manifest = BalerToml::default_template_with(
-        &name,
-        opts.native.map(|lang| (lang, opts.backend)),
-        TemplateDefaults { src: (module_rel != name).then_some(module_rel.as_str()) },
-    );
-    fs::write(project_root.join("baler.toml"), manifest).context("Failed to write baler.toml")?;
-    files.insert(0, "baler.toml".to_string());
+        let mut out = format!(
+            r#"[project]
+name = "{name}"
+version = "0.1.0"
+description = ""
+authors = [
+    {{ name = "Your Name", email = "you@example.com" }},
+]
+license = "Unknown"
+r_version = ">=4.0.0"
+repository = ""
+keywords = []
+# readme = "README.md"
+{src_line}
+                    # defaults to a directory named after the module
 
-    println!("Initialized module '{}' in '{}'", name, project_root.display());
-    for f in &files {
-        println!("  {}", f);
-    }
-    println!();
-    if fresh {
-        println!(
-            "Source directory: '{}/'\n\
-             Rename it and set `src` in baler.toml if you prefer a different name.",
-            module_rel
+[dependencies]
+# dplyr = "*"
+# ggplot2 = ">=3.4.0"
+# fable = {{ version = "*", repo = "https://tidyverts.r-universe.dev/" }}
+
+[dependencies.baler]
+# A module needs a source: `git` (a github.com repo) or `url` (a
+# bundled .tar.gz). `git` can take one of branch/tag/rev, and
+# module_dir for a repo holding more than one module. `version` is
+# optional.
+# other_module = {{ git = "https://github.com/user/repo", tag = "v1.0.0" }}
+
+# [extras]/[extras.baler] hold deps only needed outside normal
+# runtime use (tests, mocks, dev tooling), same shape as
+# [dependencies]/[dependencies.baler] above. [extras.external] adds
+# one more kind found only here: external tools (command-line
+# programs, Python packages), never loaded by box, so never part of
+# [dependencies] at all.
+[extras]
+# testthat = "*"
+
+[extras.baler]
+# mock_module = {{ git = "https://github.com/user/repo" }}
+
+[extras.external]
+# baler doesn't install these, only checks for them. A bare string is
+# a command-line tool with that version requirement. A table picks a
+# type: "cli" (the default, with an optional `hint`) or "python" (a
+# PyPI package, checked in one Python interpreter).
+# quarto = ">=1.4"
+# numpy = {{ type = "python", version = ">=1.24" }}
+"#
         );
-    } else if project_root.join(&module_rel).is_dir() {
-        println!("Source directory: '{}/'. No files in the project were changed.", module_rel);
-    } else {
-        eprintln!(
-            "warning: the source directory '{}/' doesn't exist. Set `src` in baler.toml to the \
-             directory holding your module, or run `baler init --src <dir>`.",
-            module_rel
-        );
-    }
 
-    Ok(())
+        if let Some((lang, backend)) = native {
+            let build_deps_line = match lang {
+                NativeLang::Cpp => match backend.unwrap_or_default() {
+                    Backend::Rcpp => "build_deps = { Rcpp = \"*\" }",
+                    Backend::Cpp11 => "build_deps = { cpp11 = \"*\" }",
+                },
+                _ => "# build_deps = { Rcpp = \"*\" }",
+            };
+            out.push_str(&format!(
+                "\n[compiled-code]\n\
+                 # Native code is auto-detected under this module's source dir, no\n\
+                 # path needed for the default src/ layout. Only set path if compiled\n\
+                 # code lives somewhere else, or in more than one place.\n\
+                 # path = \"native/\"\n\
+                 # path can also be an array: path = [\"native/\", \"extra/src\"]\n\
+                 {build_deps_line}\n\
+                 # build_deps is resolved and installed before compiling.\n\
+                 # Does not imply a runtime dependency; list it in\n\
+                 # [dependencies] too if the compiled code also needs it\n\
+                 # loaded at runtime\n"
+            ));
+        }
+
+        out.push_str(
+            "\n# [tool.test]\n\
+             # framework = \"testthat\"\n\
+             # dir = \"tests\"\n",
+        );
+
+        out
+    }
 }
