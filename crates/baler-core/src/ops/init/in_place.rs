@@ -5,14 +5,13 @@ use std::path::Path;
 
 use baler_native::{Backend, NativeLang};
 
-use super::naming::{project_dir_name, validate_module_name};
+use super::naming::project_dir_name;
 use super::project_dir::{explicit_src, is_fresh};
 use crate::baler_toml::{BalerToml, TemplateDefaults};
 
 #[derive(Clone, Copy, Default)]
 pub struct InPlaceOptions<'a> {
-    /// Module name. Defaults to the project directory's own name, minus a
-    /// `-proj` suffix (what `baler init <name>` appends).
+    /// Module name. Defaults to the project directory's own name, as is.
     pub name: Option<&'a str>,
     /// The directory holding the module's source, relative to the project.
     /// Written to `src` in baler.toml. Defaults to a directory named after
@@ -48,17 +47,10 @@ pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
     }
 
     let name = match opts.name {
-        Some(n) => {
-            validate_module_name(n)?;
-            n.to_owned()
-        }
-        None => {
-            let n = project_dir_name(project_root).ok_or_else(|| {
-                anyhow!("Could not work out a module name. Pass `--name <name>`.")
-            })?;
-            validate_module_name(&n)?;
-            n
-        }
+        Some(n) => n.to_owned(),
+        None => project_dir_name(project_root).ok_or_else(|| {
+            anyhow!("Could not work out a module name. Pass `--name <name>`.")
+        })?,
     };
     let src = opts.src.map(|raw| explicit_src(project_root, raw)).transpose()?;
     let fresh = is_fresh(project_root)?;
@@ -108,7 +100,7 @@ pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
     let manifest = BalerToml::default_template_with(
         &name,
         opts.native.map(|lang| (lang, opts.backend)),
-        TemplateDefaults { src: (module_rel != name).then_some(module_rel.as_str()), ..Default::default() },
+        TemplateDefaults { src: (module_rel != name).then_some(module_rel.as_str()) },
     );
     fs::write(project_root.join("baler.toml"), manifest).context("Failed to write baler.toml")?;
     files.insert(0, "baler.toml".to_string());

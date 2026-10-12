@@ -91,8 +91,8 @@ fn set(items: &[&str]) -> BTreeSet<String> {
 // ---- empty directory: scaffold ----
 
 #[test]
-fn empty_dir_is_scaffolded_with_the_name_minus_proj() {
-    let p = Project::new("weather-proj");
+fn empty_dir_is_scaffolded_under_its_own_name() {
+    let p = Project::new("weather");
     p.init().unwrap();
 
     assert_eq!(
@@ -133,7 +133,7 @@ fn hidden_entries_do_not_make_a_directory_non_empty() {
 
 #[test]
 fn native_flag_scaffolds_an_empty_directory() {
-    let p = Project::new("calc-proj");
+    let p = Project::new("calc");
     p.init_with(InPlaceOptions { native: Some(NativeLang::Cpp), ..Default::default() }).unwrap();
 
     assert!(p.exists("calc/src/Makevars"));
@@ -189,9 +189,10 @@ fn src_flag_accepts_a_nested_directory() {
 }
 
 #[test]
-fn existing_module_named_like_the_project_needs_no_flags() {
-    // The shape of examples/modules/convert-proj.
-    let p = Project::new("convert-proj");
+fn existing_module_named_like_the_directory_needs_no_flags() {
+    // The shape of examples/modules/convert-proj, once the directory is
+    // named like the module.
+    let p = Project::new("convert");
     p.write("convert/__init__.R", "box::use(./mass)\n");
     p.write("convert/mass/__init__.R", "# nested module\n");
     p.write("README.md", "mine\n");
@@ -236,15 +237,19 @@ fn src_that_does_not_exist_yet_still_writes_the_manifest_with_the_default() {
 // ---- names ----
 
 #[test]
-fn invalid_directory_name_is_rejected_before_anything_is_written() {
-    let p = Project::new("my-project");
-    let err = error_text(p.init());
-    assert!(err.contains("--name"), "{err}");
-    assert!(p.files().is_empty(), "nothing should have been written");
+fn directory_name_is_the_module_name_verbatim() {
+    // No suffix is stripped and nothing is validated: `-proj` is just
+    // part of the name, and so is a hyphen.
+    for dir in ["weather-proj", "tidyverse-module", "my project", "2fast"] {
+        let p = Project::new(dir);
+        p.init().unwrap();
+        assert_eq!(p.manifest().project.name, dir, "{dir}");
+        assert!(p.exists(&format!("{dir}/__init__.r")), "{dir}");
+    }
 }
 
 #[test]
-fn name_flag_overrides_an_invalid_directory_name() {
+fn name_flag_overrides_the_directory_name() {
     let p = Project::new("my-project");
     p.init_with(InPlaceOptions { name: Some("mymod"), ..Default::default() }).unwrap();
     assert_eq!(p.manifest().project.name, "mymod");
@@ -252,11 +257,20 @@ fn name_flag_overrides_an_invalid_directory_name() {
 }
 
 #[test]
-fn invalid_name_flag_is_rejected() {
+fn name_flag_is_not_validated() {
     let p = Project::new("fine");
-    let err = error_text(p.init_with(InPlaceOptions { name: Some("bad-name"), ..Default::default() }));
-    assert!(err.contains("not a valid module name"), "{err}");
-    assert!(p.files().is_empty());
+    p.init_with(InPlaceOptions { name: Some("bad-name"), ..Default::default() }).unwrap();
+    assert_eq!(p.manifest().project.name, "bad-name");
+}
+
+#[test]
+fn quotes_in_a_name_cannot_break_the_manifest() {
+    // A non-empty directory, so the name is only written to the manifest
+    // and never becomes a directory on disk.
+    let p = Project::new("fine");
+    p.write("notes.txt", "x\n");
+    p.init_with(InPlaceOptions { name: Some("a\"b\\c"), ..Default::default() }).unwrap();
+    assert_eq!(p.manifest().project.name, "a\"b\\c");
 }
 
 // ---- refusals ----
