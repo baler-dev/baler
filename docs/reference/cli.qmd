@@ -54,32 +54,55 @@ baler init stats_native
 
 ### The current directory
 
-Without a `<name>`, what `baler init` does depends on what is already in the directory:
+Without a `<name>`, `baler init` sets up the directory you are in. It always writes `baler.toml` there. If `baler.toml` already exists, it stops with an error and writes nothing.
 
-| The directory | What happens |
-|---|---|
-| Empty (hidden entries such as `.git` don't count) | Set up the way a new project is, only in place: `baler.toml`, `README.md`, and an example module in a folder named after the module. `--native` and `--backend` apply. |
-| Anything else | `baler.toml` is written, and nothing else. No example module, no README, and no file of yours is touched. |
+There are two cases of what else it does depends on the directory:
 
-In both cases `baler init` never reads the code in your project, never overwrites or deletes a file, and never asks a question. It stops without writing anything if `baler.toml` already exists.
+-   When the directory is *empty* (not counting the hidden entries such as `.git`), it also adds `README.md` and an example module, in a folder named after the module. This is the same layout as a new project, only in place. `--native` and `--backend` apply here.
 
-The module's name is the current directory's name, as is: `weather/` gives `weather`, and `weather-proj/` gives `weather-proj`. Nothing is stripped or checked. If that isn't the name you want, pass `--name` or edit `name` in `baler.toml`. A name that isn't syntactic in R, such as `my-module`, still works, since `box::use()` accepts it in backticks.
+-   Otherwise, when it is *not empty*, i.e. you already have the source code files and/or anything, it writes `baler.toml` and nothing else. Your files are left as they are, and no example module or README is added. `--native` is rejected here, because scaffolding native code into a project that already has files could overwrite them. Add the native code yourself instead; it is detected automatically.
 
-For a directory that isn't empty, `src` is the directory named after the module unless `--src` says otherwise. `baler init` does not look for your code, so if the module lives somewhere else, pass `--src` or edit `src` in `baler.toml` afterwards. If the source directory doesn't exist, it prints a warning and still writes the manifest. `baler bundle` also needs an `__init__.r` in that directory, which `baler init` does not create for existing code. `--native` is rejected here, since scaffolding native code into a project that already has files would risk overwriting them. Add the native code yourself instead; it is detected automatically.
+#### The module's name
 
-If scaffolding an empty directory fails, the half-made module directory is removed and `baler.toml` is not written, so running the command again starts clean.
+The module's name is the directory's name, as is. For example, when the current directory you initialized is named `weather/` will give `weather`, and `tidyverse-module/` gives `tidyverse-module`. `baler init` do not strip or check anything. That's because a name that [isn't syntactic in R](https://adv-r.hadley.nz/names-values.html#non-syntactic), such as `my-module`, still works, since `box::use()` accepts it in backticks. To use a different name, pass `--name` or edit `name` in `baler.toml`. 
 
-Here are two examples:
+#### The source directory
 
-``` bash
-# An empty directory called weather: the module is "weather"
-cd weather
-baler init
+`src` in `baler.toml` says where the module's source lives. By default it is a folder named after the module. If your module is in a different folder, pass `--src <dir>` or edit `src` in `baler.toml`.
 
-# An existing R project whose code is in R/: the module is "analysis"
-cd analysis
-baler init --src R
-```
+If the source directory doesn't exist, `baler init` prints a warning and still writes `baler.toml`. Keep in mind that `baler bundle` needs an `__init__.r` in that directory, which `baler init` doesn't create for code that is already there.
+
+#### Examples
+
+Here are three common situations.
+
+1.  You are in an empty directory called `weather/`. Running `baler init` gives you a module named `weather`, plus `README.md` and an example module in `weather/weather/`. The same goes for a directory called `tidyverse-module/`, where the module is named `tidyverse-module`.
+
+2.  You are in an existing `weather/` project whose source code is in `weather-module/`:
+
+    ``` 
+    └── weather/
+        ├── LICENSE.md
+        └── weather-module/
+            ├── __init__.r
+            └── submodule/
+                ├── __init__.r
+                └── source.r
+    ```
+
+    The module is named `weather`, but the source isn't in a folder with that name, so point `baler init` at it:
+
+    ``` bash
+    baler init --src weather-module
+    ```
+
+    `baler.toml` is the only new file, and it records the source directory as `src = "weather-module"`.
+
+3.  You are in `tidyverse-module/`, but you want a different module name. Pass `--name`:
+
+    ``` bash
+    baler init --name tidyverse
+    ```
 
 ## Native compiled code compilation
 
@@ -104,17 +127,22 @@ A plain `baler compile`, with neither flag, only recompiles when the source has 
 Similar to `pkgbuild::build()` (or `devtools::build()`) and an analogue for `R CMD build`, `baler bundle` now bundles a module's source, creating into a single `.tar.gz` archive that can be installed elsewhere, shared with someone else, or attached to a GitHub release. Here's the anatomy of the `baler bundle` command: 
 
 ``` bash
-# If `<path>` isn't supplied, then `.` argument is passed by default
+# If `<path>` isn't supplied
+# Then `.` argument is passed by default
 baler bundle [<path>]
 ```
 
-The only argument for this command is the `<path>`, which refers to the project's root directory, wherever `baler.toml` lives. What the archive contains is decided by `[compiled-code]` in `baler.toml`, not by passing `--binary` or `--keep-source`:
+The only argument for this command is the `<path>`, which refers to the project's root directory, wherever `baler.toml` lives. 
+
+::: {.callout-note title="Legacy of {carrier}" collapse="true"}
+It is decided that the `--binary` or `--keep-source` are now dropped. Now, what the archive contains is decided by `[compiled-code]` in `baler.toml` through the following:
 
 -  When `binary = true` is declared under the `[compiled-code]` from `baler.toml`, `{baler}` will compile any native code in the module first, and include the compiled artifact in the archive. Without it, only source is bundled, and compiled code has to be built again on install.
 
 -  When `keep_source = true` is declared under the `[compiled-code]` from `baler.toml`, the native source code will be kept on the archives. This is only valid together with `binary = true`. 
 
 The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you set as `name` under `[project]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A bundle built with `binary = true` only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, even if `keep_source = true` was set at bundle time.
+:::
 
 ## Module installation
 
@@ -138,9 +166,9 @@ Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to insta
 | `--url <tarball>` | Installs directly from an already-bundled archive URL, such as a GitHub Release asset from `baler bundle`. Must end in `.tar.gz`, checked up front. |
 | `--repo <url>` | Looks up `<name>` in a module registry at `<url>`. Registries aren't built yet, so this currently just fails with a clear "not implemented" error. Add `--version <constraint>` once registries exist. |
 
-The extra parameter, `--install-deps`, downloads and installs the module's R package dependencies from CRAN. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
+The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether CRAN-style R packages (they are linked from CRAN by default) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
 
-Installing via `--git` obviously needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `--git` sources in a short window, for example in a CI pipeline, you can run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
+Installing via `--git` obviously needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `--git` sources in a short window, for example in a CI pipeline, you would run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
 
 ## Lock and lockfile
 
