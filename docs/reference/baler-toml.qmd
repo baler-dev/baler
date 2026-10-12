@@ -144,7 +144,7 @@ Under `[extras.external]` block, you can declare anything a module's development
 
 1.  `cli`: A command binary name on `PATH`. The declared tools under this type are checked through running `<tool> --version`. 
 
-2.  `python`: A Python distribution name (strictly on this sense, so for the `{sklean}` library instance, it should be written as `scikit-learn`, not `sklearn`). The declared packages are checked by reading the package's installed version from one Python interpreter. 
+2.  `python`: A Python distribution name (strictly on this sense, so for the scikit-learn library, it should be written as `scikit-learn`, not `sklearn`). The declared packages are checked by reading the package's installed version from one Python interpreter. 
 
 Here's an example:
 
@@ -230,7 +230,7 @@ keep_source = false           # only with binary = true: also ship native source
 
 ### Bundle settings {#bundle-settings}
 
-The `binary` and `keep_source` options describe what the module ships, so they live with the module instead of being retyped on every run. The flags no longer exist, and passing one is now a command-line error. The following table below summarizes the result when those options clash each other: 
+The `binary` and `keep_source` options describe what the module ships, so they live with the module instead of being retyped on every run. *Note: Its predecessor, `{carrier}`, it only flags through `--binary` and `--keep-source`, but the flags no longer exist, and passing one is now a command-line error.* The following table summarizes what each combination of those options produces:
 
 | `binary` | `keep_source` | The result of the archive |
 |---|---|---|
@@ -265,7 +265,7 @@ Under `[tool.test]` block, advisory configuration for a future test runner. As o
 
 ## Full template
 
-This is the exact text written by `baler init`. `[compiled-code]` is only included at all when `--native` is passed; a plain `baler init` leaves it out entirely rather than writing a commented-out placeholder for it.
+This is the exact text written by `baler init`. `[compiled-code]` is only included at all when `--native` is passed; a plain `baler init` leaves it out entirely rather than writing a commented-out placeholder for it. `baler init --src <dir>` (see [Initialization and Scaffolding](cli.qmd#initialization-and-scaffolding)) writes the `# src = ...` line as a real `src = "<dir>"` line when `<dir>` isn't named after the module. Everything else is identical.
 
 ``` toml
 [project]
@@ -298,8 +298,9 @@ keywords = []
 # [extras]/[extras.baler] hold deps only needed outside normal
 # runtime use (tests, mocks, dev tooling), same shape as
 # [dependencies]/[dependencies.baler] above. [extras.external] adds
-# one more kind found only here: external CLI tools, never loaded by
-# box, so never part of [dependencies] at all.
+# one more kind found only here: external tools (command-line
+# programs, Python packages), never loaded by box, so never part of
+# [dependencies] at all.
 [extras]
 # testthat = "*"
 
@@ -308,9 +309,11 @@ keywords = []
 
 [extras.external]
 # baler doesn't install these, only checks for them. A bare string is
-# a version spec; an inline table can carry whatever else that
-# particular tool needs, since baler itself only reads `version`.
+# a command-line tool with that version requirement. A table picks a
+# type: "cli" (the default, with an optional `hint`) or "python" (a
+# PyPI package, checked in one Python interpreter).
 # quarto = ">=1.4"
+# numpy = { type = "python", version = ">=1.24" }
 
 # [tool.test]
 # framework = "testthat"
