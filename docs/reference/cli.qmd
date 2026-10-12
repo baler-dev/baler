@@ -8,28 +8,43 @@ Every subcommand exits non-zero and prints `error: ...` to stderr on failure, so
 
 ## Initialization and Scaffolding
 
-Through `baler init` command, this will scaffold a new module project from scratch. Once executed, the following files: 
+Through `baler init` command, this will set up a module project. It works in two ways, depending on whether you give it a name:
 
-1.   `baler.toml`, which is the most required file to interact with `{baler}`
-2.   `README.md`
-3.   And R source files under a folder containing the source code of the module
+-   **With a `<name>`**, it scaffolds a new module project from scratch, in a new directory.
+-   **Without one**, it initializes the directory you are already in, like `uv init` or `cargo init`.
 
-are generated. Here's the anatomy of `baler init`: 
+Either way, `baler.toml` is the most required file to interact with `{baler}`. Here's the anatomy of `baler init`:
 
 ``` bash
+# A new project, in a new directory
 baler init <name> [--dir-name <dir>] [--native <lang>] [--backend <backend>]
+
+# The current directory, in place
+baler init [--name <name>] [--src <dir>] [--native <lang>] [--backend <backend>]
 ```
 
-And then this following table explains how `baler init` behaves: 
+And then this following table explains how `baler init` behaves:
 
 | Argument | Description |
 |---|---|
-| `<name>` | The module's name. Used as the default project directory name (`<name>-proj`), the default source directory name, and the `name` field written into `baler.toml`. |
-| `--dir-name <dir>` | Use a different project directory name instead of `<name>-proj`. |
+| `<name>` | The module's name. Used as the default project directory name (`<name>-proj`), the default source directory name, and the `name` field written into `baler.toml`. Leave it out to initialize the current directory instead. |
+| `--dir-name <dir>` | Only with `<name>`. Use a different project directory name instead of `<name>-proj`. |
+| `--name <name>` | Only without `<name>`. The module's name, instead of the one worked out from the current directory (see [The current directory](#the-current-directory)). Anything goes; it isn't checked. |
+| `--src <dir>` | Only without `<name>`. The directory holding the module's source, relative to the current directory. Written as `src` in `baler.toml`, unless it is the module's own name, which is the default. It must be an existing directory inside the project. |
 | `--native <lang>` | Scaffold a module with compiled code instead of pure R: `c` for C, `cpp` for C++. Sets up a starter source file, build configuration, and the loader code that runs `dyn.load()` automatically. Leave this out for a plain R module. |
 | `--backend <backend>` | Only relevant with `--native cpp`. Which C++ binding library to scaffold: `rcpp` (the default) or `cpp11`. |
 
-Fails without changing anything if the target directory already exists, so it's safe to run and see the error rather than risk overwriting something.
+When `--native` is not passed, this will ignore `--backend` parameter, and won't generate the files under the chosen language, just their pure R versions.
+
+### A new project
+
+Once executed with a `<name>`, the following files:
+
+1.  `baler.toml`
+2.  `README.md`
+3.  And R source files under a folder containing the source code of the module
+
+are generated. Fails without changing anything if the target directory already exists, so it's safe to run and see the error rather than risk overwriting something.
 
 Here's an example:
 
@@ -37,7 +52,34 @@ Here's an example:
 baler init stats_native
 ```
 
-When `--native` is not passed, this will ignore `--backend` parameter, and won't generate the files under the chosen language, just their pure R versions. 
+### The current directory
+
+Without a `<name>`, what `baler init` does depends on what is already in the directory:
+
+| The directory | What happens |
+|---|---|
+| Empty (hidden entries such as `.git` don't count) | Set up the way a new project is, only in place: `baler.toml`, `README.md`, and an example module in a folder named after the module. `--native` and `--backend` apply. |
+| Anything else | `baler.toml` is written, and nothing else. No example module, no README, and no file of yours is touched. |
+
+In both cases `baler init` never reads the code in your project, never overwrites or deletes a file, and never asks a question. It stops without writing anything if `baler.toml` already exists.
+
+The module's name is the current directory's name, as is: `weather/` gives `weather`, and `weather-proj/` gives `weather-proj`. Nothing is stripped or checked. If that isn't the name you want, pass `--name` or edit `name` in `baler.toml`. A name that isn't syntactic in R, such as `my-module`, still works, since `box::use()` accepts it in backticks.
+
+For a directory that isn't empty, `src` is the directory named after the module unless `--src` says otherwise. `baler init` does not look for your code, so if the module lives somewhere else, pass `--src` or edit `src` in `baler.toml` afterwards. If the source directory doesn't exist, it prints a warning and still writes the manifest. `baler bundle` also needs an `__init__.r` in that directory, which `baler init` does not create for existing code. `--native` is rejected here, since scaffolding native code into a project that already has files would risk overwriting them. Add the native code yourself instead; it is detected automatically.
+
+If scaffolding an empty directory fails, the half-made module directory is removed and `baler.toml` is not written, so running the command again starts clean.
+
+Here are two examples:
+
+``` bash
+# An empty directory called weather: the module is "weather"
+cd weather
+baler init
+
+# An existing R project whose code is in R/: the module is "analysis"
+cd analysis
+baler init --src R
+```
 
 ## Native compiled code compilation
 
