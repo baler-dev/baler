@@ -25,6 +25,7 @@ tempfile.workspace = true
 semver.workspace = true
 schemars = { version = "0.8", optional = true }
 baler-native = { path = "../native-code-handler" }
+pep440_rs = "0.7"
 
 [dev-dependencies]
 insta.workspace = true

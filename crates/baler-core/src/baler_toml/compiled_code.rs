@@ -27,9 +27,10 @@ impl NativePath {
 }
 
 // ---- CompiledCode ----
-/// Declares where a module's compiled code lives, and its build-time-
+/// Declares where a module's compiled code lives, its build-time-
 /// only R package deps (e.g. `Rcpp`), whose headers a `Makevars` needs
-/// to find via `system.file()` before `R CMD SHLIB` can run.
+/// to find via `system.file()` before `R CMD SHLIB` can run, and how
+/// `baler bundle` packages it.
 ///
 /// `path` is relative to the module's own source directory (whatever
 /// `resolve_src_dir()` resolves to), the same base `src` in
@@ -41,9 +42,24 @@ impl NativePath {
 /// `path` is optional and exists purely as an override. When omitted,
 /// `resolve_native_dirs()` scans the module's whole source tree for
 /// compiled-code dirs instead of assuming one is where it must live.
+///
+/// `binary` and `keep_source` replaced the `--binary` and
+/// `--keep-source` flags of `baler bundle`. They describe what a
+/// module ships, which belongs to the module and not to whoever
+/// happens to run the command.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CompiledCode {
     pub path: Option<NativePath>,
     pub build_deps: Option<BTreeMap<String, PackageDep>>,
+    /// `baler bundle` compiles the native code in place and ships the
+    /// tagged binary. Native source is stripped from the archive
+    /// unless `keep_source` is also set.
+    #[serde(default)]
+    pub binary: bool,
+    /// Only valid together with `binary = true`. Also ships native
+    /// source next to the binary, so install can fall back to
+    /// compiling when the binary's tag doesn't match the machine.
+    #[serde(default)]
+    pub keep_source: bool,
 }

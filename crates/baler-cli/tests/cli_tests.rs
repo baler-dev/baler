@@ -103,8 +103,38 @@ fn init_dir_name_flag_is_wired_to_clap_correctly() {
 }
 
 #[test]
-fn init_missing_name_arg_fails_with_usage_error() {
-    baler_cmd().arg("init").assert().failure();
+fn init_without_a_name_initializes_the_current_directory() {
+    let dir = Scratch::new("init-in-place");
+
+    baler_cmd().current_dir(dir.path()).arg("init").assert().success();
+
+    assert!(dir.path().join("baler.toml").is_file());
+    assert!(dir.path().join("README.md").is_file());
+}
+
+#[test]
+fn init_without_a_name_refuses_to_overwrite_baler_toml() {
+    let dir = Scratch::new("init-in-place-existing");
+    std::fs::write(dir.path().join("baler.toml"), "# mine\n").unwrap();
+
+    baler_cmd().current_dir(dir.path()).arg("init").assert().failure();
+
+    let contents = std::fs::read_to_string(dir.path().join("baler.toml")).unwrap();
+    assert_eq!(contents, "# mine\n");
+}
+
+#[test]
+fn init_name_flag_and_positional_name_conflict() {
+    // `--name` is for the in-place form; with `<name>` it is a usage error.
+    let dir = Scratch::new("init-name-conflict");
+
+    baler_cmd()
+        .current_dir(dir.path())
+        .args(["init", "somemod", "--name", "other"])
+        .assert()
+        .failure();
+
+    assert!(!dir.path().join("baler.toml").exists());
 }
 
 // ---- bundle ----

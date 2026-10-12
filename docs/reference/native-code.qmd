@@ -6,7 +6,7 @@ Regular R packages have decades of established convention for compiled codes: th
 
 As of version 0.2.0, `{box}`-`{baler}` modules can contain native code (C, C++, ...), compiled via `R CMD SHLIB` mechanism. The R-side loading, `dyn.load()` / `dyn.unload()` wired to a module's `.on_load()` / `.on_unload()` hooks, isn't automatic just because a native directory exists. The current solution `{baler}` has comes from the auto-generated `hook.r`, which `baler init --native` scaffolds once, at that moment. If you add native code to a module some other way, for example dropping a `Makevars` into an existing module without re-running `--native` init, nothing writes that loading glue for you. You're back to the manual steps the `{box}` vignette describes, for that module.
 
-The practical difference from classic R packages is rather explicit: You are not forced to put native sources in a directory named `src/`. Any directory name is fine, as long as `{baler}` can find it, either by automatic discovery or by an explicit `[native]` entry (for more details, see [The `[native]` block](#native-block)).
+The practical difference from classic R packages is rather explicit: You are not forced to put native sources in a directory named `src/`. Any directory name is fine, as long as `{baler}` can find it, either by automatic discovery or by an explicit `[compiled-code]` entry (for more details, see [The `[compiled-code]` block](#native-block)).
 
 ## Enabling native code in a module
 
@@ -14,7 +14,7 @@ The practical difference from classic R packages is rather explicit: You are not
 
 1.  `baler init <module-name> --native <lang>` on a fresh module. This scaffolds working example code (`hello_world`/`add`) in both the compiled language and R, already wired together.
 
-2.  Either drop sources into a directory that baler will discover automatically, or add a `[native]` block to `baler.toml`. You do not need the `[native]` block at all if the sources live under a discoverable directory and you have no build-time R package dependencies.
+2.  Either drop sources into a directory that baler will discover automatically, or add a `[compiled-code]` block to `baler.toml`. You do not need the `[compiled-code]` block at all if the sources live under a discoverable directory and you have no build-time R package dependencies.
 
 ## Supported languages and backends
 
@@ -52,15 +52,17 @@ sm$square(5)
 `box::use(Rcpp[...])` at the top of `hook.r` has to force `{Rcpp}` to be loaded before `.on_load`'s `dyn.load()` runs, so that never happens. `{cpp11}`, on the other hand, has no equivalent runtime shared-library dependency at all, which is why its `.on_load`'s `dyn.load()` call skips this line entirely rather than needing some `{cpp11}` equivalent.
 :::
 
-## The `[native]` block {#native-block}
+## The `[compiled-code]` block {#native-block}
 
-`[native]` is entirely optional. You don't need it at all if your compiled code lives somewhere `{baler}` already discovers on its own (see [Directory conventions](#directory-conventions)) and you have no build-time R package dependencies. If you do need to configure it, here's the shape:
+`[compiled-code]` is entirely optional. You don't need it at all if your compiled code lives somewhere `{baler}` already discovers on its own (see [Directory conventions](#directory-conventions)) and you have no build-time R package dependencies. If you do need to configure it, here's the shape:
 
 ``` toml
-[native]
+[compiled-code]
 path = "cpp/"
 # path can also be an array: path = ["cpp/", "extra/src"]
 build_deps = { Rcpp = "*" }
+binary = false        # true: `baler bundle` compiles and ships the binary
+keep_source = false   # true (needs binary = true): also ship native source
 ```
 
 -   `path` is where this module's native source lives, relative to the module's own resolved source directory (the same base `[module].src` uses), not the project root where `baler.toml` lives. It accepts either a single string, for one native-code location, or an array, for a module with more than one (e.g. `path = ["cpp1", "cpp2"]`). A configuration here, either a single location or a multiple locations, are just two shapes of the same source (`src`) field, not two separate keys.
@@ -72,6 +74,8 @@ build_deps = { Rcpp = "*" }
     ::: {.callout-warning collapse="true"}
     As of `{baler}` version 0.2.1, `build_deps` are folded into the ordinary package-resolution plan. Previously they are only installed if they also appear under `[package_deps]`.
     :::
+
+-   `binary` and `keep_source` are booleans, both `false` by default, that control what `baler bundle` ships. `keep_source = true` requires `binary = true`. See [Binary bundles](#binary-bundles).
 
 ## Directory conventions {#directory-conventions}
 
@@ -137,18 +141,28 @@ The pure C / cpp11 variant is identical except that it omits the `box::use(Rcpp[
 
 If you run `baler init <module-name>` without `--native`, then the generation tends to writes the pure R equivalent instead. The `hello_world()` / `add()` logic are pretty much the same as how they are implemented under the chosen "low-level" language, same file layout, but implemented directly in R, thus no file like `hook.r` which calls `dyn.load()` / `dyn.unload()` calls. A fresh module always starts from runnable examples, compiled or not.
 
-### Binary bundles
+### Binary bundles {#binary-bundles}
 
-Pass `--binary` after `baler bundle` and it runs the compile step first. Then forces the normally-hidden `.lib/` directory into the archive. The manifest records platform, R version, and source hash for each artifact, but nothing on the install side reads those back. A `--binary` bundle installed on a machine it wasn't built for unpacks its `.lib/` binary as-is and hands it straight to `dyn.load()` at runtime, with no compatibility check in between and no fallback, even if you also passed `--keep-source`, nothing currently detects a mismatch and recompiles from the kept source automatically.
+Set `binary = true` under `[compiled-code]` and `baler bundle` runs the compile step first. Then it forces the normally-hidden `.lib/` directory into the archive and leaves the native source out. Add `keep_source = true` to ship the native source as well. If the module has no native code, `baler bundle` warns and bundles without a binary.
 
-Until that exists, only distribute `--binary` bundles to machines matching what they were built for.
+The manifest records platform, R version, and source hash for each artifact, but nothing on the install side reads those back. A bundle built with `binary = true` and installed on a machine it wasn't built for unpacks its `.lib/` binary as-is and hands it straight to `dyn.load()` at runtime, with no compatibility check in between and no fallback. Even with `keep_source = true`, nothing currently detects a mismatch and recompiles from the kept source automatically.
+
+Until that exists, only distribute binary bundles to machines matching what they were built for.
 
 This is different from how baler handles R package binaries from CRAN, where a downloaded binary's actual architecture is read out of its compiled header and checked before it's trusted. That check exists for CRAN dependencies specifically; it doesn't extend to a module's own compiled artifacts yet.
 
-``` bash
-baler bundle . --binary                 # ship .lib/, dropping native sources
-baler bundle . --binary --keep-source   # ship both
+``` toml
+[compiled-code]
+binary = true                # ship .lib/, dropping native sources
 ```
+
+``` toml
+[compiled-code]
+binary = true
+keep_source = true           # ship both
+```
+
+Either way, run `baler bundle .`. The `--binary` and `--keep-source` flags that earlier versions took were removed in favour of these keys.
 
 ## Build cache {#build-cache}
 

@@ -6,7 +6,7 @@ authors = [
     { name = "Joshua Marie", email = "joshua.marie.k@gmail.com" }
 ]
 license = "Unknown"
-r_version = "4.0.0"
+r_version = ">4.0.0"
 readme = "README.md"
 
 # [dependencies]
