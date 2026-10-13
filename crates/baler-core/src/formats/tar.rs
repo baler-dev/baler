@@ -167,11 +167,12 @@ pub fn read_toml(tar_path: &Path) -> Result<crate::baler_toml::BalerToml> {
 /// file on disk.
 pub fn read_lock(tar_path: &Path) -> Result<Option<crate::lockfile::BalerLock>> {
     match read_embedded_file(tar_path, "baler.lock")? {
+        // Same parse, and same format-version check, as a lock read from
+        // disk, so an embedded lock from a newer baler is refused with the
+        // same clear message instead of being half-understood.
         Some(contents) => {
-            let lock: crate::lockfile::BalerLock = toml::from_str(&contents).with_context(|| {
-                format!("Failed to parse baler.lock embedded in {}", tar_path.display())
-            })?;
-            Ok(Some(lock))
+            let origin = format!("baler.lock embedded in {}", tar_path.display());
+            Ok(Some(crate::lockfile::parse(&contents, &origin)?))
         }
         None => Ok(None),
     }
