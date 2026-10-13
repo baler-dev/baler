@@ -19,28 +19,37 @@ use graph::{resolve_all, topo_order, RepoResolution};
 /// lock` calls. Only the PACKAGES.gz indices get fetched; no individual
 /// package's source or binary is ever transferred, which is what makes
 /// this cheap enough to run just to check or refresh a lock.
+///
+/// Resolves in relock mode (see `resolve_all`): the lock seeds the result
+/// rather than being enforced, so a pin that no longer fits `baler.toml`
+/// is re-resolved instead of failing, and the lock's transitive closure
+/// is carried over.
 pub fn resolve_packages(
     packages: &BTreeMap<String, ResolvedPackage>,
     lock: Option<&BalerLock>,
 ) -> Result<HashMap<String, (Version, String)>> {
-    let (_, globally_resolved) = resolve_all(packages, lock)?;
+    let (_, globally_resolved) = resolve_all(packages, lock, true)?;
     Ok(globally_resolved)
 }
 
 /// Install a set of resolved R packages into `lib_path`, resolving first
 /// via `resolve_all`.
 ///
-/// Returns the full resolved set (direct and transitive) so a caller can
-/// write it out as a new `baler.lock`, minus anything that resolved
-/// successfully but then failed to actually download/install as a
-/// transitive dep (skipped with a warning below): a lock entry for a
-/// package that isn't actually there would be worse than no entry.
+/// Returns the full resolved set (direct and transitive), minus anything
+/// that resolved successfully but then failed to actually download/install
+/// as a transitive dep (skipped with a warning below): a set that lists a
+/// package that isn't actually there would be worse than one that omits it.
+///
+/// Resolves in install mode (see `resolve_all`): a lock is enforced, never
+/// rewritten. When a lock is in use, a package that can't be fetched is
+/// always an error, direct or not. Skipping it would quietly install
+/// something other than what the lock records.
 pub fn install_packages(
     packages: &BTreeMap<String, ResolvedPackage>,
     lib_path: &Path,
     lock: Option<&BalerLock>,
 ) -> Result<HashMap<String, (Version, String)>> {
-    let (per_repo, mut globally_resolved) = resolve_all(packages, lock)?;
+    let (per_repo, mut globally_resolved) = resolve_all(packages, lock, false)?;
 
     std::fs::create_dir_all(lib_path)
         .with_context(|| format!("Failed to create R lib dir: {}", lib_path.display()))?;
@@ -76,7 +85,7 @@ pub fn install_packages(
                 }
                 Err(e) => {
                     let is_direct = packages.contains_key(pkg.as_str());
-                    if is_direct {
+                    if is_direct || lock.is_some() {
                         return Err(e.context(format!("Failed to install {}", pkg)));
                     } else {
                         eprintln!(" [warn] skipping transitive dep {} — {}", pkg, e);
