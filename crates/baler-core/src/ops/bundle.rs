@@ -3,11 +3,27 @@ use std::path::{Path, PathBuf};
 
 use crate::baler_toml::BalerToml;
 use crate::formats::tar;
+use crate::lockfile;
+use crate::ops::resolve;
+
+/// Bundle without insisting on a current lock: a stale `baler.lock` is
+/// reported as a warning. See `run_with`.
+pub fn run(path: &str) -> Result<()> {
+    run_with(path, false)
+}
 
 /// `binary` and `keep_source` come from `[compiled-code]` in
 /// baler.toml, not from flags. `keep_source` without `binary` is
 /// rejected when the manifest is parsed (`BalerToml::from_dir`).
-pub fn run(path: &str) -> Result<()> {
+///
+/// A bundle ships `baler.lock` as it is, and whoever installs the bundle
+/// has no project to run `baler lock` in. So a lock that doesn't match
+/// `baler.toml` is caught here, on the author's side. The check is offline
+/// and only looks at what `baler.toml` declares (see
+/// `resolve::lock_problems_for`). With `locked: false` it warns and bundles
+/// anyway. With `locked: true`, in the style of `cargo publish --locked`,
+/// it fails, and a missing or unreadable lock fails too.
+pub fn run_with(path: &str, locked: bool) -> Result<()> {
     let project_root = PathBuf::from(path);
 
     if !project_root.exists() {
@@ -18,6 +34,7 @@ pub fn run(path: &str) -> Result<()> {
     }
 
     let toml = BalerToml::from_dir(&project_root)?;
+    check_lock_before_bundling(&project_root, &toml, locked)?;
     let src_path = toml.resolve_src_dir(&project_root)?;
     let meta = &toml.project;
 
@@ -92,6 +109,57 @@ pub fn run(path: &str) -> Result<()> {
         output_path.display()
     );
 
+    Ok(())
+}
+
+fn check_lock_before_bundling(project_root: &Path, toml: &BalerToml, locked: bool) -> Result<()> {
+    let lock = match lockfile::read(project_root) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            if locked {
+                bail!(
+                    "--locked needs a {}, and there isn't one. Run `baler lock` first.",
+                    lockfile::LOCK_FILE_NAME
+                );
+            }
+            return Ok(());
+        }
+        Err(e) => {
+            if locked {
+                return Err(e.context(format!(
+                    "--locked needs a readable {}",
+                    lockfile::LOCK_FILE_NAME
+                )));
+            }
+            eprintln!(
+                "warning: {} can't be read ({:#}). It will be bundled as it is.",
+                lockfile::LOCK_FILE_NAME,
+                e
+            );
+            return Ok(());
+        }
+    };
+
+    let problems = resolve::lock_problems_for(toml, &lock)?;
+    if problems.is_empty() {
+        return Ok(());
+    }
+
+    let list = problems.join("\n  - ");
+    if locked {
+        bail!(
+            "{} is out of date with baler.toml:\n  - {}\nRun `baler lock`, then bundle again.",
+            lockfile::LOCK_FILE_NAME,
+            list
+        );
+    }
+    eprintln!(
+        "warning: {} is out of date with baler.toml:\n  - {}\n\
+         It will be bundled as it is, and installing the bundle will fail. \
+         Run `baler lock` first, or pass --locked to make this an error.",
+        lockfile::LOCK_FILE_NAME,
+        list
+    );
     Ok(())
 }
 
