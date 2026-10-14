@@ -124,8 +124,12 @@ fn unlocked_extras_plan_rejects_a_differing_declaration_in_both_groups() {
     let extra = deps(r#"cli = ">=3.5.0""#);
 
     let err = resolve_with_extras(&Some(runtime), &None, &extra, &None).unwrap_err();
+    let message = format!("{err:#}");
 
-    assert!(format!("{err:#}").contains("both [dependencies] and [extras]"));
+    assert!(message.contains("'cli'"));
+    assert!(message.contains("both [dependencies]"));
+    assert!(message.contains(">=3.0.0"));
+    assert!(message.contains(">=3.5.0"));
 }
 
 #[test]
@@ -144,10 +148,6 @@ fn extras_without_install_deps_is_rejected_before_anything_runs() {
     };
 
     let err = run(req, false, true).unwrap_err();
-    let message = format!("{err:#}");
-
-    assert!(message.contains("'cli'"));
-    assert!(message.contains("both [dependencies]"));
-    assert!(message.contains(">=3.0.0"));
-    assert!(message.contains(">=3.5.0"));
+    
+    assert!(format!("{err:#}").contains("--install-deps"));
 }
