@@ -144,6 +144,10 @@ fn extras_without_install_deps_is_rejected_before_anything_runs() {
     };
 
     let err = run(req, false, true).unwrap_err();
+    let message = format!("{err:#}");
 
-    assert!(format!("{err:#}").contains("--install-deps"));
+    assert!(message.contains("'cli'"));
+    assert!(message.contains("both [dependencies]"));
+    assert!(message.contains(">=3.0.0"));
+    assert!(message.contains(">=3.5.0"));
 }
