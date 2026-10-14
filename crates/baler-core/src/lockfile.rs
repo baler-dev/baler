@@ -241,7 +241,7 @@ pub fn read(project_root: &Path) -> Result<Option<BalerLock>> {
 /// would produce noisy diffs on every write even when nothing about the
 /// resolved graph actually changed.
 ///
-/// `r_version` is `None` by default (see `--with-r-version` on
+/// `r_version` is `None` by default (see `--with-rver` on
 /// `baler lock`): the field is provenance-only, never enforced (the
 /// real constraint is `baler.toml`'s `module.r_version`, checked
 /// separately), and two contributors on different R installs writing

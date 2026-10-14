@@ -104,7 +104,7 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
         bail!("--check never writes the lock, so it can't be combined with --update.");
     }
     if opts.check && opts.with_r_version {
-        bail!("--check never writes the lock, so it can't be combined with --with-r-version.");
+        bail!("--check never writes the lock, so it can't be combined with --with-rver.");
     }
 
     let toml = BalerToml::from_dir(project_root)?;
@@ -116,8 +116,8 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
 
     if opts.with_r_version && existing.is_some() && opts.update == UpdateScope::Keep {
         bail!(
-            "--with-r-version records which R wrote the lock, and {} already exists. \
-             To record it, update the lock too: `baler lock --update --with-r-version`.",
+            "--with-rver records which R wrote the lock, and {} already exists. \
+             To record it, update the lock too: `baler lock --update --with-rver`.",
             lockfile::LOCK_FILE_NAME
         );
     }
