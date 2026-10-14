@@ -65,6 +65,12 @@ enum Commands {
         /// Path to the project root (e.g. `.` or `./my-project`)
         #[arg(default_value = ".")]
         path: String,
+
+        /// Fail instead of warning when baler.lock is missing, or doesn't
+        /// match baler.toml. Like `cargo publish --locked`. The lock ships
+        /// inside the bundle, so a stale one breaks installs of it.
+        #[arg(long)]
+        locked: bool,
     },
 
     /// Compile a module's native code in place for local dev/testing.
@@ -158,16 +164,27 @@ enum Commands {
     },
 
     /// Resolve R package dependencies and write baler.lock, without
-    /// installing anything
+    /// installing anything. An existing lock is kept as it is unless
+    /// baler.toml changed: then every pin that still fits stays, and only
+    /// what changed is added, dropped or re-resolved.
     Lock {
         /// Path to the project root (e.g. `.` or `./my-project`)
         path: String,
 
-        #[arg(long, conflicts_with = "remove", help = "Ignore any existing baler.lock and re-resolve everything fresh instead of reusing its pins")]
-        update: bool,
+        #[arg(
+            long,
+            num_args = 0..,
+            value_name = "PKG",
+            conflicts_with_all = ["remove", "check"],
+            help = "Re-resolve instead of reusing pins. Alone, re-resolves everything. With names (--update purrr cli), re-resolves only those and keeps every other pin"
+        )]
+        update: Option<Vec<String>>,
 
-        #[arg(long, conflicts_with = "remove", help = "Record the R version currently on PATH in baler.lock, as provenance only, not enforced on install")]
+        #[arg(long, conflicts_with_all = ["remove", "check"], help = "Record the R version currently on PATH in baler.lock, as provenance only, not enforced on install. Only when creating the lock or with --update")]
         with_rver: bool,
+
+        #[arg(long, conflicts_with = "remove", help = "Don't write anything. Exit with an error if baler.lock is missing or doesn't match baler.toml, for CI")]
+        check: bool,
 
         #[arg(long, help = "Delete baler.lock instead of writing one. This is the safe version of removal, baler just resolves fresh without it")]
         remove: bool,
@@ -194,16 +211,16 @@ pub fn run() {
         Commands::Compile { path, clean, rebuild } => {
             commands::compile::run(CompileArgs { path, clean, rebuild })
         }
-        Commands::Bundle { path } => {
-            commands::bundle::run(BundleArgs { path })
+        Commands::Bundle { path, locked } => {
+            commands::bundle::run(BundleArgs { path, locked })
         }
         Commands::Install { source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir } => {
             commands::install::run(InstallArgs {
                 source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir,
             })
         }
-        Commands::Lock { path, update, with_rver, remove } => {
-            commands::lock::run(LockArgs { path, update, with_rver, remove })
+        Commands::Lock { path, update, with_rver, check, remove } => {
+            commands::lock::run(LockArgs { path, update, with_rver, remove, check })
         }
         Commands::Remove { name, force } => {
             commands::remove::exec(RemoveArgs { name, force })
