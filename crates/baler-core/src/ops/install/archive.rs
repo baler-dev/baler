@@ -11,10 +11,13 @@ use crate::paths::resolve_install_dir;
 
 use super::native::build_native_if_present;
 
-/// Returns the full resolved R package set (direct and transitive) that
-/// `execute_plan` produced, so a caller installing from a local
-/// directory can write it out as `baler.lock` when `--write-lock` is
-/// passed. A dry run or a plan with no packages yields an empty map.
+/// Install a module from a `.tar.gz`, enforcing a lock if there is one.
+///
+/// The lock is `lock` when the caller has one (a local project directory),
+/// otherwise whatever `baler.lock` the archive shipped. It is only read:
+/// an install never writes or regenerates `baler.lock`, and fails with a
+/// pointer to `baler lock` when the lock doesn't cover `baler.toml`. A dry
+/// run (`install_deps` false) only prints what would be installed.
 pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Option<&BalerLock>) -> Result<()> {
     if !tar_path.exists() {
         bail!("File not found: {}", tar_path.display());
