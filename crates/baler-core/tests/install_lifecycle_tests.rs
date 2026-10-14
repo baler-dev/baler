@@ -101,7 +101,7 @@ fn install_from_dir_then_remove_round_trip() {
 
     // install_deps = false → dependency install is a dry run, so this
     // never touches the network even though the project has no deps.
-    install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap();
+    install::run(install_from_path(project.path().to_str().unwrap()), false, false).unwrap();
 
     let module_dir = lib.path().join("roundtripmod");
     assert!(module_dir.join("__init__.r").is_file());
@@ -134,7 +134,7 @@ fn reinstalling_replaces_the_previous_install() {
     let lib = Scratch::reserved("lib-reinstall");
     let _env = BalerLibGuard::set(lib.path());
 
-    install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap();
+    install::run(install_from_path(project.path().to_str().unwrap()), false, false).unwrap();
 
     // Add a stray file directly into the installed module dir that a
     // clean reinstall should wipe out.
@@ -142,7 +142,7 @@ fn reinstalling_replaces_the_previous_install() {
     std::fs::write(module_dir.join("stale.R"), "leftover").unwrap();
     assert!(module_dir.join("stale.R").exists());
 
-    install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap();
+    install::run(install_from_path(project.path().to_str().unwrap()), false, false).unwrap();
 
     assert!(!module_dir.join("stale.R").exists());
     assert!(module_dir.join("__init__.r").is_file());
@@ -167,6 +167,6 @@ fn install_errors_on_project_without_baler_toml() {
     let lib = Scratch::reserved("lib-no-toml");
     let _env = BalerLibGuard::set(lib.path());
 
-    let err = install::run(install_from_path(project.path().to_str().unwrap()), false).unwrap_err();
+    let err = install::run(install_from_path(project.path().to_str().unwrap()), false, false).unwrap_err();
     assert!(err.to_string().contains("baler.toml"));
 }
