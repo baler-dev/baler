@@ -1,4 +1,4 @@
-# baler
+# baler <img src="docs/images/baler.png" align="right" height="160"/>
 
 [![Build](https://github.com/baler-dev/baler/actions/workflows/build.yml/badge.svg)](https://github.com/baler-dev/baler/actions/workflows/build.yml)
 [![Tests](https://github.com/baler-dev/baler/actions/workflows/test.yml/badge.svg)](https://github.com/baler-dev/baler/actions/workflows/test.yml)
