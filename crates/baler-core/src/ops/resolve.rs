@@ -163,10 +163,38 @@ pub fn resolve_locked(
     module_deps: &Option<BTreeMap<String, ModuleDep>>,
     lock: &BalerLock,
 ) -> Result<ResolvedPlan> {
+    locked_plan(package_deps, module_deps, None, &None, lock)
+}
+
+/// `resolve_locked` that also installs the lock's `extras` group, and
+/// checks `[extras]` against the lock the same way runtime packages are.
+/// Backs `baler install --extras`.
+pub fn resolve_locked_with_extras(
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    module_deps: &Option<BTreeMap<String, ModuleDep>>,
+    extra_packages: &BTreeMap<String, PackageDep>,
+    extra_modules: &Option<BTreeMap<String, ModuleDep>>,
+    lock: &BalerLock,
+) -> Result<ResolvedPlan> {
+    locked_plan(package_deps, module_deps, Some(extra_packages), extra_modules, lock)
+}
+
+/// Shared body of `resolve_locked` and `resolve_locked_with_extras`.
+/// `extra_packages` is `Some` only when the caller asked for extras.
+fn locked_plan(
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    module_deps: &Option<BTreeMap<String, ModuleDep>>,
+    extra_packages: Option<&BTreeMap<String, PackageDep>>,
+    extra_modules: &Option<BTreeMap<String, ModuleDep>>,
+    lock: &BalerLock,
+) -> Result<ResolvedPlan> {
     let empty = BTreeMap::new();
     let declared = package_deps.as_ref().unwrap_or(&empty);
 
-    let problems = lock_problems(lock, LockGroup::Runtime, declared)?;
+    let mut problems = lock_problems(lock, LockGroup::Runtime, declared)?;
+    if let Some(extra) = extra_packages {
+        problems.extend(lock_problems(lock, LockGroup::Extras, extra)?);
+    }
     if !problems.is_empty() {
         bail!(
             "baler.lock is out of date with baler.toml:\n  - {}\n\
@@ -175,14 +203,20 @@ pub fn resolve_locked(
         );
     }
 
-    // Build and extras pins stay in the lock but are not installed here,
-    // so a normal install never pulls in compile-time or dev-only packages.
+    // Build pins stay in the lock but are not installed here, so an install
+    // never pulls in compile-time packages. Extras pins are installed only
+    // when the caller asked for them, so a normal install never pulls in
+    // dev-only packages either.
+    let with_extras = extra_packages.is_some();
     let packages = lock
         .packages
         .iter()
-        .filter(|locked| locked.is_runtime())
+        .filter(|locked| locked.is_runtime() || (with_extras && locked.in_group(LockGroup::Extras)))
         .map(|locked| {
-            let version_spec = match declared.get(&locked.name) {
+            let dep = declared
+                .get(&locked.name)
+                .or_else(|| extra_packages.and_then(|extra| extra.get(&locked.name)));
+            let version_spec = match dep {
                 Some(dep) => dep.version().to_owned(),
                 None => "*".to_owned(),
             };
@@ -192,7 +226,7 @@ pub fn resolve_locked(
         .collect();
 
     let mut mod_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
-    for (name, dep) in module_deps.as_ref().unwrap_or(&BTreeMap::new()) {
+    for (name, dep) in module_deps.iter().flatten().chain(extra_modules.iter().flatten()) {
         let spec = VersionSpec::parse(dep.version())?;
         mod_specs.entry(name.clone()).or_default().push(spec);
     }
@@ -202,6 +236,54 @@ pub fn resolve_locked(
         .collect();
 
     Ok(ResolvedPlan { packages, modules })
+}
+
+/// `resolve` over the root's runtime deps and its `[extras]` together.
+/// The plan holds one version spec and one repo per name, so a name
+/// declared in both groups must agree in both. A mismatch fails here
+/// instead of one group silently overriding the other. Modules are
+/// compared by version only, since a module's source isn't resolved yet.
+pub fn resolve_with_extras(
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    module_deps: &Option<BTreeMap<String, ModuleDep>>,
+    extra_packages: &BTreeMap<String, PackageDep>,
+    extra_modules: &Option<BTreeMap<String, ModuleDep>>,
+) -> Result<ResolvedPlan> {
+    let mut packages = package_deps.clone().unwrap_or_default();
+    for (name, dep) in extra_packages {
+        match packages.get(name) {
+            Some(runtime) if runtime.version() == dep.version() && runtime.repo() == dep.repo() => {}
+            Some(runtime) => bail!(
+                "'{name}' is in both [dependencies] ('{}' from {}) and [extras] ('{}' from {}). \
+                 Make them match.",
+                runtime.version(),
+                runtime.repo(),
+                dep.version(),
+                dep.repo()
+            ),
+            None => {
+                packages.insert(name.clone(), dep.clone());
+            }
+        }
+    }
+
+    let mut modules = module_deps.clone().unwrap_or_default();
+    for (name, dep) in extra_modules.iter().flatten() {
+        match modules.get(name) {
+            Some(runtime) if runtime.version() == dep.version() => {}
+            Some(runtime) => bail!(
+                "Module '{name}' is in both [dependencies.baler] ('{}') and [extras.baler] ('{}'). \
+                 Make them match.",
+                runtime.version(),
+                dep.version()
+            ),
+            None => {
+                modules.insert(name.clone(), dep.clone());
+            }
+        }
+    }
+
+    resolve(&Some(packages), &Some(modules))
 }
 
 /// Shared by resolve() and module_graph::resolve_transitive() — collapses
