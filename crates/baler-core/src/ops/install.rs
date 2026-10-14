@@ -56,18 +56,26 @@ enum InstallSource {
     Registry { name: String, repo: String, version: Option<String> },
 }
 
-pub fn run(req: InstallRequest, install_deps: bool) -> Result<()> {
+/// `extras` also installs the installed module's own `[extras]` R packages.
+/// It only ever applies to the module named here, never to the modules it
+/// depends on. Extras are R packages fetched like any other dependency, so
+/// they need `install_deps`; this is checked here as well as in clap, since
+/// a library caller or a test can skip clap.
+pub fn run(req: InstallRequest, install_deps: bool, extras: bool) -> Result<()> {
+    if extras && !install_deps {
+        bail!("--extras needs --install-deps, since extras are R packages installed from CRAN.");
+    }
     match resolve_source(req)? {
-        InstallSource::Tar(path) => install_from_tar(&path, install_deps, None),
-        InstallSource::Dir(path) => install_from_dir(&path, install_deps),
+        InstallSource::Tar(path) => install_from_tar(&path, install_deps, None, extras),
+        InstallSource::Dir(path) => install_from_dir(&path, install_deps, extras),
         InstallSource::GitHub { url, module_dir, git_ref } => {
-            install_from_github(&url, module_dir.as_deref(), git_ref.as_deref(), install_deps)
+            install_from_github(&url, module_dir.as_deref(), git_ref.as_deref(), install_deps, extras)
         }
         InstallSource::Url(url) => {
-            github::download_and_install(&url, install_deps)
+            github::download_and_install(&url, install_deps, extras)
         }
         InstallSource::Registry { name, repo, version } => {
-            install_from_registry(&name, &repo, version.as_deref(), install_deps)
+            install_from_registry(&name, &repo, version.as_deref(), install_deps, extras)
         }
     }
 }

@@ -110,6 +110,13 @@ enum Commands {
 
         #[arg(
             long,
+            requires = "install_deps",
+            help = "Also install the module's [extras] R packages (test frameworks, dev tooling). Needs --install-deps"
+        )]
+        extras: bool,
+
+        #[arg(
+            long,
             help = "Registry URL to look SOURCE up in (registries aren't implemented yet)",
             requires = "source",
             conflicts_with_all = ["path", "git", "url"]
@@ -169,6 +176,7 @@ enum Commands {
     /// what changed is added, dropped or re-resolved.
     Lock {
         /// Path to the project root (e.g. `.` or `./my-project`)
+        #[arg(default_value = ".")]
         path: String,
 
         #[arg(
@@ -214,9 +222,9 @@ pub fn run() {
         Commands::Bundle { path, locked } => {
             commands::bundle::run(BundleArgs { path, locked })
         }
-        Commands::Install { source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir } => {
+        Commands::Install { source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir } => {
             commands::install::run(InstallArgs {
-                source, install_deps, repo, version, path, git, branch, tag, rev, url, module_dir,
+                source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir,
             })
         }
         Commands::Lock { path, update, with_rver, check, remove } => {
