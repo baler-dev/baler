@@ -150,7 +150,7 @@ fn convert_proj_installs_via_baler_install_run() {
     // never touches the network regardless of what convert-proj declares
     // under [dependencies].
     let req = install_from_path(dir.to_str().unwrap());
-    install::run(req, false).expect("installing convert-proj should succeed");
+    install::run(req, false, false).expect("installing convert-proj should succeed");
 
     let module_dir = lib.path().join(&toml.project.name);
     assert!(module_dir.join("__init__.R").is_file());
