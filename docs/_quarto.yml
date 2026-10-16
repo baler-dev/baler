@@ -58,9 +58,12 @@ website:
 
 format:
     html:
-        theme: cosmo
-        css: styles.css
+        theme:
+            light: cosmo          
+            dark: darkly         
+        css: styles.css        
         toc: true
         code-copy: true
         code-block-bg: true
         highlight-style: github
+        respect-user-color-scheme: true  
