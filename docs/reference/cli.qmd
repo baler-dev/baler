@@ -10,20 +10,20 @@ Every subcommand exits non-zero and prints `error: ...` to stderr on failure, so
 
 Through `baler init` command, this will set up a module project. It works in two ways, depending on whether you give it a name:
 
--   **With a `<name>`**, it scaffolds a new module project from scratch, in a new directory.
--   **Without one**, it initializes the directory you are already in, like `uv init` or `cargo init`.
+1.  When you supplied the `<name>`, it scaffolds a new module project from scratch, in a new directory.
 
-Either way, `baler.toml` is the most required file to interact with `{baler}`. Here's the anatomy of `baler init`:
+    ``` bash
+    baler init <name> [--dir-name <dir>] [--native <lang>] [--backend <backend>]
+    ```
+    
+2.  Without one, it initializes the directory you are already in, like `uv init` or `cargo init`.
 
-``` bash
-# A new project, in a new directory
-baler init <name> [--dir-name <dir>] [--native <lang>] [--backend <backend>]
+    ``` bash
+    baler init [--name <name>] [--src <dir>] [--native <lang>] [--backend <backend>]
+    ```
 
-# The current directory, in place
-baler init [--name <name>] [--src <dir>] [--native <lang>] [--backend <backend>]
-```
+Either way, `baler.toml` is the most required file to interact with `{baler}`. And then this following table summarizes how `baler init` behaves:
 
-And then this following table explains how `baler init` behaves:
 
 | Argument | Description |
 |---|---|
@@ -44,7 +44,7 @@ Once executed with a `<name>`, the following files:
 2.  `README.md`
 3.  And R source files under a folder containing the source code of the module
 
-are generated. Fails without changing anything if the target directory already exists, so it's safe to run and see the error rather than risk overwriting something.
+are generated. It only fails without changing anything if the target directory already exists, so it's safe to run and see the error rather than risk overwriting something.
 
 Here's an example:
 
@@ -58,9 +58,9 @@ Without a `<name>`, `baler init` sets up the directory you are in. It always wri
 
 There are two cases of what else it does depends on the directory:
 
--   When the directory is *empty* (not counting the hidden entries such as `.git`), it also adds `README.md` and an example module, in a folder named after the module. This is the same layout as a new project, only in place. `--native` and `--backend` apply here.
+1.  When the directory is *empty* (not counting the hidden entries such as `.git`), it also adds `README.md` and an example module, in a folder named after the module. This is the same layout as a new project, only in place. `--native` and `--backend` apply here.
 
--   Otherwise, when it is *not empty*, i.e. you already have the source code files and/or anything, it writes `baler.toml` and nothing else. Your files are left as they are, and no example module or README is added. `--native` is rejected here, because scaffolding native code into a project that already has files could overwrite them. Add the native code yourself instead; it is detected automatically.
+2.  Otherwise, when it is *not empty*, i.e. you already have the source code files and/or anything, it writes `baler.toml` and nothing else. Your files are left as they are, and no example module or README is added. `--native` is rejected here, because scaffolding native code into a project that already has files could overwrite them. Add the native code yourself instead; it is detected automatically.
 
 #### The module's name
 
@@ -129,10 +129,13 @@ Similar to `pkgbuild::build()` (or `devtools::build()`) and an analogue for `R C
 ``` bash
 # If `<path>` isn't supplied
 # Then `.` argument is passed by default
-baler bundle [<path>]
+baler bundle [<path>] [--locked]
 ```
 
-The only argument for this command is the `<path>`, which refers to the project's root directory, wherever `baler.toml` lives. 
+| Argument | Description |
+|---|---|
+| `<path>` | The project's root directory, wherever `baler.toml` lives. Defaults to `.`. |
+| `--locked` | Fail instead of warning when `baler.lock` is missing, unreadable, or doesn't match `baler.toml`. Like `cargo publish --locked`. The lock ships inside the bundle, so a stale one breaks installs of it. Without the flag, `bundle` only warns. |
 
 ::: {.callout-note title="Legacy of {carrier}" collapse="true"}
 It is decided that the `--binary` or `--keep-source` are now dropped. Now, what the archive contains is decided by `[compiled-code]` in `baler.toml` through the following:
@@ -149,14 +152,15 @@ The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you s
 As long as the `{box}` module is configured by `{baler}`, you can install that `{box}` module so that other machines and/or projects can load it with `box::use()`. This is `{baler}`'s equivalent of `install.packages()`.
 
 ``` bash
-baler install <name> --repo <url> [--version <constraint>] [--install-deps]
-baler install --path <dir-or-tar.gz> [--install-deps]
-baler install --git <url> [--branch <ref> | --tag <ref> | --rev <ref>] [--module-dir <dir>] [--install-deps]
+baler install <name> --repo <url> [--version <constraint>] [--install-deps [--extras]]
+baler install --path <dir-or-tar.gz> [--install-deps [--extras]]
+baler install --git <url> [--branch <ref> | --tag <ref> | --rev <ref>] [--module-dir <dir>] [--install-deps [--extras]]
 # Always look up at tarball source only
-baler install --url <tarball> [--install-deps]
+baler install --url <tarball> [--install-deps [--extras]]
 ```
 
 Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to install from. Using more than one, or none, is an error.
+
 
 | Form | What it does |
 |---|---|
@@ -168,6 +172,10 @@ Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to insta
 
 The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether CRAN-style R packages (they are linked from CRAN by default) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
 
+`--extras` also installs the R packages (and `{box}` modules) the module declares under `[extras]`, such as test frameworks or development tooling. It only works together with `--install-deps`, since extras are R packages installed from CRAN, and passing it alone is an error. If the module declares nothing under `[extras]`, `{baler}` says so and installs nothing extra. When the module has a `baler.lock`, the extras are installed at the versions pinned there, transitive packages included, and a missing or outdated extras pin is an error telling you to run `baler lock`. Without a lock, `[extras]` is resolved together with the regular dependencies, and a package declared in both with different version constraints is an error. Without `--extras`, extras-only pins are never installed.
+
+`baler install` never writes `baler.lock`. If the lock doesn't match `baler.toml`, the install fails and points you to `baler lock`. On the other hand, with no lock at all, it resolves fresh.
+
 Installing via `--git` obviously needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `--git` sources in a short window, for example in a CI pipeline, you would run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
 
 ## Lock and lockfile
@@ -175,14 +183,18 @@ Installing via `--git` obviously needs internet access to reach GitHub, and thos
 This is inspired by `uv.lock` and `Cargo.lock`. As long as the dependencies are declared on `baler.toml`, the command you'll use, `baler lock`, will resolve everything a project depends on, both R packages and other modules, and writes the result to `baler.lock` so future installs use the exact same versions instead of re-resolving from scratch. This doesn't install anything itself, it just pins what *would* be installed. Here's the anatomy of `baler lock` command: 
 
 ``` bash
-baler lock <path> [--update] [--with-rver] [--remove]
+baler lock [<path>] [--update [<pkg>...]] [--with-rver] [--check] [--remove]
 ```
+
+`baler lock` is idempotent. If `baler.lock` already matches `baler.toml`, nothing is written, so running it twice, or on another machine, never shows up in a diff. If `baler.toml` changed, every pin that still fits is kept, and only what changed is added, dropped or re-resolved.
 
 | Argument | Description |
 |---|---|
-| `<path>` | The project's root directory. |
-| `--update` | Ignore any `baler.lock` that already exists and re-resolve every dependency from scratch, instead of reusing what's already pinned. Use this when you want to pick up newer versions. |
-| `--with-rver` | Also record the R version you currently have on your system inside `baler.lock`. This is informational only, it's never enforced or checked against on install, just a record of what produced the lock. |
+| `<path>` | The project's root directory. Defaults to `.`. |
+| `--update` | Ignore the existing pins and re-resolve every dependency from scratch. Use this when you want to pick up newer versions. |
+| `--update <pkg>...` | Re-resolve only the named packages (e.g. `--update purrr cli`) and keep every other pin. A name that isn't in the lock is an error. |
+| `--with-rver` | Also record the R version you currently have on your system inside `baler.lock`. This is informational only, it's never enforced or checked against on install. Only allowed when the lock is being created, or together with `--update`. |
+| `--check` | Never write anything. Exit with an error if `baler.lock` is missing or doesn't match `baler.toml`. Meant for CI. Can't be combined with `--update`, `--with-rver` or `--remove`. |
 | `--remove` | Delete `baler.lock` instead of writing one. Safe to run any time, if there's no lockfile, `{baler}` just resolves dependencies fresh each time, same as a project that never had one. |
 
 ::: callout-note
