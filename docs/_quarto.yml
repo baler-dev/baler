@@ -9,6 +9,7 @@ website:
     repo-url: https://github.com/baler-dev/baler
     repo-actions: [issue]
     page-navigation: true
+    favicon: images/baler.svg
     navbar:
         left:
             - href: index.qmd
