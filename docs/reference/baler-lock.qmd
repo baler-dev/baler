@@ -76,7 +76,25 @@ What happens is that `{baler}` will read and validate `baler.toml` (the same che
 baler lock . --update
 ```
 
-`--update` discards the existing lock and re-resolves everything from scratch. Use it when you intentionally want newer upstream versions. A project with no dependencies resolves to an empty set: the lock is still there written, but with no `[[package]]` entries.
+`--update` discards the existing pins and re-resolves everything from scratch. Use it when you intentionally want newer upstream versions. To move only some packages, name them, and every other pin stays:
+
+``` bash
+baler lock . --update purrr cli
+```
+
+A project with no dependencies resolves to an empty set: the lock is still there written, but with no `[[package]]` entries.
+
+### Running it again
+
+A plain `baler lock` never moves a pin that still satisfies `baler.toml`, including the transitive packages you never declared. If the lock already matches, the file isn't touched at all, not even its modification time. If `baler.toml` changed, `{baler}` keeps what still fits, adds or drops what the manifest changed, re-resolves only a package whose repo or constraint no longer fits its pin, and prints what moved. This also means two machines with different R or CRAN states get the same lock, as long as `baler.toml` is the same.
+
+### Checking the lock in CI
+
+``` bash
+baler lock . --check
+```
+
+`--check` never writes. It fails if `baler.lock` is missing, or if a normal `baler lock` would change it, and lists the differences. It can't be combined with `--update`, `--with-rver` or `--remove`.
 
 ### Recording the R version
 
@@ -86,11 +104,13 @@ By default, the lock doesn't record which R wrote it. Let's say two people on di
 baler lock . --with-rver
 ```
 
+A plain run leaves an existing `r_version` exactly as it is, since it describes whichever machine wrote it. `--with-rver` is only allowed when the lock is being created or updated; on an existing lock, use `baler lock . --update --with-rver`. A full `--update` refreshes `r_version` only if the old lock recorded one.
+
 It is added as part of proposal, and this can be mostly useful for debugging. Say someone reports a weird install and you want to know what R wrote their lock. It still doesn't change or dictate what's enforced at install, that's still `baler.toml`'s `r_version` job.
 
 ### Removing the lock
 
-You can manually delete `baler.lock` whatever, whenever, and however you want. `{baler}` just adds another option on `baler lock` command through passing `--remove`, which deletes `baler.lock` and stops there. Nothing will be resolved on `{baler}` once `baler.lock`, but nothing is broken, so rest assured. Also, `--update` / `--with-rver` are ignored if you pass them alongside `--remove`. There's a nuance and that is to *safely remove the lockfile*. To repeat, a missing lock just means `{baler}` resolves `[dependencies]` under `baler.toml` fresh, same as a project that never had one.
+You can manually delete `baler.lock` whatever, whenever, and however you want. `{baler}` just adds another option on `baler lock` command through passing `--remove`, which deletes `baler.lock` and stops there. Nothing will be resolved on `{baler}` once `baler.lock`, but nothing is broken, so rest assured. Also, `--remove` can't be combined with `--update`, `--with-rver` or `--check`. There's a nuance and that is to *safely remove the lockfile*. To repeat, a missing lock just means `{baler}` resolves `[dependencies]` under `baler.toml` fresh, same as a project that never had one.
 
 ``` bash
 baler lock . --remove
@@ -103,8 +123,11 @@ Almost nothing throws a failure when the module doesn't have a lockfile. When we
 When `baler.lock` is present in the project root:
 
 -   Every runtime package listed in the lock, including the transitive ones you never declared, is installed at that [exact version]{.underline} and repo.
--   Packages tagged only `build` or `extras` stay pinned in the lock, but a normal install does not install them. Build packages are installed when the module's native code is built, and `[extras]` packages are not installed by `baler install` yet.
--   A package declared in `baler.toml` but missing from the lock, or one whose `repo` changed, is an error telling you the lock is stale. Run `baler lock --update` and commit the new lock.
+-   Packages tagged only `build` or `extras` stay pinned in the lock, but a normal install does not install them. Build packages are installed when the module's native code is built, and `[extras]` packages are installed only with `baler install --install-deps --extras`, at their locked versions.
+-   A package declared in `baler.toml` but missing from the lock, or one whose `repo` or version constraint no longer fits its pin, is an error telling you the lock is stale. Run `baler lock` and commit the new lock.
+-   `baler install` never writes the lock.
+
+`baler bundle` checks the lock the same way before packaging: it warns when the lock is missing or stale, and `baler bundle --locked` fails instead.
 
 ## R version
 

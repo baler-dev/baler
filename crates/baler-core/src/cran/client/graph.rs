@@ -8,6 +8,9 @@ use crate::lockfile::BalerLock;
 use crate::ops::resolve::ResolvedPackage;
 use crate::version::VersionSpec;
 
+/// `{name: (exact version, repo)}`.
+type Pins = HashMap<String, (Version, String)>;
+
 pub(super) struct ResolvedInstall {
     pub(super) version: RVersion,
     pub(super) repo: String,
@@ -64,11 +67,33 @@ pub(super) fn topo_order(
 /// for that name. A package the lock doesn't mention still resolves
 /// fresh, the same way it would with no lock present. This lets a
 /// newly added dependency work before the lock is re-written to cover
-/// it.
+/// it. A fresh resolution still prefers the lock's pin for any package it
+/// reaches, as long as that pin satisfies the constraints, so adding one
+/// dependency doesn't move the versions of packages already locked.
+///
+/// `relock` is the one difference between the two callers:
+///
+/// - `false` (install): the lock is authoritative. A pin that no longer
+///   fits `baler.toml` is an error, and nothing beyond what was requested
+///   is added.
+/// - `true` (`baler lock`): the lock is a starting point. A directly
+///   requested package whose pin no longer fits `baler.toml` (its repo
+///   moved, or the constraint tightened past the pinned version) is
+///   re-resolved on its own rather than failing, since regenerating the
+///   lock is exactly the fix. The dependencies of every pinned package are
+///   then walked so the lock keeps its full transitive closure, with each
+///   reachable package held at its pinned version. Without that walk a
+///   relock would shrink to the directly declared packages.
 pub(super) fn resolve_all(
     packages: &BTreeMap<String, ResolvedPackage>,
     lock: Option<&BalerLock>,
-) -> Result<(BTreeMap<String, RepoResolution>, HashMap<String, (Version, String)>)> {
+    relock: bool,
+) -> Result<(BTreeMap<String, RepoResolution>, Pins)> {
+    let seed: Pins = match lock {
+        Some(l) => l.pins()?,
+        None => HashMap::new(),
+    };
+
     let mut by_repo: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     for (name, pkg) in packages {
         by_repo
@@ -81,7 +106,7 @@ pub(super) fn resolve_all(
     // transitive dep under more than one repo isn't independently
     // re-resolved (and potentially silently downgraded) by whichever
     // repo group happens to process it last.
-    let mut globally_resolved: HashMap<String, (Version, String)> = HashMap::new();
+    let mut globally_resolved: Pins = HashMap::new();
     let mut per_repo: BTreeMap<String, RepoResolution> = BTreeMap::new();
 
     for (repo, pkgs) in &by_repo {
@@ -90,6 +115,7 @@ pub(super) fn resolve_all(
 
         let mut to_install: HashMap<String, ResolvedInstall> = HashMap::new();
         let mut unlocked: BTreeMap<String, String> = BTreeMap::new();
+        let mut locked_roots: Vec<String> = Vec::new();
 
         for (name, spec) in pkgs {
             let locked = match lock {
@@ -100,19 +126,35 @@ pub(super) fn resolve_all(
             match locked {
                 Some((version, locked_repo)) => {
                     if locked_repo != *repo {
+                        if relock {
+                            println!(
+                                " [relock] '{name}' moved from {locked_repo} to {repo} in \
+                                 baler.toml, resolving it again"
+                            );
+                            unlocked.insert(name.clone(), spec.clone());
+                            continue;
+                        }
                         bail!(
                             "baler.lock pins '{name}' to repo {locked_repo}, but baler.toml \
-                             now points at {repo}. Re-run with --write-lock (or `baler lock`) \
-                             to update the lock, or revert baler.toml's repo for this package."
+                             now points at {repo}. Run `baler lock` to update the lock, or \
+                             revert baler.toml's repo for this package."
                         );
                     }
 
                     let required = VersionSpec::parse(spec)?;
                     if !required.matches(&version) {
+                        if relock {
+                            println!(
+                                " [relock] '{name}' is pinned to {version}, but baler.toml now \
+                                 requires '{spec}', resolving it again"
+                            );
+                            unlocked.insert(name.clone(), spec.clone());
+                            continue;
+                        }
                         bail!(
                             "baler.lock pins '{name}' to {version}, but baler.toml now \
-                             requires '{spec}', so the lock is stale. Re-run with --write-lock \
-                             (or `baler lock`) to update it."
+                             requires '{spec}', so the lock is stale. Run `baler lock` to \
+                             update it."
                         );
                     }
 
@@ -121,6 +163,7 @@ pub(super) fn resolve_all(
                         version: RVersion::synthetic(version),
                         repo: repo.clone(),
                     });
+                    locked_roots.push(name.clone());
                 }
                 None => {
                     unlocked.insert(name.clone(), spec.clone());
@@ -129,11 +172,25 @@ pub(super) fn resolve_all(
         }
 
         if !unlocked.is_empty() {
-            let resolved = resolve_install_set(&unlocked, &index, repo, &mut globally_resolved)?;
+            let resolved =
+                resolve_install_set(&unlocked, &index, repo, &mut globally_resolved, &seed)?;
             for (name, r) in &resolved {
                 globally_resolved.insert(name.clone(), (r.version.semver().clone(), r.repo.clone()));
             }
             to_install.extend(resolved);
+        }
+
+        if relock && !locked_roots.is_empty() {
+            let fresh = carry_locked_closure(&locked_roots, &index, &seed, &mut globally_resolved);
+            if !fresh.is_empty() {
+                let resolved =
+                    resolve_install_set(&fresh, &index, repo, &mut globally_resolved, &seed)?;
+                for (name, r) in &resolved {
+                    globally_resolved
+                        .insert(name.clone(), (r.version.semver().clone(), r.repo.clone()));
+                }
+                to_install.extend(resolved);
+            }
         }
 
         per_repo.insert(repo.clone(), RepoResolution { index, to_install });
@@ -142,13 +199,72 @@ pub(super) fn resolve_all(
     Ok((per_repo, globally_resolved))
 }
 
+/// Walk the index's dependency lists from `roots` (packages the lock pins
+/// that `baler.toml` still asks for), recording each reachable package
+/// the lock also pins into `globally_resolved` at its pinned version.
+/// Packages the lock doesn't pin that are reachable anyway come back as
+/// `name -> constraint`, for the caller to resolve fresh.
+///
+/// The lock doesn't record which package depends on which, so the walk
+/// uses the dependency lists in the current index. For a package pinned
+/// to an older release those lists can differ a little from what that
+/// release declared. The practical effect is limited to the edges: a
+/// package only the old release needed may be dropped, and one only the
+/// newer release needs may be added. Pinned versions never move.
+fn carry_locked_closure(
+    roots: &[String],
+    index: &HashMap<String, PackageRecord>,
+    seed: &Pins,
+    globally_resolved: &mut Pins,
+) -> BTreeMap<String, String> {
+    let mut fresh: BTreeMap<String, String> = BTreeMap::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<String> = roots.iter().cloned().collect();
+
+    while let Some(pkg) = queue.pop_front() {
+        if !visited.insert(pkg.clone()) {
+            continue;
+        }
+        let Some(record) = index.get(&pkg) else {
+            continue;
+        };
+
+        for (dep, dep_spec) in &record.deps {
+            if visited.contains(dep) {
+                continue;
+            }
+            if let Some(pin) = seed.get(dep) {
+                globally_resolved.entry(dep.clone()).or_insert_with(|| pin.clone());
+                queue.push_back(dep.clone());
+            } else if globally_resolved.contains_key(dep) {
+                queue.push_back(dep.clone());
+            } else if index.contains_key(dep) {
+                let spec = if VersionSpec::parse(dep_spec).is_ok() {
+                    dep_spec.clone()
+                } else {
+                    "*".to_owned()
+                };
+                fresh.entry(dep.clone()).or_insert(spec);
+            }
+        }
+    }
+
+    fresh
+}
+
 /// Walk the dep graph breadth-first, validating version specs against the
 /// index and collecting the full set of packages to install.
+///
+/// `seed` holds the lock's pins. A package whose pin is from this repo and
+/// still satisfies every constraint that reaches it keeps that version
+/// instead of jumping to the newest in the index; a pin that no longer
+/// fits is resolved fresh.
 fn resolve_install_set(
     requested: &BTreeMap<String, String>,
     index: &HashMap<String, PackageRecord>,
     repo_url: &str,
-    globally_resolved: &mut HashMap<String, (Version, String)>,
+    globally_resolved: &mut Pins,
+    seed: &Pins,
 ) -> Result<HashMap<String, ResolvedInstall>> {
     let direct: HashSet<String> = requested.keys().cloned().collect();
 
@@ -224,6 +340,23 @@ fn resolve_install_set(
                 });
             }
             continue;
+        }
+
+        // The lock already pinned this package. Keep the pin when it came
+        // from this repo and still satisfies every constraint reaching it.
+        if let Some((seed_version, seed_repo)) = seed.get(pkg) {
+            let still_fits = seed_repo == repo_url
+                && match pkg_specs {
+                    Some(s) => VersionSpec::resolve(s, std::slice::from_ref(seed_version)).is_some(),
+                    None => true,
+                };
+            if still_fits {
+                resolved.insert(pkg.clone(), ResolvedInstall {
+                    version: RVersion::synthetic(seed_version.clone()),
+                    repo: repo_url.to_owned(),
+                });
+                continue;
+            }
         }
 
         let pkg_specs = match pkg_specs {

@@ -399,3 +399,259 @@ fn install_bare_name_without_repo_still_gets_the_original_reserved_error() {
     assert!(stderr.contains("looks like a module name"), "stderr was:\n{stderr}");
     assert!(stderr.contains("--repo"), "stderr was:\n{stderr}");
 }
+
+// ---- lock / bundle --locked ----
+//
+// These use a freshly `init`ed project, which declares no R packages, so
+// `baler lock` has nothing to resolve and never touches the network. They
+// pin down the flag wiring and the "an unchanged lock is left alone"
+// behavior, not CRAN resolution.
+
+fn init_project(cwd: &Scratch) -> PathBuf {
+    let project = cwd.path().join("mymod-proj");
+    baler_cmd()
+        .args(["init", "mymod", "--dir-name", project.to_str().unwrap()])
+        .assert()
+        .success();
+    project
+}
+
+fn lock_path(project: &Path) -> PathBuf {
+    project.join("baler.lock")
+}
+
+fn stderr_of(assert: &assert_cmd::assert::Assert) -> String {
+    String::from_utf8(assert.get_output().stderr.clone()).unwrap()
+}
+
+#[test]
+fn lock_writes_a_lock_and_a_second_run_leaves_it_untouched() {
+    let cwd = Scratch::new("lock-idempotent");
+    let project = init_project(&cwd);
+
+    baler_cmd().args(["lock", project.to_str().unwrap()]).assert().success();
+    let lock = lock_path(&project);
+    assert!(lock.is_file());
+    let bytes = std::fs::read(&lock).unwrap();
+    let mtime = std::fs::metadata(&lock).unwrap().modified().unwrap();
+
+    let assert = baler_cmd().args(["lock", project.to_str().unwrap()]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains("up to date"), "stdout was:\n{stdout}");
+
+    assert_eq!(std::fs::read(&lock).unwrap(), bytes, "an unchanged lock must not be rewritten");
+    assert_eq!(std::fs::metadata(&lock).unwrap().modified().unwrap(), mtime);
+}
+
+#[test]
+fn lock_check_fails_without_a_lock_and_does_not_create_one() {
+    let cwd = Scratch::new("lock-check-missing");
+    let project = init_project(&cwd);
+
+    let assert = baler_cmd()
+        .args(["lock", project.to_str().unwrap(), "--check"])
+        .assert()
+        .failure()
+        .code(1);
+
+    assert!(stderr_of(&assert).contains("No baler.lock found"), "stderr was:\n{}", stderr_of(&assert));
+    assert!(!lock_path(&project).exists(), "--check must never write the lock");
+}
+
+#[test]
+fn lock_check_passes_on_a_current_lock_and_does_not_rewrite_it() {
+    let cwd = Scratch::new("lock-check-current");
+    let project = init_project(&cwd);
+
+    baler_cmd().args(["lock", project.to_str().unwrap()]).assert().success();
+    let before = std::fs::read(lock_path(&project)).unwrap();
+
+    baler_cmd().args(["lock", project.to_str().unwrap(), "--check"]).assert().success();
+
+    assert_eq!(std::fs::read(lock_path(&project)).unwrap(), before);
+}
+
+#[test]
+fn lock_check_conflicts_with_the_flags_that_write() {
+    // Rejected by clap before any project is read, so "." is fine here.
+    for other in ["--update", "--with-rver", "--remove"] {
+        let assert = baler_cmd().args(["lock", ".", "--check", other]).assert().failure();
+        assert!(
+            stderr_of(&assert).contains("cannot be used with"),
+            "--check with {other}, stderr was:\n{}",
+            stderr_of(&assert)
+        );
+    }
+}
+
+#[test]
+fn lock_update_rejects_a_path_given_where_a_package_name_goes() {
+    // --update takes any number of values, so `--update ./proj` is read as
+    // a package name. It should say so instead of "not in baler.lock".
+    let assert = baler_cmd()
+        .args(["lock", ".", "--update", "./other"])
+        .assert()
+        .failure()
+        .code(1);
+
+    assert!(stderr_of(&assert).contains("looks like a path"), "stderr was:\n{}", stderr_of(&assert));
+}
+
+#[test]
+fn lock_update_of_a_package_not_in_the_lock_is_an_error() {
+    let cwd = Scratch::new("lock-update-unknown");
+    let project = init_project(&cwd);
+    baler_cmd().args(["lock", project.to_str().unwrap()]).assert().success();
+
+    let assert = baler_cmd()
+        .args(["lock", project.to_str().unwrap(), "--update", "nope"])
+        .assert()
+        .failure()
+        .code(1);
+
+    assert!(
+        stderr_of(&assert).contains("'nope' is not in baler.lock"),
+        "stderr was:\n{}",
+        stderr_of(&assert)
+    );
+}
+
+#[test]
+fn lock_update_of_a_package_needs_an_existing_lock() {
+    let cwd = Scratch::new("lock-update-no-lock");
+    let project = init_project(&cwd);
+
+    let assert = baler_cmd()
+        .args(["lock", project.to_str().unwrap(), "--update", "purrr"])
+        .assert()
+        .failure()
+        .code(1);
+
+    assert!(
+        stderr_of(&assert).contains("No baler.lock to update"),
+        "stderr was:\n{}",
+        stderr_of(&assert)
+    );
+    assert!(!lock_path(&project).exists());
+}
+
+#[test]
+fn lock_with_rver_is_refused_on_an_existing_lock_without_update() {
+    let cwd = Scratch::new("lock-rver-refused");
+    let project = init_project(&cwd);
+    baler_cmd().args(["lock", project.to_str().unwrap()]).assert().success();
+    let before = std::fs::read(lock_path(&project)).unwrap();
+
+    let assert = baler_cmd()
+        .args(["lock", project.to_str().unwrap(), "--with-rver"])
+        .assert()
+        .failure()
+        .code(1);
+
+    assert!(stderr_of(&assert).contains("--update"), "stderr was:\n{}", stderr_of(&assert));
+    assert_eq!(std::fs::read(lock_path(&project)).unwrap(), before);
+}
+
+#[test]
+fn lock_and_bundle_help_list_the_new_flags() {
+    let assert = baler_cmd().args(["lock", "--help"]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    for flag in ["--update", "--check", "--with-rver", "--remove"] {
+        assert!(stdout.contains(flag), "lock --help missing '{flag}':\n{stdout}");
+    }
+
+    let assert = baler_cmd().args(["bundle", "--help"]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains("--locked"), "bundle --help missing '--locked':\n{stdout}");
+}
+
+#[test]
+fn bundle_locked_fails_without_a_lock_and_produces_no_archive() {
+    let cwd = Scratch::new("bundle-locked-missing");
+    let project = init_project(&cwd);
+
+    let assert = baler_cmd()
+        .current_dir(cwd.path())
+        .args(["bundle", project.to_str().unwrap(), "--locked"])
+        .assert()
+        .failure()
+        .code(1);
+
+    assert!(
+        stderr_of(&assert).contains("--locked needs a baler.lock"),
+        "stderr was:\n{}",
+        stderr_of(&assert)
+    );
+    assert!(!cwd.path().join("mymod_0.1.0.tar.gz").exists());
+}
+
+#[test]
+fn bundle_locked_succeeds_with_a_current_lock() {
+    let cwd = Scratch::new("bundle-locked-current");
+    let project = init_project(&cwd);
+    baler_cmd().args(["lock", project.to_str().unwrap()]).assert().success();
+
+    baler_cmd()
+        .current_dir(cwd.path())
+        .args(["bundle", project.to_str().unwrap(), "--locked"])
+        .assert()
+        .success();
+
+    assert!(cwd.path().join("mymod_0.1.0.tar.gz").is_file());
+}
+
+#[test]
+fn bundle_locked_rejects_an_unreadable_lock_but_plain_bundle_only_warns() {
+    let cwd = Scratch::new("bundle-locked-unreadable");
+    let project = init_project(&cwd);
+    // A lock written by a newer baler than this one understands.
+    std::fs::write(lock_path(&project), "version = 99\n").unwrap();
+
+    let assert = baler_cmd()
+        .current_dir(cwd.path())
+        .args(["bundle", project.to_str().unwrap(), "--locked"])
+        .assert()
+        .failure()
+        .code(1);
+    assert!(
+        stderr_of(&assert).contains("--locked needs a readable baler.lock"),
+        "stderr was:\n{}",
+        stderr_of(&assert)
+    );
+    assert!(!cwd.path().join("mymod_0.1.0.tar.gz").exists());
+
+    let assert = baler_cmd()
+        .current_dir(cwd.path())
+        .args(["bundle", project.to_str().unwrap()])
+        .assert()
+        .success();
+    assert!(stderr_of(&assert).contains("warning"), "stderr was:\n{}", stderr_of(&assert));
+    assert!(cwd.path().join("mymod_0.1.0.tar.gz").is_file());
+}
+
+// ---- install --extras ----
+//
+// Both fail while the arguments are being checked, before R is looked at,
+// so neither needs R installed.
+
+#[test]
+fn install_extras_without_install_deps_is_rejected() {
+    let assert = baler_cmd()
+        .args(["install", "--path", ".", "--extras"])
+        .assert()
+        .failure();
+
+    assert!(
+        stderr_of(&assert).contains("--install-deps"),
+        "stderr was:\n{}",
+        stderr_of(&assert)
+    );
+}
+
+#[test]
+fn install_help_lists_extras() {
+    let assert = baler_cmd().args(["install", "--help"]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
+    assert!(stdout.contains("--extras"), "install --help missing '--extras':\n{stdout}");
+}

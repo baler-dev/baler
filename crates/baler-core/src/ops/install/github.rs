@@ -39,18 +39,18 @@ fn github_tarball_url(user: &str, repo: &str, git_ref: Option<&str>) -> String {
 }
 
 #[cfg(feature = "network")]
-pub(super) fn install_from_github(url: &str, module_dir: Option<&str>, git_ref: Option<&str>, install_deps: bool) -> Result<()> {
+pub(super) fn install_from_github(url: &str, module_dir: Option<&str>, git_ref: Option<&str>, install_deps: bool, extras: bool) -> Result<()> {
     let (user, repo) = parse_github_repo_url(url)?;
     let tarball_url = github_tarball_url(&user, &repo, git_ref);
     match git_ref {
         Some(r) => println!("Fetching {}/{}@{}...", user, repo, r),
         None => println!("Fetching {}/{} (default branch)...", user, repo),
     }
-    fetch_and_install(&tarball_url, module_dir, install_deps)
+    fetch_and_install(&tarball_url, module_dir, install_deps, extras)
 }
 
 #[cfg(not(feature = "network"))]
-pub(super) fn install_from_github(_url: &str, _module_dir: Option<&str>, _git_ref: Option<&str>, _install_deps: bool) -> Result<()> {
+pub(super) fn install_from_github(_url: &str, _module_dir: Option<&str>, _git_ref: Option<&str>, _install_deps: bool, _extras: bool) -> Result<()> {
     bail!(
         "GitHub install requires the 'network' feature.\n\
          Rebuild with: cargo build --features network"
@@ -70,7 +70,7 @@ pub(super) fn install_from_github(_url: &str, _module_dir: Option<&str>, _git_re
 /// message here instead of a raw gzip-decoding error surfacing later
 /// deep inside `tar::read_toml`.
 #[cfg(feature = "network")]
-pub(super) fn download_and_install(url: &str, install_deps: bool) -> Result<()> {
+pub(super) fn download_and_install(url: &str, install_deps: bool, extras: bool) -> Result<()> {
     if !url.ends_with(".tar.gz") {
         bail!(
             "--url expects a .tar.gz archive, the format `baler bundle` produces, got '{url}'."
@@ -81,11 +81,11 @@ pub(super) fn download_and_install(url: &str, install_deps: bool) -> Result<()> 
     let tarball_path = tmp.path().join("module.tar.gz");
     download_file(url, &tarball_path)
         .with_context(|| format!("Failed to download {url}"))?;
-    install_from_tar(&tarball_path, install_deps, None)
+    install_from_tar(&tarball_path, install_deps, None, extras)
 }
 
 #[cfg(not(feature = "network"))]
-pub(super) fn download_and_install(_url: &str, _install_deps: bool) -> Result<()> {
+pub(super) fn download_and_install(_url: &str, _install_deps: bool, _extras: bool) -> Result<()> {
     bail!(
         "Installing from a URL requires the 'network' feature.\n\
          Rebuild with: cargo build --features network"
@@ -93,7 +93,7 @@ pub(super) fn download_and_install(_url: &str, _install_deps: bool) -> Result<()
 }
 
 #[cfg(feature = "network")]
-fn fetch_and_install(url: &str, module_dir: Option<&str>, install_deps: bool) -> Result<()> {
+fn fetch_and_install(url: &str, module_dir: Option<&str>, install_deps: bool, extras: bool) -> Result<()> {
     let tmp = TempDir::new().context("Failed to create temp directory")?;
     let tarball_path = tmp.path().join("source.tar.gz");
 
@@ -137,7 +137,7 @@ fn fetch_and_install(url: &str, module_dir: Option<&str>, install_deps: bool) ->
     crate::ops::bundle::bundle_to(&project_root, &output_path)
         .context("Failed to bundle downloaded module")?;
 
-    install_from_tar(&output_path, install_deps, lock.as_ref())
+    install_from_tar(&output_path, install_deps, lock.as_ref(), extras)
 }
 
 /// The real ModuleFetcher used by resolve_transitive() outside of

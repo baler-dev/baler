@@ -11,11 +11,18 @@ use crate::paths::resolve_install_dir;
 
 use super::native::build_native_if_present;
 
-/// Returns the full resolved R package set (direct and transitive) that
-/// `execute_plan` produced, so a caller installing from a local
-/// directory can write it out as `baler.lock` when `--write-lock` is
-/// passed. A dry run or a plan with no packages yields an empty map.
-pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Option<&BalerLock>) -> Result<()> {
+/// Install a module from a `.tar.gz`, enforcing a lock if there is one.
+///
+/// The lock is `lock` when the caller has one (a local project directory),
+/// otherwise whatever `baler.lock` the archive shipped. It is only read:
+/// an install never writes or regenerates `baler.lock`, and fails with a
+/// pointer to `baler lock` when the lock doesn't cover `baler.toml`. A dry
+/// run (`install_deps` false) only prints what would be installed.
+///
+/// `extras` also installs this module's own `[extras]` packages. Only the
+/// module being installed contributes extras: the modules it depends on
+/// are never walked here, so their extras are never installed.
+pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Option<&BalerLock>, extras: bool) -> Result<()> {
     if !tar_path.exists() {
         bail!("File not found: {}", tar_path.display());
     }
@@ -65,10 +72,37 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
         .then(|| toml.dependencies.packages.clone());
     let module_deps = toml.dependencies.baler.clone();
 
-    let plan = match &effective_lock {
-        Some(locked) => resolve::resolve_locked(&package_deps, &module_deps, locked)?,
-        None => resolve::resolve(&package_deps, &module_deps)?,
+    // An `[extras]` table holding only `external` tools has nothing for
+    // baler to install, so it counts as no extras at all.
+    let wanted_extras = toml.extras.as_ref().filter(|extra| {
+        extras
+            && (!extra.packages.is_empty()
+                || extra.baler.as_ref().is_some_and(|modules| !modules.is_empty()))
+    });
+    if extras && wanted_extras.is_none() {
+        println!("No [extras] packages or modules declared in '{name}', nothing extra to install.");
+    }
+
+    let plan = match (&effective_lock, wanted_extras) {
+        (Some(locked), Some(extra)) => resolve::resolve_locked_with_extras(
+            &package_deps,
+            &module_deps,
+            &extra.packages,
+            &extra.baler,
+            locked,
+        )?,
+        (Some(locked), None) => resolve::resolve_locked(&package_deps, &module_deps, locked)?,
+        (None, Some(extra)) => resolve::resolve_with_extras(
+            &package_deps,
+            &module_deps,
+            &extra.packages,
+            &extra.baler,
+        )?,
+        (None, None) => resolve::resolve(&package_deps, &module_deps)?,
     };
+    if wanted_extras.is_some() {
+        println!("Including [extras].");
+    }
     println!("Dependencies:");
     resolve::print_plan(&plan);
     resolve::execute_plan(&plan, !install_deps, effective_lock.as_ref())?;
@@ -78,7 +112,7 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
     Ok(())
 }
 
-pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool) -> Result<()> {
+pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool, extras: bool) -> Result<()> {
     if !project_root.join("baler.toml").exists() {
         bail!(
             "No baler.toml found in {}. Is this a baler module project?",
@@ -104,7 +138,7 @@ pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool) -> Re
     crate::ops::bundle::bundle_to(project_root, &output_path)
         .context("Failed to bundle project")?;
 
-    install_from_tar(&output_path, install_deps, lock.as_ref())
+    install_from_tar(&output_path, install_deps, lock.as_ref(), extras)
 }
 
 /// Not implemented yet, there's no module registry protocol defined.
@@ -112,7 +146,7 @@ pub(super) fn install_from_dir(project_root: &PathBuf, install_deps: bool) -> Re
 /// threading, mutual exclusivity with --git/--url/local sources) is
 /// already wired and tested; once a real registry protocol exists,
 /// only this function's body changes.
-pub(super) fn install_from_registry(name: &str, repo: &str, version: Option<&str>, _install_deps: bool) -> Result<()> {
+pub(super) fn install_from_registry(name: &str, repo: &str, version: Option<&str>, _install_deps: bool, _extras: bool) -> Result<()> {
     let wanted = match version {
         Some(v) => format!("{name}@{v}"),
         None => name.to_owned(),

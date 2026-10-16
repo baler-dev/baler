@@ -3,6 +3,7 @@ use anyhow::Result;
 pub struct InstallArgs {
     pub source: Option<String>,
     pub install_deps: bool,
+    pub extras: bool,
     pub repo: Option<String>,
     pub version: Option<String>,
     pub path: Option<String>,
@@ -27,5 +28,5 @@ pub fn run(args: InstallArgs) -> Result<()> {
         url: args.url,
         module_dir: args.module_dir,
     };
-    baler_core::ops::install::run(req, args.install_deps)
+    baler_core::ops::install::run(req, args.install_deps, args.extras)
 }

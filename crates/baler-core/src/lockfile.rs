@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -25,12 +25,22 @@ pub enum LockGroup {
     Extras,
 }
 
+impl LockGroup {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LockGroup::Runtime => "runtime",
+            LockGroup::Build => "build",
+            LockGroup::Extras => "extras",
+        }
+    }
+}
+
 /// One package pinned to the exact version and repo baler resolved it
 /// to the last time the lock was written. R packages only for now —
 /// module deps have no automatic resolve+install path yet (execute_plan
 /// only reports whether a module is already installed), so there is
 /// nothing concrete to pin for them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LockedPackage {
     pub name: String,
@@ -48,9 +58,19 @@ impl LockedPackage {
     pub fn is_runtime(&self) -> bool {
         self.groups.is_empty() || self.groups.contains(&LockGroup::Runtime)
     }
+
+    /// True when `group` needs this package. An entry with no `groups`
+    /// line is a runtime package.
+    pub fn in_group(&self, group: LockGroup) -> bool {
+        if group == LockGroup::Runtime {
+            self.is_runtime()
+        } else {
+            self.groups.contains(&group)
+        }
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct BalerLock {
     #[serde(default = "default_version")]
@@ -82,14 +102,123 @@ impl BalerLock {
         let Some(p) = self.packages.iter().find(|p| p.name == name) else {
             return Ok(None);
         };
-        let v = Version::parse(&p.version).with_context(|| {
-            format!(
-                "baler.lock has an invalid version for '{}': '{}'",
-                name, p.version
-            )
-        })?;
+        let v = parse_pin_version(&p.name, &p.version)?;
         Ok(Some((v, p.repo.clone())))
     }
+
+    /// Every pin in the lock, parsed, whatever group needs it. Used to
+    /// seed re-resolution so a package the manifest still reaches keeps
+    /// the version the lock gave it.
+    pub fn pins(&self) -> Result<HashMap<String, (Version, String)>> {
+        let mut pins = HashMap::with_capacity(self.packages.len());
+        for p in &self.packages {
+            let v = parse_pin_version(&p.name, &p.version)?;
+            pins.insert(p.name.clone(), (v, p.repo.clone()));
+        }
+        Ok(pins)
+    }
+
+    /// A copy of this lock with the named packages removed, so the next
+    /// resolution treats them as unpinned and picks them fresh while
+    /// every other pin stays where it is.
+    pub fn without(&self, names: &[String]) -> BalerLock {
+        BalerLock {
+            version: self.version,
+            r_version: self.r_version.clone(),
+            packages: self
+                .packages
+                .iter()
+                .filter(|p| !names.iter().any(|n| n == &p.name))
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// True when both locks pin the same things, ignoring format version,
+    /// package order, and whether a runtime-only package spells out
+    /// `groups = ["runtime"]`. A lock written by an older baler that
+    /// means the same thing as a freshly resolved one is not a change,
+    /// and rewriting it would only add noise to a diff.
+    pub fn same_content(&self, other: &BalerLock) -> bool {
+        self.r_version == other.r_version && self.canonical() == other.canonical()
+    }
+
+    fn canonical(&self) -> Vec<LockedPackage> {
+        let mut packages: Vec<LockedPackage> = self
+            .packages
+            .iter()
+            .map(|p| LockedPackage { groups: normalize_groups(&p.groups), ..p.clone() })
+            .collect();
+        packages.sort_by(|a, b| a.name.cmp(&b.name));
+        packages
+    }
+
+    /// Human-readable list of what differs between this lock and `newer`,
+    /// one line per package: `+` added, `-` removed, `~` changed.
+    pub fn changes(&self, newer: &BalerLock) -> Vec<String> {
+        let old: BTreeMap<String, LockedPackage> =
+            self.canonical().into_iter().map(|p| (p.name.clone(), p)).collect();
+        let new: BTreeMap<String, LockedPackage> =
+            newer.canonical().into_iter().map(|p| (p.name.clone(), p)).collect();
+        let names: BTreeSet<&String> = old.keys().chain(new.keys()).collect();
+
+        let mut lines = Vec::new();
+        for name in names {
+            match (old.get(name), new.get(name)) {
+                (None, Some(n)) => lines.push(format!("+ {} {}", name, n.version)),
+                (Some(o), None) => lines.push(format!("- {} {}", name, o.version)),
+                (Some(o), Some(n)) => {
+                    if o.version != n.version {
+                        lines.push(format!("~ {} {} -> {}", name, o.version, n.version));
+                    } else if o.repo != n.repo {
+                        lines.push(format!("~ {} repo {} -> {}", name, o.repo, n.repo));
+                    } else if o.groups != n.groups {
+                        lines.push(format!("~ {} dependency groups changed", name));
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+        if self.r_version != newer.r_version {
+            lines.push(format!(
+                "~ r_version {} -> {}",
+                self.r_version.as_deref().unwrap_or("(none)"),
+                newer.r_version.as_deref().unwrap_or("(none)")
+            ));
+        }
+        lines
+    }
+}
+
+fn parse_pin_version(name: &str, version: &str) -> Result<Version> {
+    Version::parse(version).with_context(|| {
+        format!(
+            "baler.lock has an invalid version for '{}': '{}'",
+            name, version
+        )
+    })
+}
+
+/// Parse lock file contents and check the format version. `origin` names
+/// where the text came from (a path, or an archive) so errors can say so.
+/// Shared by `read` and by the reader for a lock embedded in a bundle, so
+/// a lock from either place is held to the same rules.
+pub fn parse(contents: &str, origin: &str) -> Result<BalerLock> {
+    let lock: BalerLock =
+        toml::from_str(contents).with_context(|| format!("Failed to parse {}", origin))?;
+
+    if lock.version < MIN_LOCK_FORMAT_VERSION || lock.version > LOCK_FORMAT_VERSION {
+        bail!(
+            "{} declares lock format version {}, but this build of baler \
+             only understands versions {} to {}. Regenerate it with `baler lock`.",
+            origin,
+            lock.version,
+            MIN_LOCK_FORMAT_VERSION,
+            LOCK_FORMAT_VERSION
+        );
+    }
+
+    Ok(lock)
 }
 
 /// Read `baler.lock` from `project_root`. `Ok(None)` means the file
@@ -104,21 +233,7 @@ pub fn read(project_root: &Path) -> Result<Option<BalerLock>> {
     }
     let contents = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    let lock: BalerLock = toml::from_str(&contents)
-        .with_context(|| format!("Failed to parse {}", path.display()))?;
-
-    if lock.version < MIN_LOCK_FORMAT_VERSION || lock.version > LOCK_FORMAT_VERSION {
-        bail!(
-            "{} declares lock format version {}, but this build of baler \
-             only understands versions {} to {}. Regenerate it with `baler lock`.",
-            path.display(),
-            lock.version,
-            MIN_LOCK_FORMAT_VERSION,
-            LOCK_FORMAT_VERSION
-        );
-    }
-
-    Ok(Some(lock))
+    parse(&contents, &path.display().to_string()).map(Some)
 }
 
 /// Write `baler.lock` from a resolved set of `{name: (version, repo)}`,
@@ -126,7 +241,7 @@ pub fn read(project_root: &Path) -> Result<Option<BalerLock>> {
 /// would produce noisy diffs on every write even when nothing about the
 /// resolved graph actually changed.
 ///
-/// `r_version` is `None` by default (see `--with-r-version` on
+/// `r_version` is `None` by default (see `--with-rver` on
 /// `baler lock`): the field is provenance-only, never enforced (the
 /// real constraint is `baler.toml`'s `module.r_version`, checked
 /// separately), and two contributors on different R installs writing
@@ -158,14 +273,15 @@ pub struct PinnedPackage {
     pub groups: Vec<LockGroup>,
 }
 
-/// Same as `write`, but each package also records the groups that need
-/// it. A package whose only group is `runtime` is written without a
-/// `groups` line.
-pub fn write_grouped(
-    project_root: &Path,
+/// Build the lock for a resolved set, without touching the disk. Packages
+/// are sorted by name, and a package whose only group is `runtime` gets no
+/// `groups` line. Split out of `write_grouped` so a caller can compare the
+/// result with the lock already on disk and skip the write when nothing
+/// changed.
+pub fn build_grouped(
     pinned: &BTreeMap<String, PinnedPackage>,
     r_version: Option<&str>,
-) -> Result<()> {
+) -> BalerLock {
     let mut packages: Vec<LockedPackage> = pinned
         .iter()
         .map(|(name, pin)| LockedPackage {
@@ -177,12 +293,17 @@ pub fn write_grouped(
         .collect();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let lock = BalerLock {
+    BalerLock {
         version: LOCK_FORMAT_VERSION,
         r_version: r_version.map(str::to_owned),
         packages,
-    };
-    let contents = toml::to_string_pretty(&lock).context("Failed to serialize baler.lock")?;
+    }
+}
+
+/// Serialize `lock` to `baler.lock` in `project_root`, through a temp file
+/// and a rename so a crash never leaves a half-written lock behind.
+pub fn write_lock(project_root: &Path, lock: &BalerLock) -> Result<()> {
+    let contents = toml::to_string_pretty(lock).context("Failed to serialize baler.lock")?;
 
     let path = project_root.join(LOCK_FILE_NAME);
     let tmp_path = path.with_extension("lock.tmp");
@@ -191,6 +312,18 @@ pub fn write_grouped(
     std::fs::rename(&tmp_path, &path)
         .with_context(|| format!("Failed to finalize {}", path.display()))?;
     Ok(())
+}
+
+/// Same as `write`, but each package also records the groups that need
+/// it. A package whose only group is `runtime` is written without a
+/// `groups` line. Always writes; `baler lock` uses `build_grouped` and
+/// `write_lock` directly so it can skip an unchanged lock.
+pub fn write_grouped(
+    project_root: &Path,
+    pinned: &BTreeMap<String, PinnedPackage>,
+    r_version: Option<&str>,
+) -> Result<()> {
+    write_lock(project_root, &build_grouped(pinned, r_version))
 }
 
 fn normalize_groups(groups: &[LockGroup]) -> Vec<LockGroup> {

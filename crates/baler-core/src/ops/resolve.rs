@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use anyhow::{bail, Result};
+use semver::Version;
 
-use crate::baler_toml::{ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
+use crate::baler_toml::{BalerToml, ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
+use crate::lockfile::{BalerLock, LockGroup};
 use crate::version::VersionSpec;
 use crate::paths::{resolve_install_dir, resolve_r_lib_dir};
 
@@ -36,7 +38,7 @@ pub fn resolve(
     for (name, dep) in package_deps.as_ref().unwrap_or(&BTreeMap::new()) {
         let spec = VersionSpec::parse(dep.version())?;
         pkg_specs.entry(name.clone()).or_default().push(spec);
-        // Last writer wins for repo 
+        // Last writer wins for repo
         // Fine since duplicate deps are unusual
         pkg_repos.insert(name.clone(), dep.repo().to_owned());
     }
@@ -61,6 +63,82 @@ pub fn resolve(
     Ok(ResolvedPlan { packages, modules })
 }
 
+/// Offline check of one dependency group in `baler.toml` against the lock.
+/// Returns one line per problem, empty when the lock covers every declared
+/// package in that group: each must be pinned, from the same repo, at a
+/// version that satisfies the constraint written in `baler.toml`.
+///
+/// This is deliberately all it checks. It doesn't touch the network and it
+/// can't tell whether the lock holds packages `baler.toml` no longer asks
+/// for, because the lock doesn't record which package pulled in which.
+/// Those are cleaned up the next time `baler lock` runs.
+fn lock_problems(
+    lock: &BalerLock,
+    group: LockGroup,
+    declared: &BTreeMap<String, PackageDep>,
+) -> Result<Vec<String>> {
+    let mut problems = Vec::new();
+
+    for (name, dep) in declared {
+        let Some(locked) = lock
+            .packages
+            .iter()
+            .find(|locked| &locked.name == name && locked.in_group(group))
+        else {
+            let which = if group == LockGroup::Runtime {
+                String::new()
+            } else {
+                format!(" ({})", group.as_str())
+            };
+            problems.push(format!(
+                "'{name}' is declared in baler.toml{which} but missing from baler.lock"
+            ));
+            continue;
+        };
+
+        if dep.repo() != locked.repo {
+            problems.push(format!(
+                "'{name}' repo changed in baler.toml ({} -> {}) but baler.lock \
+                 still pins the old one",
+                locked.repo,
+                dep.repo()
+            ));
+            continue;
+        }
+
+        let required = VersionSpec::parse(dep.version())?;
+        match Version::parse(&locked.version) {
+            Ok(pinned) if required.matches(&pinned) => {}
+            Ok(pinned) => problems.push(format!(
+                "'{name}' is pinned to {pinned} in baler.lock, but baler.toml \
+                 requires '{}'",
+                dep.version()
+            )),
+            Err(_) => problems.push(format!(
+                "baler.lock has an invalid version for '{name}': '{}'",
+                locked.version
+            )),
+        }
+    }
+
+    Ok(problems)
+}
+
+/// `lock_problems` over every group `baler.toml` declares packages for:
+/// runtime, `[compiled-code].build_deps`, and `[extras]`. Used before
+/// bundling, where a lock that no longer matches the manifest would be
+/// shipped to everyone who installs the bundle.
+pub fn lock_problems_for(toml: &BalerToml, lock: &BalerLock) -> Result<Vec<String>> {
+    let mut problems = lock_problems(lock, LockGroup::Runtime, &toml.dependencies.packages)?;
+    if let Some(build) = toml.compiled_code.as_ref().and_then(|c| c.build_deps.as_ref()) {
+        problems.extend(lock_problems(lock, LockGroup::Build, build)?);
+    }
+    if let Some(extras) = toml.extras.as_ref() {
+        problems.extend(lock_problems(lock, LockGroup::Extras, &extras.packages)?);
+    }
+    Ok(problems)
+}
+
 /// Build a plan straight from an existing lock instead of walking
 /// package_deps. A lock already holds the full transitive closure that
 /// `baler lock` resolved — cli, lifecycle, magrittr, vctrs and
@@ -75,43 +153,70 @@ pub fn resolve(
 /// transitive dep never declared in baler.toml — gets "*", since
 /// nothing in baler.toml constrains it and the lock is the only
 /// authority on what it should resolve to.
+///
+/// An install never rewrites the lock. When the lock doesn't cover what
+/// baler.toml declares, this fails and points at `baler lock`, which keeps
+/// every pin that is still valid and only adds, drops or re-resolves what
+/// changed. `baler lock --update` is for deliberately moving pins.
 pub fn resolve_locked(
     package_deps: &Option<BTreeMap<String, PackageDep>>,
     module_deps: &Option<BTreeMap<String, ModuleDep>>,
-    lock: &crate::lockfile::BalerLock,
+    lock: &BalerLock,
+) -> Result<ResolvedPlan> {
+    locked_plan(package_deps, module_deps, None, &None, lock)
+}
+
+/// `resolve_locked` that also installs the lock's `extras` group, and
+/// checks `[extras]` against the lock the same way runtime packages are.
+/// Backs `baler install --extras`.
+pub fn resolve_locked_with_extras(
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    module_deps: &Option<BTreeMap<String, ModuleDep>>,
+    extra_packages: &BTreeMap<String, PackageDep>,
+    extra_modules: &Option<BTreeMap<String, ModuleDep>>,
+    lock: &BalerLock,
+) -> Result<ResolvedPlan> {
+    locked_plan(package_deps, module_deps, Some(extra_packages), extra_modules, lock)
+}
+
+/// Shared body of `resolve_locked` and `resolve_locked_with_extras`.
+/// `extra_packages` is `Some` only when the caller asked for extras.
+fn locked_plan(
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    module_deps: &Option<BTreeMap<String, ModuleDep>>,
+    extra_packages: Option<&BTreeMap<String, PackageDep>>,
+    extra_modules: &Option<BTreeMap<String, ModuleDep>>,
+    lock: &BalerLock,
 ) -> Result<ResolvedPlan> {
     let empty = BTreeMap::new();
     let declared = package_deps.as_ref().unwrap_or(&empty);
 
-    for (name, dep) in declared {
-        let Some(locked) = lock
-            .packages
-            .iter()
-            .find(|locked| locked.is_runtime() && &locked.name == name)
-        else {
-            bail!(
-                "'{name}' is declared in baler.toml but missing from baler.lock. \
-                 The lock is stale. Run `baler lock --update` and commit the result."
-            );
-        };
-        if dep.repo() != locked.repo {
-            bail!(
-                "'{name}' repo changed in baler.toml ({} -> {}) but baler.lock \
-                 still pins the old one. Run `baler lock --update` and commit the result.",
-                locked.repo,
-                dep.repo()
-            );
-        }
+    let mut problems = lock_problems(lock, LockGroup::Runtime, declared)?;
+    if let Some(extra) = extra_packages {
+        problems.extend(lock_problems(lock, LockGroup::Extras, extra)?);
+    }
+    if !problems.is_empty() {
+        bail!(
+            "baler.lock is out of date with baler.toml:\n  - {}\n\
+             The lock is stale. Run `baler lock` and commit the result.",
+            problems.join("\n  - ")
+        );
     }
 
-    // Build and extras pins stay in the lock but are not installed here,
-    // so a normal install never pulls in compile-time or dev-only packages.
+    // Build pins stay in the lock but are not installed here, so an install
+    // never pulls in compile-time packages. Extras pins are installed only
+    // when the caller asked for them, so a normal install never pulls in
+    // dev-only packages either.
+    let with_extras = extra_packages.is_some();
     let packages = lock
         .packages
         .iter()
-        .filter(|locked| locked.is_runtime())
+        .filter(|locked| locked.is_runtime() || (with_extras && locked.in_group(LockGroup::Extras)))
         .map(|locked| {
-            let version_spec = match declared.get(&locked.name) {
+            let dep = declared
+                .get(&locked.name)
+                .or_else(|| extra_packages.and_then(|extra| extra.get(&locked.name)));
+            let version_spec = match dep {
                 Some(dep) => dep.version().to_owned(),
                 None => "*".to_owned(),
             };
@@ -121,7 +226,7 @@ pub fn resolve_locked(
         .collect();
 
     let mut mod_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
-    for (name, dep) in module_deps.as_ref().unwrap_or(&BTreeMap::new()) {
+    for (name, dep) in module_deps.iter().flatten().chain(extra_modules.iter().flatten()) {
         let spec = VersionSpec::parse(dep.version())?;
         mod_specs.entry(name.clone()).or_default().push(spec);
     }
@@ -131,6 +236,54 @@ pub fn resolve_locked(
         .collect();
 
     Ok(ResolvedPlan { packages, modules })
+}
+
+/// `resolve` over the root's runtime deps and its `[extras]` together.
+/// The plan holds one version spec and one repo per name, so a name
+/// declared in both groups must agree in both. A mismatch fails here
+/// instead of one group silently overriding the other. Modules are
+/// compared by version only, since a module's source isn't resolved yet.
+pub fn resolve_with_extras(
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    module_deps: &Option<BTreeMap<String, ModuleDep>>,
+    extra_packages: &BTreeMap<String, PackageDep>,
+    extra_modules: &Option<BTreeMap<String, ModuleDep>>,
+) -> Result<ResolvedPlan> {
+    let mut packages = package_deps.clone().unwrap_or_default();
+    for (name, dep) in extra_packages {
+        match packages.get(name) {
+            Some(runtime) if runtime.version() == dep.version() && runtime.repo() == dep.repo() => {}
+            Some(runtime) => bail!(
+                "'{name}' is in both [dependencies] ('{}' from {}) and [extras] ('{}' from {}). \
+                 Make them match.",
+                runtime.version(),
+                runtime.repo(),
+                dep.version(),
+                dep.repo()
+            ),
+            None => {
+                packages.insert(name.clone(), dep.clone());
+            }
+        }
+    }
+
+    let mut modules = module_deps.clone().unwrap_or_default();
+    for (name, dep) in extra_modules.iter().flatten() {
+        match modules.get(name) {
+            Some(runtime) if runtime.version() == dep.version() => {}
+            Some(runtime) => bail!(
+                "Module '{name}' is in both [dependencies.baler] ('{}') and [extras.baler] ('{}'). \
+                 Make them match.",
+                runtime.version(),
+                dep.version()
+            ),
+            None => {
+                modules.insert(name.clone(), dep.clone());
+            }
+        }
+    }
+
+    resolve(&Some(packages), &Some(modules))
 }
 
 /// Shared by resolve() and module_graph::resolve_transitive() — collapses
@@ -199,9 +352,14 @@ pub fn already_installed_module(name: &str) -> Result<bool> {
 /// included: there's no automatic resolve+install path for them yet
 /// (see the TODO in `resolve()` above), so there's nothing concrete to
 /// pin for a module the same way there is for a package.
+///
+/// `lock` seeds the resolution rather than being enforced: pins that still
+/// fit `baler.toml` are kept, along with the transitive packages they
+/// reach, and anything that no longer fits is resolved again. See
+/// `cran::client::resolve_packages`.
 pub fn resolve_only(
     plan: &ResolvedPlan,
-    lock: Option<&crate::lockfile::BalerLock>,
+    lock: Option<&BalerLock>,
 ) -> Result<std::collections::HashMap<String, (semver::Version, String)>> {
     if plan.packages.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -210,14 +368,13 @@ pub fn resolve_only(
 }
 
 /// Runs the plan. On a real (non-dry-run) install, returns everything
-/// that was resolved for R packages (direct and transitive) so the
-/// caller can write it out as a fresh `baler.lock` if asked to. A
-/// dry run or a plan with no packages returns an empty map; there is
-/// nothing yet to lock.
+/// that was resolved for R packages (direct and transitive). `install`
+/// discards it: the lock is only ever written by `baler lock`. A dry run
+/// or a plan with no packages returns an empty map.
 pub fn execute_plan(
     plan: &ResolvedPlan,
     dry_run: bool,
-    lock: Option<&crate::lockfile::BalerLock>,
+    lock: Option<&BalerLock>,
 ) -> Result<std::collections::HashMap<String, (semver::Version, String)>> {
     let mut resolved = std::collections::HashMap::new();
 
