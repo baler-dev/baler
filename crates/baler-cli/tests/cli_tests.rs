@@ -628,3 +628,30 @@ fn bundle_locked_rejects_an_unreadable_lock_but_plain_bundle_only_warns() {
     assert!(stderr_of(&assert).contains("warning"), "stderr was:\n{}", stderr_of(&assert));
     assert!(cwd.path().join("mymod_0.1.0.tar.gz").is_file());
 }
+
+// ---- install --extras ----
+//
+// Both fail while the arguments are being checked, before R is looked at,
+// so neither needs R installed.
+
+#[test]
+fn install_extras_without_install_deps_is_rejected() {
+    let assert = baler_cmd()
+        .args(["install", "--path", ".", "--extras"])
+        .assert()
+        .failure();
+
+    assert!(
+        stderr_of(&assert).contains("--install-deps"),
+        "stderr was:\n{}",
+        stderr_of(&assert)
+    );
+}
+
+#[test]
+fn install_help_lists_extras() {
+    let assert = baler_cmd().args(["install", "--help"]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
+    assert!(stdout.contains("--extras"), "install --help missing '--extras':\n{stdout}");
+}
