@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, Context, Result};
 
-use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource};
+use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource, PackageDep};
 use crate::ops::resolve::{resolve_packages_from_specs, ResolvedPlan};
 use crate::version::VersionSpec;
 
@@ -40,9 +40,7 @@ pub fn resolve_transitive(
     let mut pkg_repos: BTreeMap<String, String> = BTreeMap::new();
 
     for (name, dep) in &root.dependencies.packages {
-        let spec = VersionSpec::parse(dep.version())?;
-        pkg_specs.entry(name.clone()).or_default().push(spec);
-        pkg_repos.insert(name.clone(), dep.repo().to_owned());
+        record_package(name, dep, &mut pkg_specs, &mut pkg_repos)?;
     }
 
     // name => (resolved version, source it came from). A module already
@@ -138,10 +136,8 @@ fn resolve_module(
         );
     }
 
-    for (pkg_name, pkg_dep) in fetched.dependencies.packages {
-        let pkg_spec = VersionSpec::parse(pkg_dep.version())?;
-        pkg_specs.entry(pkg_name.clone()).or_default().push(pkg_spec);
-        pkg_repos.insert(pkg_name, pkg_dep.repo().to_owned());
+    for (pkg_name, pkg_dep) in &fetched.dependencies.packages {
+        record_package(pkg_name, pkg_dep, pkg_specs, pkg_repos)?;
     }
 
     path.push(name.to_owned());
@@ -151,6 +147,32 @@ fn resolve_module(
     path.pop();
 
     resolved_modules.insert(name.to_owned(), (fetched_version, source));
+    Ok(())
+}
+
+/// Fold one package dependency into the accumulated specs. A package is
+/// installed from exactly one repo, so two dependents asking for it from
+/// different repos is an error, never a silent last-writer-wins that
+/// depends on the order the graph was walked in. Repo URLs are compared
+/// without a trailing slash so `https://x.org` and `https://x.org/` agree.
+fn record_package(
+    name: &str,
+    dep: &PackageDep,
+    pkg_specs: &mut BTreeMap<String, Vec<VersionSpec>>,
+    pkg_repos: &mut BTreeMap<String, String>,
+) -> Result<()> {
+    if let Some(existing) = pkg_repos.get(name) {
+        if existing.trim_end_matches('/') != dep.repo().trim_end_matches('/') {
+            bail!(
+                "Package '{name}' is requested from two repos: {existing} and {}. \
+                 Make every dependent use the same repo.",
+                dep.repo()
+            );
+        }
+    }
+    let spec = VersionSpec::parse(dep.version())?;
+    pkg_specs.entry(name.to_owned()).or_default().push(spec);
+    pkg_repos.insert(name.to_owned(), dep.repo().to_owned());
     Ok(())
 }
 

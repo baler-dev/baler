@@ -286,28 +286,25 @@ pub fn resolve_with_extras(
     resolve(&Some(packages), &Some(modules))
 }
 
-/// Shared by resolve() and module_graph::resolve_transitive() — collapses
-/// each package's accumulated version specs down to one, erroring on any
-/// real conflict rather than silently picking one. pub(crate) so
-/// module_graph.rs can call it without duplicating the logic.
+/// Shared by resolve() and module_graph::resolve_transitive(). Collapses
+/// each package's accumulated version specs into one spec that every
+/// dependent accepts (the intersection of all of them). Whether any real
+/// version satisfies that intersection is decided later, against the
+/// package index, in cran::client::graph, which reports the conflict with
+/// the merged constraints. pub(crate) so module_graph.rs can call it
+/// without duplicating the logic.
 pub(crate) fn resolve_packages_from_specs(
     pkg_specs: BTreeMap<String, Vec<VersionSpec>>,
     pkg_repos: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, ResolvedPackage>> {
     let mut packages = BTreeMap::new();
     for (name, specs) in pkg_specs {
-        let version_spec = match specs.as_slice() {
-            [] => "*".to_owned(),
-            [only] => format!("{only}"),
-            multiple => {
-                let constraints: Vec<String> = multiple.iter().map(|s| s.to_string()).collect();
-                bail!(
-                    "'{name}' has {} conflicting version constraints ({}) — \
-                     baler doesn't merge these yet.",
-                    multiple.len(),
-                    constraints.join(", ")
-                );
-            }
+        let version_spec = match specs.split_first() {
+            None => "*".to_owned(),
+            Some((first, rest)) => rest
+                .iter()
+                .fold(first.clone(), |merged, spec| merged.and(spec))
+                .to_string(),
         };
         let repo = pkg_repos
             .get(&name)

@@ -40,6 +40,18 @@ impl VersionSpec {
         false
     }
 
+    /// Both specs at once. Every comparator in a semver requirement is
+    /// ANDed, so joining the two lists gives the intersection.
+    pub fn and(&self, other: &VersionSpec) -> VersionSpec {
+        let mut comparators = self.0.comparators.clone();
+        for comparator in &other.0.comparators {
+            if !comparators.contains(comparator) {
+                comparators.push(comparator.clone());
+            }
+        }
+        VersionSpec(VersionReq { comparators })
+    }
+
     /// Given a list of specs and candidate versions (sorted newest-first),
     /// return the best version satisfying ALL specs simultaneously.
     pub fn resolve<'a>(specs: &[VersionSpec], candidates: &'a [Version]) -> Option<&'a Version> {
