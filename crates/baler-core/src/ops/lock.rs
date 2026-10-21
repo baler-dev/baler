@@ -2,9 +2,14 @@ use anyhow::{bail, Context, Result};
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::Path;
 
-use crate::baler_toml::BalerToml;
+use crate::baler_toml::{BalerToml, ModuleDep, PackageDep};
 use crate::lockfile::{self, BalerLock, LockGroup, PinnedPackage};
 use crate::ops::resolve;
+use crate::ops::resolve::ResolvedPlan;
+#[cfg(feature = "network")]
+use crate::ops::install::GitHubFetcher;
+#[cfg(feature = "network")]
+use crate::ops::module_graph;
 
 /// How much of an existing lock `baler lock` may move.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -175,7 +180,7 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
             continue;
         }
         let modules = if group == LockGroup::Runtime { &module_deps } else { &None };
-        let plan = resolve::resolve(&package_deps, modules)?;
+        let plan = plan_for_group(&toml, group, &package_deps, modules)?;
         let group_pins = resolve::resolve_only(&plan, seed.as_ref())?;
         for (name, (version, repo)) in group_pins {
             match pinned.entry(name) {
@@ -257,4 +262,43 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// The plan for one dependency group. The runtime group also walks the
+/// modules this module depends on, so the R packages those modules need are
+/// locked too. A module dependency that declares no source cannot be
+/// fetched, so it is skipped with a warning instead of stopping the lock.
+#[cfg(feature = "network")]
+fn plan_for_group(
+    toml: &BalerToml,
+    group: LockGroup,
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    modules: &Option<BTreeMap<String, ModuleDep>>,
+) -> Result<ResolvedPlan> {
+    let has_modules = modules.as_ref().is_some_and(|found| !found.is_empty());
+    if group != LockGroup::Runtime || !has_modules {
+        return resolve::resolve(package_deps, modules);
+    }
+    let plan = module_graph::resolve_dependencies(
+        &toml.dependencies.packages,
+        modules.as_ref(),
+        &GitHubFetcher,
+        true,
+    )?;
+    for (name, version) in &plan.modules {
+        println!("  module {name} {version} (its R packages are locked, the module itself is not yet)");
+    }
+    Ok(plan)
+}
+
+/// Without the `network` feature there is nothing to fetch a module with, so
+/// module dependencies are not walked.
+#[cfg(not(feature = "network"))]
+fn plan_for_group(
+    _toml: &BalerToml,
+    _group: LockGroup,
+    package_deps: &Option<BTreeMap<String, PackageDep>>,
+    modules: &Option<BTreeMap<String, ModuleDep>>,
+) -> Result<ResolvedPlan> {
+    resolve::resolve(package_deps, modules)
 }

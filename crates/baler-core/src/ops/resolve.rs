@@ -392,10 +392,7 @@ pub fn execute_plan(
         if already_installed_module(name)? {
             println!("  [ok] {} (already installed)", name);
         } else {
-            println!(
-                "  [missing] {} — install with: baler install <path or gh:user/repo>",
-                name
-            );
+            println!("  [missing] {} (not installed yet)", name);
         }
     }
 
