@@ -241,95 +241,123 @@ pub fn parse_archive_listing(html: &str, pkg: &str) -> Vec<RVersion> {
     versions
 }
 
+/// One record of a DCF file while it is being read.
+#[derive(Default)]
+struct Pending {
+    name: Option<String>,
+    version: Option<String>,
+    deps: Vec<(String, String)>,
+    /// The dependency field being read, joined across its continuation
+    /// lines. These fields are wrapped at a fixed width, even in the middle
+    /// of an entry (`rlang (>=` then `1.3.0)`), so a field can only be
+    /// parsed once all of it has been read.
+    field: Option<String>,
+    problem: Option<String>,
+}
+
+impl Pending {
+    fn finish_field(&mut self) {
+        let Some(text) = self.field.take() else {
+            return;
+        };
+        match parse_dep_field(&text) {
+            Ok(found) => self.deps.extend(found),
+            Err(error) => {
+                self.problem.get_or_insert(format!("{error:#}"));
+            }
+        }
+    }
+}
+
 pub fn parse_dcf(reader: impl BufRead) -> Result<HashMap<String, PackageRecord>> {
     let mut map = HashMap::new();
-
-    let mut name: Option<String> = None;
-    let mut version: Option<String> = None;
-    let mut deps: Vec<(String, String)> = Vec::new();
-    let mut in_dep_field = false;
+    let mut pending = Pending::default();
 
     for line in reader.lines() {
         let line = line.context("Failed to read line from PACKAGES")?;
 
         if line.is_empty() {
-            flush(&mut map, &mut name, &mut version, &mut deps);
-            in_dep_field = false;
+            pending.finish_field();
+            flush(&mut map, std::mem::take(&mut pending));
             continue;
         }
 
         // Continuation line (starts with whitespace)
         if line.starts_with(' ') || line.starts_with('\t') {
-            if in_dep_field {
-                deps.extend(parse_dep_field(line.trim()));
+            if let Some(text) = pending.field.as_mut() {
+                text.push(' ');
+                text.push_str(line.trim());
             }
             continue;
         }
 
         // New field
-        in_dep_field = false;
+        pending.finish_field();
         if let Some((key, val)) = line.split_once(": ") {
             match key {
-                "Package" => name = Some(val.to_owned()),
-                "Version" => version = Some(val.to_owned()),
-                "Imports" | "Depends" | "LinkingTo" => {
-                    deps.extend(parse_dep_field(val));
-                    in_dep_field = true;
-                }
+                "Package" => pending.name = Some(val.to_owned()),
+                "Version" => pending.version = Some(val.to_owned()),
+                "Imports" | "Depends" | "LinkingTo" => pending.field = Some(val.to_owned()),
                 _ => {}
             }
         }
     }
 
-    // Final block — file may not end with a blank line
-    flush(&mut map, &mut name, &mut version, &mut deps);
+    // Final block, the file may not end with a blank line
+    pending.finish_field();
+    flush(&mut map, pending);
 
     Ok(map)
 }
 
-fn flush(
-    map: &mut HashMap<String, PackageRecord>,
-    name: &mut Option<String>,
-    version: &mut Option<String>,
-    deps: &mut Vec<(String, String)>,
-) {
-    if let (Some(n), Some(v)) = (name.take(), version.take()) {
-        match RVersion::parse(&v) {
-            Ok(parsed) => {
-                map.insert(n, PackageRecord {
-                    version: parsed,
-                    deps: std::mem::take(deps),
-                });
-            }
-            Err(error) => {
-                eprintln!("  [warn] skipping '{n}' in the package index: {error:#}");
-                deps.clear();
-            }
+/// Add a finished record to the index. A record that cannot be read is
+/// skipped with a warning that says why, so a package never turns up with
+/// half its dependencies.
+fn flush(map: &mut HashMap<String, PackageRecord>, pending: Pending) {
+    let (Some(name), Some(version)) = (pending.name, pending.version) else {
+        return;
+    };
+    if let Some(problem) = pending.problem {
+        eprintln!("  [warn] skipping '{name}' in the package index: {problem}");
+        return;
+    }
+    match RVersion::parse(&version) {
+        Ok(parsed) => {
+            map.insert(name, PackageRecord { version: parsed, deps: pending.deps });
         }
-    } else {
-        deps.clear();
+        Err(error) => eprintln!("  [warn] skipping '{name}' in the package index: {error:#}"),
     }
 }
 
 /// Parse a comma-separated dep field into bare package names.
 /// Handles both `"rlang (>= 1.0.0)"` and `"rlang(>=1.0.0)"` (no space).
 /// Filters out base and recommended packages.
-pub fn parse_dep_field(s: &str) -> Vec<(String, String)> {
-    s.split(',')
-        .filter_map(|entry| {
-            let trimmed = entry.trim();
-            let (bare, constraint) = match trimmed.split_once('(') {
-                Some((name, rest)) => (name.trim(), rest.trim_end_matches(')').trim().to_owned()),
-                None => {
-                    let bare = trimmed.split_once(' ').map(|(n, _)| n).unwrap_or(trimmed);
-                    (bare.trim(), "*".to_owned())
-                }
-            };
-            if bare.is_empty() || BASE_PACKAGES.contains(&bare) {
-                None
-            } else {
-                Some((bare.to_owned(), constraint))
+pub fn parse_dep_field(s: &str) -> Result<Vec<(String, String)>> {
+    let mut found = Vec::new();
+    for entry in s.split(',') {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (bare, constraint) = match trimmed.split_once('(') {
+            Some((name, rest)) => (name.trim(), rest.trim_end_matches(')').trim().to_owned()),
+            None => {
+                let bare = trimmed.split_once(' ').map(|(n, _)| n).unwrap_or(trimmed);
+                (bare.trim(), "*".to_owned())
             }
-        })
-        .collect()
+        };
+        if !is_package_name(bare) {
+            bail!("{trimmed:?} is not a package name with an optional (constraint)");
+        }
+        if BASE_PACKAGES.contains(&bare) {
+            continue;
+        }
+        found.push((bare.to_owned(), constraint));
+    }
+    Ok(found)
+}
+
+fn is_package_name(text: &str) -> bool {
+    text.chars().next().is_some_and(|first| first.is_ascii_alphabetic())
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '.')
 }

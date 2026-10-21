@@ -95,7 +95,7 @@ fn a_tarball_without_a_description_is_an_error() {
 
 #[test]
 fn dependency_fields_drop_base_packages_and_keep_constraints() {
-    let parsed = parse_dep_field("R (>= 3.5), stats, cli(>=3.0.0), rlang (>= 1.1.0)");
+    let parsed = parse_dep_field("R (>= 3.5), stats, cli(>=3.0.0), rlang (>= 1.1.0)").unwrap();
     assert_eq!(
         parsed,
         [
@@ -103,4 +103,69 @@ fn dependency_fields_drop_base_packages_and_keep_constraints() {
             ("rlang".to_owned(), ">= 1.1.0".to_owned()),
         ]
     );
+}
+
+#[test]
+fn a_dependency_field_wrapped_inside_an_entry_is_read_whole() {
+    let text = [
+        "Package: dplyr",
+        "Version: 1.2.1",
+        "Imports: cli (>= 3.6.2), generics, glue (>= 1.3.2), lifecycle (>=",
+        "        1.0.3), magrittr (>= 1.5), methods, pillar (>= 1.9.0), R6, rlang (>=",
+        "        1.3.0), tibble (>= 3.2.0), tidyselect (>= 1.2.0), utils, vctrs",
+        "        (>= 0.6.4)",
+        "Suggests: testthat",
+        "",
+    ]
+    .join("\n");
+    let index = parse_dcf(text.as_bytes()).unwrap();
+    let deps: Vec<(&str, &str)> = index["dplyr"]
+        .deps
+        .iter()
+        .map(|(name, constraint)| (name.as_str(), constraint.as_str()))
+        .collect();
+    assert_eq!(
+        deps,
+        [
+            ("cli", ">= 3.6.2"),
+            ("generics", "*"),
+            ("glue", ">= 1.3.2"),
+            ("lifecycle", ">= 1.0.3"),
+            ("magrittr", ">= 1.5"),
+            ("pillar", ">= 1.9.0"),
+            ("R6", "*"),
+            ("rlang", ">= 1.3.0"),
+            ("tibble", ">= 3.2.0"),
+            ("tidyselect", ">= 1.2.0"),
+            ("vctrs", ">= 0.6.4"),
+        ]
+    );
+}
+
+#[test]
+fn wrapping_a_field_at_any_space_does_not_change_what_it_means() {
+    let field =
+        "cli (>= 3.6.2), generics, glue (>= 1.3.2), lifecycle (>= 1.0.3), vctrs (>= 0.6.4), R6";
+    let one_line = format!("Package: p\nVersion: 1.0\nImports: {field}\n");
+    let wrapped = format!(
+        "Package: p\nVersion: 1.0\nImports: {}\n",
+        field.split(' ').collect::<Vec<_>>().join("\n    ")
+    );
+    let plain = parse_dcf(one_line.as_bytes()).unwrap();
+    let torn = parse_dcf(wrapped.as_bytes()).unwrap();
+    assert_eq!(plain["p"].deps.len(), 6);
+    assert_eq!(torn["p"].deps, plain["p"].deps);
+}
+
+#[test]
+fn an_entry_that_is_not_a_package_name_is_an_error() {
+    assert!(parse_dep_field("cli, 1.0.3)").is_err());
+}
+
+#[test]
+fn a_record_with_a_malformed_dependency_field_is_skipped_and_the_rest_are_kept() {
+    let text = "Package: a\nVersion: 1.0\nImports: cli, 1.0.3)\n\nPackage: b\nVersion: 2.0\nImports: cli\n";
+    let index = parse_dcf(text.as_bytes()).unwrap();
+    assert!(!index.contains_key("a"));
+    assert!(index.contains_key("b"));
 }
