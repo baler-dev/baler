@@ -22,6 +22,16 @@ impl PackageDep {
         }
     }
 
+    /// The repository this entry names, or `None` when it names none and the
+    /// default CRAN is meant. Dependents that do not care where a package
+    /// comes from must not clash with one that does.
+    pub fn explicit_repo(&self) -> Option<&str> {
+        match self {
+            PackageDep::Simple(_) => None,
+            PackageDep::Extended { repo, .. } => repo.as_deref(),
+        }
+    }
+
     pub fn repo(&self) -> &str {
         match self {
             PackageDep::Simple(_) => DEFAULT_CRAN_MIRROR,
