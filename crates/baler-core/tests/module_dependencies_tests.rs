@@ -161,7 +161,7 @@ fn not_installed(_: &str) -> Result<bool> {
 fn an_installed_module_is_left_alone_and_nothing_is_fetched() {
     let fake = Fake::new();
     let modules = BTreeMap::from([("geometry".to_owned(), module_dep(GEOMETRY, None))]);
-    let planned = plan_module_installs(&modules, &fake, &|_| Ok(true)).unwrap();
+    let planned = plan_module_installs(&modules, &fake, &|_| Ok(true), None).unwrap();
     assert!(planned.is_empty());
     assert_eq!(fake.fetches.get(), 0);
 }
@@ -170,7 +170,7 @@ fn an_installed_module_is_left_alone_and_nothing_is_fetched() {
 fn a_missing_module_is_planned_with_the_version_its_source_declares() {
     let fake = Fake::new().module(GEOMETRY, "v1", manifest("geometry", "0.2.0", &[], &[]));
     let modules = BTreeMap::from([("geometry".to_owned(), module_dep(GEOMETRY, Some(">=0.1")))]);
-    let planned = plan_module_installs(&modules, &fake, &not_installed).unwrap();
+    let planned = plan_module_installs(&modules, &fake, &not_installed, None).unwrap();
     assert_eq!(planned.len(), 1);
     assert_eq!(planned[0].name, "geometry");
     assert_eq!(planned[0].version.to_string(), "0.2.0");
@@ -180,7 +180,7 @@ fn a_missing_module_is_planned_with_the_version_its_source_declares() {
 fn a_source_whose_version_does_not_satisfy_the_entry_is_an_error() {
     let fake = Fake::new().module(GEOMETRY, "v1", manifest("geometry", "0.2.0", &[], &[]));
     let modules = BTreeMap::from([("geometry".to_owned(), module_dep(GEOMETRY, Some(">=1.0")))]);
-    let error = plan_module_installs(&modules, &fake, &not_installed).unwrap_err();
+    let error = plan_module_installs(&modules, &fake, &not_installed, None).unwrap_err();
     let text = error.to_string();
     assert!(text.contains("geometry") && text.contains("0.2.0"), "{text}");
 }
@@ -189,7 +189,7 @@ fn a_source_whose_version_does_not_satisfy_the_entry_is_an_error() {
 fn a_source_that_is_a_different_module_than_the_key_is_an_error() {
     let fake = Fake::new().module(GEOMETRY, "v1", manifest("shapes", "0.2.0", &[], &[]));
     let modules = BTreeMap::from([("geometry".to_owned(), module_dep(GEOMETRY, None))]);
-    let error = plan_module_installs(&modules, &fake, &not_installed).unwrap_err();
+    let error = plan_module_installs(&modules, &fake, &not_installed, None).unwrap_err();
     assert!(error.to_string().contains("'shapes'"), "{error:#}");
 }
 
@@ -197,7 +197,7 @@ fn a_source_that_is_a_different_module_than_the_key_is_an_error() {
 fn a_missing_module_without_a_source_is_skipped() {
     let fake = Fake::new();
     let modules = BTreeMap::from([("geometry".to_owned(), ModuleDep::Simple(">=0.1".to_owned()))]);
-    let planned = plan_module_installs(&modules, &fake, &not_installed).unwrap();
+    let planned = plan_module_installs(&modules, &fake, &not_installed, None).unwrap();
     assert!(planned.is_empty());
     assert_eq!(fake.fetches.get(), 0);
 }

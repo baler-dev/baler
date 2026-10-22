@@ -150,6 +150,10 @@ pub struct GitHubFetcher;
 #[cfg(feature = "network")]
 impl ModuleFetcher for GitHubFetcher {
     fn fetch(&self, source: &ModuleSource) -> Result<BalerToml> {
+        Ok(self.fetch_pinned(source)?.0)
+    }
+
+    fn fetch_pinned(&self, source: &ModuleSource) -> Result<(BalerToml, Option<String>)> {
         let tmp = TempDir::new().context("Failed to create temp directory")?;
 
         match source {
@@ -169,15 +173,17 @@ impl ModuleFetcher for GitHubFetcher {
 
                 let extracted_root = find_single_subdir(&extract_dir)
                     .context("Could not find module directory in downloaded archive")?;
+                let rev = commit_from_dir_name(&extracted_root);
 
                 let project_root = match module_dir {
                     Some(sub) => extracted_root.join(sub),
                     None => extracted_root,
                 };
 
-                BalerToml::from_dir(&project_root).with_context(|| {
+                let toml = BalerToml::from_dir(&project_root).with_context(|| {
                     format!("Module source '{source}' does not contain a valid baler.toml")
-                })
+                })?;
+                Ok((toml, rev))
             }
             ModuleSource::Url(url) => {
                 if !url.ends_with(".tar.gz") {
@@ -188,12 +194,23 @@ impl ModuleFetcher for GitHubFetcher {
                 download_file(url, &tarball_path)
                     .with_context(|| format!("Failed to download module source '{source}'"))?;
 
-                crate::formats::tar::read_toml(&tarball_path).with_context(|| {
+                let toml = crate::formats::tar::read_toml(&tarball_path).with_context(|| {
                     format!("Module source '{source}' does not contain a valid baler.toml")
-                })
+                })?;
+                Ok((toml, None))
             }
         }
     }
+}
+
+/// GitHub names the top directory of a tarball `<owner>-<repo>-<commit>`,
+/// where the commit is the abbreviated SHA the request resolved to.
+#[cfg(feature = "network")]
+fn commit_from_dir_name(dir: &PathBuf) -> Option<String> {
+    let name = dir.file_name()?.to_str()?;
+    let commit = name.rsplit('-').next()?;
+    let is_commit = (7..=40).contains(&commit.len()) && commit.chars().all(|c| c.is_ascii_hexdigit());
+    is_commit.then(|| commit.to_owned())
 }
 
 #[cfg(not(feature = "network"))]

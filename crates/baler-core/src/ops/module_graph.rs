@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use anyhow::{bail, Context, Result};
 
 use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource, PackageDep};
+use crate::lockfile::{BalerLock, LockedModule};
 use crate::ops::resolve::{resolve_packages_from_specs, ResolvedPlan};
 use crate::version::VersionSpec;
 
@@ -14,6 +15,46 @@ use crate::version::VersionSpec;
 /// HashMap in a test.
 pub trait ModuleFetcher {
     fn fetch(&self, source: &ModuleSource) -> Result<BalerToml>;
+
+    /// `fetch`, and also the commit a `git` source resolved to, when the
+    /// fetcher can tell. The lock records it so that later installs get the
+    /// same code even if a branch or tag has moved.
+    fn fetch_pinned(&self, source: &ModuleSource) -> Result<(BalerToml, Option<String>)> {
+        Ok((self.fetch(source)?, None))
+    }
+}
+
+/// What a walk found out about one module, for the lock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModulePin {
+    pub name: String,
+    pub version: semver::Version,
+    /// The source as `baler.toml` declares it.
+    pub source: ModuleSource,
+    /// The commit the source resolved to, when known.
+    pub rev: Option<String>,
+}
+
+/// Fetches modules at the commit a lock pinned them to, when the lock has an
+/// entry for the declared source. A source the lock does not match (its tag or
+/// URL changed in `baler.toml`) is fetched as declared.
+pub struct PinnedFetcher<'a> {
+    pub inner: &'a dyn ModuleFetcher,
+    pub locked: &'a [LockedModule],
+}
+
+impl ModuleFetcher for PinnedFetcher<'_> {
+    fn fetch(&self, source: &ModuleSource) -> Result<BalerToml> {
+        Ok(self.fetch_pinned(source)?.0)
+    }
+
+    fn fetch_pinned(&self, source: &ModuleSource) -> Result<(BalerToml, Option<String>)> {
+        if let Some(pin) = self.locked.iter().find(|pin| pin.matches(source)) {
+            let (toml, found) = self.inner.fetch_pinned(&pin.pinned_source()?)?;
+            return Ok((toml, pin.rev.clone().or(found)));
+        }
+        self.inner.fetch_pinned(source)
+    }
 }
 
 /// Walk the full module dependency graph, starting from `root`,
@@ -56,6 +97,17 @@ pub fn resolve_dependencies(
     fetcher: &dyn ModuleFetcher,
     skip_sourceless: bool,
 ) -> Result<ResolvedPlan> {
+    Ok(resolve_dependencies_pinned(packages, modules, fetcher, skip_sourceless)?.0)
+}
+
+/// `resolve_dependencies`, and also what the lock needs to know about each
+/// module that was fetched: its version, declared source and commit.
+pub fn resolve_dependencies_pinned(
+    packages: &BTreeMap<String, PackageDep>,
+    modules: Option<&BTreeMap<String, ModuleDep>>,
+    fetcher: &dyn ModuleFetcher,
+    skip_sourceless: bool,
+) -> Result<(ResolvedPlan, Vec<ModulePin>)> {
     let mut pkg_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
     let mut pkg_repos: BTreeMap<String, String> = BTreeMap::new();
 
@@ -75,6 +127,7 @@ pub fn resolve_dependencies(
     // this path, that's a genuine cycle. The graph has no valid order
     // to fetch these in.
     let mut path: Vec<String> = Vec::new();
+    let mut pins: BTreeMap<String, ModulePin> = BTreeMap::new();
 
     for (name, dep) in modules.unwrap_or(&BTreeMap::new()) {
         resolve_module(
@@ -85,6 +138,7 @@ pub fn resolve_dependencies(
             &mut path,
             &mut pkg_specs,
             &mut pkg_repos,
+            &mut pins,
             skip_sourceless,
         )?;
     }
@@ -95,7 +149,7 @@ pub fn resolve_dependencies(
         .map(|(name, (version, _source))| (name, version.to_string()))
         .collect();
 
-    Ok(ResolvedPlan { packages, modules })
+    Ok((ResolvedPlan { packages, modules }, pins.into_values().collect()))
 }
 
 /// Resolve one box-module dep and recurse into its own dependencies.
@@ -109,6 +163,7 @@ fn resolve_module(
     path: &mut Vec<String>,
     pkg_specs: &mut BTreeMap<String, Vec<VersionSpec>>,
     pkg_repos: &mut BTreeMap<String, String>,
+    pins: &mut BTreeMap<String, ModulePin>,
     skip_sourceless: bool,
 ) -> Result<()> {
     if skip_sourceless
@@ -151,8 +206,8 @@ fn resolve_module(
 
     let source = declared_source(name, dep)?;
 
-    let fetched = fetcher
-        .fetch(&source)
+    let (fetched, rev) = fetcher
+        .fetch_pinned(&source)
         .with_context(|| format!("Failed to fetch module '{name}' from '{source}'"))?;
 
     // Reuses ModuleMeta::semver() (the same check `from_dir` runs on a
@@ -184,11 +239,21 @@ fn resolve_module(
             path,
             pkg_specs,
             pkg_repos,
+            pins,
             skip_sourceless,
         )?;
     }
     path.pop();
 
+    pins.insert(
+        name.to_owned(),
+        ModulePin {
+            name: name.to_owned(),
+            version: fetched_version.clone(),
+            source: source.clone(),
+            rev,
+        },
+    );
     resolved_modules.insert(name.to_owned(), (fetched_version, source));
     Ok(())
 }
@@ -251,11 +316,17 @@ pub struct ModuleInstall {
 /// is installed: it must be the module the entry names, and the version it
 /// declares must satisfy the entry's constraint. A module that is missing and
 /// declares no source cannot be installed, so it is reported and skipped.
+///
+/// When `lock` pins a module, the pinned commit is what is fetched and what
+/// the plan says to install.
 pub fn plan_module_installs(
     modules: &BTreeMap<String, ModuleDep>,
     fetcher: &dyn ModuleFetcher,
     is_installed: &dyn Fn(&str) -> Result<bool>,
+    lock: Option<&BalerLock>,
 ) -> Result<Vec<ModuleInstall>> {
+    let locked: &[LockedModule] = lock.map(|l| l.modules.as_slice()).unwrap_or(&[]);
+    let fetcher = PinnedFetcher { inner: fetcher, locked };
     let mut planned = Vec::new();
     for (name, dep) in modules {
         if is_installed(name)? {
@@ -290,7 +361,11 @@ pub fn plan_module_installs(
         if !spec.matches(&version) {
             bail!("'{name}' requires version {spec} but the source at '{source}' declares {version}.");
         }
-        planned.push(ModuleInstall { name: name.clone(), source, version });
+        let install_from = match locked.iter().find(|pin| pin.matches(&source)) {
+            Some(pin) => pin.pinned_source()?,
+            None => source,
+        };
+        planned.push(ModuleInstall { name: name.clone(), source: install_from, version });
     }
     Ok(planned)
 }

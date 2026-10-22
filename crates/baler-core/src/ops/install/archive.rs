@@ -114,7 +114,7 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
     if let Some(extra) = wanted_extras {
         modules_wanted.extend(extra.baler.clone().unwrap_or_default());
     }
-    install_declared_modules(&modules_wanted, install_deps)?;
+    install_declared_modules(&modules_wanted, install_deps, effective_lock.as_ref())?;
 
     build_native_if_present(&module_path, &name, install_deps, &toml)?;
 
@@ -126,17 +126,20 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
 /// installs nothing and does not touch the network, and without the
 /// `network` feature there is nothing to fetch a module with.
 ///
+/// A module the lock pins is installed at the pinned commit.
+///
 /// Each module installs like any other, so its own R packages and module
 /// dependencies follow. The module being installed is already in place by
 /// now, so a dependency cycle ends instead of looping.
 fn install_declared_modules(
     modules: &BTreeMap<String, ModuleDep>,
     install_deps: bool,
+    lock: Option<&BalerLock>,
 ) -> Result<()> {
     if modules.is_empty() || !install_deps || !cfg!(feature = "network") {
         return Ok(());
     }
-    let planned = plan_module_installs(modules, &GitHubFetcher, &resolve::already_installed_module)?;
+    let planned = plan_module_installs(modules, &GitHubFetcher, &resolve::already_installed_module, lock)?;
     for module in planned {
         println!("  Installing module {} {} from {}...", module.name, module.version, module.source);
         match &module.source {
