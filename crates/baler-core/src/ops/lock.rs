@@ -3,13 +3,14 @@ use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::Path;
 
 use crate::baler_toml::{BalerToml, ModuleDep, PackageDep};
-use crate::lockfile::{self, BalerLock, LockGroup, PinnedPackage};
+use crate::lockfile::{self, BalerLock, LockGroup, LockedModule, PinnedPackage};
 use crate::ops::resolve;
+use crate::ops::module_graph::ModulePin;
 use crate::ops::resolve::ResolvedPlan;
 #[cfg(feature = "network")]
 use crate::ops::install::GitHubFetcher;
 #[cfg(feature = "network")]
-use crate::ops::module_graph;
+use crate::ops::module_graph::{self, PinnedFetcher};
 
 /// How much of an existing lock `baler lock` may move.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -140,7 +141,9 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
             );
         };
         for name in names {
-            if !lock.packages.iter().any(|p| &p.name == name) {
+            if !lock.packages.iter().any(|p| &p.name == name)
+                && !lock.modules.iter().any(|m| &m.name == name)
+            {
                 bail!(
                     "'{}' is not in {}, so there is nothing to update. \
                      If it is a new dependency, run `baler lock` to add it.",
@@ -170,6 +173,7 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
         .filter(|deps| !deps.is_empty());
 
     let mut pinned: BTreeMap<String, PinnedPackage> = BTreeMap::new();
+    let mut module_pins: Vec<ModulePin> = Vec::new();
     let groups = [
         (LockGroup::Runtime, runtime_deps),
         (LockGroup::Build, build_deps),
@@ -180,7 +184,10 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
             continue;
         }
         let modules = if group == LockGroup::Runtime { &module_deps } else { &None };
-        let plan = plan_for_group(&toml, group, &package_deps, modules)?;
+        let locked_modules: &[LockedModule] =
+            seed.as_ref().map(|l| l.modules.as_slice()).unwrap_or(&[]);
+        let (plan, pins) = plan_for_group(&toml, group, &package_deps, modules, locked_modules)?;
+        module_pins.extend(pins);
         let group_pins = resolve::resolve_only(&plan, seed.as_ref())?;
         for (name, (version, repo)) in group_pins {
             match pinned.entry(name) {
@@ -218,7 +225,14 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
         }
     };
 
-    let new_lock = lockfile::build_grouped(&pinned, r_version.as_deref());
+    // Without the network feature modules are not walked, so what the lock
+    // already pins is kept as it is.
+    let locked_modules: Vec<LockedModule> = if cfg!(feature = "network") {
+        module_pins.iter().map(locked_module).collect()
+    } else {
+        seed.as_ref().map(|l| l.modules.clone()).unwrap_or_default()
+    };
+    let new_lock = lockfile::build_grouped(&pinned, r_version.as_deref()).with_modules(locked_modules);
 
     match &existing {
         Some(old) if old.same_content(&new_lock) => {
@@ -264,31 +278,43 @@ pub fn run_with(path: &str, opts: &LockOptions) -> Result<()> {
     Ok(())
 }
 
+fn locked_module(pin: &ModulePin) -> LockedModule {
+    LockedModule::new(&pin.name, &pin.version, &pin.source, pin.rev.clone())
+}
+
 /// The plan for one dependency group. The runtime group also walks the
 /// modules this module depends on, so the R packages those modules need are
-/// locked too. A module dependency that declares no source cannot be
-/// fetched, so it is skipped with a warning instead of stopping the lock.
+/// locked too, and each module is pinned to the commit it was fetched at.
+/// A module the lock already pins is fetched at that commit, so a plain
+/// `baler lock` never moves it. A module dependency that declares no source
+/// cannot be fetched, so it is skipped with a warning instead of stopping the
+/// lock.
 #[cfg(feature = "network")]
 fn plan_for_group(
     toml: &BalerToml,
     group: LockGroup,
     package_deps: &Option<BTreeMap<String, PackageDep>>,
     modules: &Option<BTreeMap<String, ModuleDep>>,
-) -> Result<ResolvedPlan> {
+    locked: &[LockedModule],
+) -> Result<(ResolvedPlan, Vec<ModulePin>)> {
     let has_modules = modules.as_ref().is_some_and(|found| !found.is_empty());
     if group != LockGroup::Runtime || !has_modules {
-        return resolve::resolve(package_deps, modules);
+        return Ok((resolve::resolve(package_deps, modules)?, Vec::new()));
     }
-    let plan = module_graph::resolve_dependencies(
+    let fetcher = PinnedFetcher { inner: &GitHubFetcher, locked };
+    let (plan, pins) = module_graph::resolve_dependencies_pinned(
         &toml.dependencies.packages,
         modules.as_ref(),
-        &GitHubFetcher,
+        &fetcher,
         true,
     )?;
-    for (name, version) in &plan.modules {
-        println!("  module {name} {version} (its R packages are locked, the module itself is not yet)");
+    for pin in &pins {
+        match &pin.rev {
+            Some(rev) => println!("  module {} {} (pinned to {rev})", pin.name, pin.version),
+            None => println!("  module {} {} (the source gave no commit to pin)", pin.name, pin.version),
+        }
     }
-    Ok(plan)
+    Ok((plan, pins))
 }
 
 /// Without the `network` feature there is nothing to fetch a module with, so
@@ -299,6 +325,7 @@ fn plan_for_group(
     _group: LockGroup,
     package_deps: &Option<BTreeMap<String, PackageDep>>,
     modules: &Option<BTreeMap<String, ModuleDep>>,
-) -> Result<ResolvedPlan> {
-    resolve::resolve(package_deps, modules)
+    _locked: &[LockedModule],
+) -> Result<(ResolvedPlan, Vec<ModulePin>)> {
+    Ok((resolve::resolve(package_deps, modules)?, Vec::new()))
 }

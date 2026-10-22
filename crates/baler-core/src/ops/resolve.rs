@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use semver::Version;
 
 use crate::baler_toml::{BalerToml, ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
@@ -135,6 +135,43 @@ pub fn lock_problems_for(toml: &BalerToml, lock: &BalerLock) -> Result<Vec<Strin
     }
     if let Some(extras) = toml.extras.as_ref() {
         problems.extend(lock_problems(lock, LockGroup::Extras, &extras.packages)?);
+    }
+    problems.extend(module_lock_problems(toml, lock)?);
+    Ok(problems)
+}
+
+/// Module dependencies that declare a source must be pinned in the lock, at
+/// that source and at a version `baler.toml` still accepts. Only checked for a
+/// lock that can hold modules (format 3), since an older lock never pinned any.
+fn module_lock_problems(toml: &BalerToml, lock: &BalerLock) -> Result<Vec<String>> {
+    let mut problems = Vec::new();
+    if lock.version < 3 {
+        return Ok(problems);
+    }
+    let Some(modules) = toml.dependencies.baler.as_ref() else {
+        return Ok(problems);
+    };
+    for (name, dep) in modules {
+        let Some(source) = dep.source()? else { continue };
+        match lock.locked_module(name) {
+            None => problems.push(format!("module '{name}' is not in baler.lock")),
+            Some(pin) if !pin.matches(&source) => problems.push(format!(
+                "module '{name}' is locked from a different source than baler.toml declares"
+            )),
+            Some(pin) => {
+                let spec = VersionSpec::parse(dep.version())?;
+                let version = semver::Version::parse(&pin.version).with_context(|| {
+                    format!("baler.lock has an invalid version for module '{name}': '{}'", pin.version)
+                })?;
+                if !spec.matches(&version) {
+                    problems.push(format!(
+                        "module '{name}' is locked at {}, but baler.toml requires '{}'",
+                        pin.version,
+                        dep.version()
+                    ));
+                }
+            }
+        }
     }
     Ok(problems)
 }
