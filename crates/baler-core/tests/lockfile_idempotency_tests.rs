@@ -39,7 +39,7 @@ fn parse_accepts_both_supported_format_versions() {
 fn parse_rejects_unknown_format_versions_and_names_the_origin() {
     let err = parse("version = 3\n", "bundle.tar.gz").unwrap_err().to_string();
     assert!(err.contains("bundle.tar.gz"), "{err}");
-    assert!(err.contains("version 3"), "{err}");
+    assert!(err.contains("version 4"), "{err}");
     assert!(parse("version = 0\n", "x").is_err());
 }
 
