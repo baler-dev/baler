@@ -21,7 +21,12 @@ fn pkg(name: &str, version: &str, groups: &[LockGroup]) -> LockedPackage {
 }
 
 fn lock(packages: Vec<LockedPackage>, r_version: Option<&str>) -> BalerLock {
-    BalerLock { version: 2, r_version: r_version.map(str::to_owned), packages }
+    BalerLock {
+        version: 2,
+        r_version: r_version.map(str::to_owned),
+        packages,
+        modules: Vec::new(),
+    }
 }
 
 #[test]
