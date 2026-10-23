@@ -96,7 +96,7 @@ fn unknown_group_name_is_rejected() {
 #[test]
 fn unsupported_format_version_is_rejected() {
     let dir = TempDir::new().unwrap();
-    std::fs::write(dir.path().join(lockfile::LOCK_FILE_NAME), "version = 3\n").unwrap();
+    std::fs::write(dir.path().join(lockfile::LOCK_FILE_NAME), "version = 4\n").unwrap();
     assert!(lockfile::read(dir.path()).is_err());
 
     std::fs::write(dir.path().join(lockfile::LOCK_FILE_NAME), "version = 0\n").unwrap();
