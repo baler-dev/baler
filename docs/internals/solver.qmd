@@ -2,7 +2,7 @@
 title: "The dependency solver"
 ---
 
-This page explains how baler picks the versions of R packages for a module. It describes `baler lock` and `baler install` for CRAN packages. How module dependencies reach it is under [Limits](#limits).
+This page explains how baler picks the versions of R packages for a module. It describes `baler lock` and `baler install` for CRAN packages. How module dependencies reach it is under [Modules](#modules).
 
 ## Why a solver
 
@@ -124,20 +124,27 @@ purrr, the project 0 is forbidden.
 
 Read it from the top. Each line names the versions involved and what they require. "The project" is your `baler.toml`. The fix is usually to relax one of the constraints named, or to change the version of the package that asks for the incompatible one.
 
-## Limits {#limits}
+## `box-bale` modules {#modules}
 
-`box-bale` modules take part in resolution differently from R packages. A module has only one version to pick, the one its source declares, so the solver has nothing to choose. `{baler}` checks the module and passes the R package constraints it collects to the solver.
+A `box-bale` module has one version, the one its source declares, so the solver has nothing to choose between. Baler checks the module (source, version, cycles) and hands the R package constraints it collects to the solver.
 
-These are the current limits:
+`baler lock` pins each module that has a source:
 
--  `baler.lock` does not record modules yet. If you depend on a module by `branch`, or with no ref at all, you may get different code on a later install. Use a `tag` or a `rev` to stay on the same code.
--  `baler.lock` does not record which package depends on which, and it stores versions as semver strings. When installing from a lock, baler orders the packages using the current index and works out each published version spelling again (`0.3-1`, not `0.3.1`).
--  Archived releases are not cached, so each older release the solver looks at is downloaded again on every run.
--  A dependency found in no repository is not checked. `{baler}` warns and assumes it is already installed.
+``` toml
+[[module]]
+name = "rcalc"
+version = "0.1.0"
+git = "https://github.com/baler-dev/baler"
+ref = "main"
+module_dir = "examples/modules/rcalc"
+rev = "9fceb02"
+```
+
+`rev` is the commit that `ref` pointed at when the lock was written. A plain `baler lock` keeps it even if `main` has moved, and `baler lock --update rcalc` moves it. `baler install --install-deps` fetches that commit. A module from a `url` source is fetched from that URL as it is.
 
 ## Where the code is
 
-When you plan to contribute `{baler}`'s dependency solve, here's the following table that points out where those features lived: 
+When you plan to contribute `{baler}`'s dependency solver, here's the following table that points out where those features lived: 
 
 | Feature | File |
 |---|---|

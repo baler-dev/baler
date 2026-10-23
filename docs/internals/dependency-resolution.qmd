@@ -101,12 +101,12 @@ The graph is walked depth-first on purpose, keeping an explicit ancestor path: t
 
 The production implementation, `GitHubFetcher`, handles both. A `git` source builds the same GitHub tarball URL `baler install --git` uses, downloads and extracts it, then reads `baler.toml` from the resolved `module_dir`. A `url` source downloads the tarball directly and reads its `baler.toml` without extracting anything else. Both require the `network` feature, same as `baler install`'s own `--git`/`--url` handling (see [CLI Commands](cli.md#baler-install)).
 
-::: {.callout-note title="Technical notes"}
+::: {.callout-note title="Technical Notes"}
 A module dependency has exactly one candidate version, the one its source declares, so there is nothing for the solver to choose between. The module walk checks each module (source, version, cycles) and hands the R package constraints it collects to the solver.
 
-`baler lock` walks the module dependencies that declare a source, so the R packages those modules need are locked too. A module dependency with no source is skipped with a warning. The modules themselves are not recorded in `baler.lock` yet.
+`baler lock` walks the module dependencies that declare a source, locks the R packages they need, and pins each module at the commit its ref pointed at. A module dependency with no source is skipped with a warning.
 
-`baler install --install-deps` installs the module dependencies that are not installed yet, each from its declared source. Before installing, it checks that the source is the module the entry names and that the version it declares satisfies the entry's constraint. A module that is already installed is not checked again.
+`baler install --install-deps` installs the module dependencies that are not installed yet, each from its declared source, at the pinned commit when the lock has one. Before installing, it checks that the source is the module the entry names and that the version it declares fits the entry's constraint. A module that is already installed is left alone.
 
 The package dependencies collected along the way are merged: constraints on the same package are combined into one. Two dependents that each name a different repository for one package is an error, and a dependent that names no repository does not clash with one that does.
 :::
