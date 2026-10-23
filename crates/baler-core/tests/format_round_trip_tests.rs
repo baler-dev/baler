@@ -83,6 +83,7 @@ fn fixture_lock_contents() -> String {
             repo: "https://cloud.r-project.org".to_owned(),
             groups: Vec::new(),
         }],
+        modules: Vec::new(),
     };
     ::toml::to_string_pretty(&lock).unwrap()
 }
