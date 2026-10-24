@@ -30,14 +30,16 @@ website:
                     text: Module Structure
                   - href: reference/native-code.qmd
                     text: Handling native codes
+                  - href: reference/version-constraints.qmd
+                    text: Version Constraints
             - text: Internals
               menu:
                   - href: internals/architecture.qmd
                     text: Architecture
                   - href: internals/dependency-resolution.qmd
                     text: Dependency Resolution
-            #       # - href: internals/known-gaps.qmd
-            #       #   text: Known Gaps
+                  - href: internals/solver.qmd
+                    text: Baler's Dependency Solver
             - href: contribute.qmd
               text: Contributing
         right:

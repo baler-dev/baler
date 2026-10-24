@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use semver::Version;
 
 use crate::baler_toml::{BalerToml, ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
@@ -135,6 +135,43 @@ pub fn lock_problems_for(toml: &BalerToml, lock: &BalerLock) -> Result<Vec<Strin
     }
     if let Some(extras) = toml.extras.as_ref() {
         problems.extend(lock_problems(lock, LockGroup::Extras, &extras.packages)?);
+    }
+    problems.extend(module_lock_problems(toml, lock)?);
+    Ok(problems)
+}
+
+/// Module dependencies that declare a source must be pinned in the lock, at
+/// that source and at a version `baler.toml` still accepts. Only checked for a
+/// lock that can hold modules (format 3), since an older lock never pinned any.
+fn module_lock_problems(toml: &BalerToml, lock: &BalerLock) -> Result<Vec<String>> {
+    let mut problems = Vec::new();
+    if lock.version < 3 {
+        return Ok(problems);
+    }
+    let Some(modules) = toml.dependencies.baler.as_ref() else {
+        return Ok(problems);
+    };
+    for (name, dep) in modules {
+        let Some(source) = dep.source()? else { continue };
+        match lock.locked_module(name) {
+            None => problems.push(format!("module '{name}' is not in baler.lock")),
+            Some(pin) if !pin.matches(&source) => problems.push(format!(
+                "module '{name}' is locked from a different source than baler.toml declares"
+            )),
+            Some(pin) => {
+                let spec = VersionSpec::parse(dep.version())?;
+                let version = semver::Version::parse(&pin.version).with_context(|| {
+                    format!("baler.lock has an invalid version for module '{name}': '{}'", pin.version)
+                })?;
+                if !spec.matches(&version) {
+                    problems.push(format!(
+                        "module '{name}' is locked at {}, but baler.toml requires '{}'",
+                        pin.version,
+                        dep.version()
+                    ));
+                }
+            }
+        }
     }
     Ok(problems)
 }
@@ -286,28 +323,25 @@ pub fn resolve_with_extras(
     resolve(&Some(packages), &Some(modules))
 }
 
-/// Shared by resolve() and module_graph::resolve_transitive() — collapses
-/// each package's accumulated version specs down to one, erroring on any
-/// real conflict rather than silently picking one. pub(crate) so
-/// module_graph.rs can call it without duplicating the logic.
+/// Shared by resolve() and module_graph::resolve_transitive(). Collapses
+/// each package's accumulated version specs into one spec that every
+/// dependent accepts (the intersection of all of them). Whether any real
+/// version satisfies that intersection is decided later, against the
+/// package index, in cran::client::graph, which reports the conflict with
+/// the merged constraints. pub(crate) so module_graph.rs can call it
+/// without duplicating the logic.
 pub(crate) fn resolve_packages_from_specs(
     pkg_specs: BTreeMap<String, Vec<VersionSpec>>,
     pkg_repos: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, ResolvedPackage>> {
     let mut packages = BTreeMap::new();
     for (name, specs) in pkg_specs {
-        let version_spec = match specs.as_slice() {
-            [] => "*".to_owned(),
-            [only] => format!("{only}"),
-            multiple => {
-                let constraints: Vec<String> = multiple.iter().map(|s| s.to_string()).collect();
-                bail!(
-                    "'{name}' has {} conflicting version constraints ({}) — \
-                     baler doesn't merge these yet.",
-                    multiple.len(),
-                    constraints.join(", ")
-                );
-            }
+        let version_spec = match specs.split_first() {
+            None => "*".to_owned(),
+            Some((first, rest)) => rest
+                .iter()
+                .fold(first.clone(), |merged, spec| merged.and(spec))
+                .to_string(),
         };
         let repo = pkg_repos
             .get(&name)
@@ -395,10 +429,7 @@ pub fn execute_plan(
         if already_installed_module(name)? {
             println!("  [ok] {} (already installed)", name);
         } else {
-            println!(
-                "  [missing] {} — install with: baler install <path or gh:user/repo>",
-                name
-            );
+            println!("  [missing] {} (not installed yet)", name);
         }
     }
 

@@ -5,8 +5,14 @@ use anyhow::{bail, Context, Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
+use crate::baler_toml::ModuleSource;
+
 pub const LOCK_FILE_NAME: &str = "baler.lock";
-const LOCK_FORMAT_VERSION: u32 = 2;
+/// Newest lock format this build can read. Version 3 added `[[module]]`
+/// entries. A lock with no modules is still written as version 2, so a project
+/// that does not use modules keeps a lock that older baler can read.
+const LOCK_FORMAT_VERSION: u32 = 3;
+const PACKAGES_ONLY_FORMAT_VERSION: u32 = 2;
 /// Oldest lock format still readable. Version 2 only added the optional
 /// `groups` field, and a package without it is a runtime package, so a
 /// version 1 file means the same thing under version 2.
@@ -70,6 +76,72 @@ impl LockedPackage {
     }
 }
 
+/// One box-bale module, pinned to the code it was locked at. Exactly one of
+/// `git` and `url` is set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LockedModule {
+    pub name: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    /// The `branch`, `tag` or `rev` the manifest declared, as written.
+    #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_dir: Option<String>,
+    /// The commit `ref` pointed at when the lock was written. Installs fetch
+    /// this commit, so a branch or tag that moved does not change what is
+    /// installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+impl LockedModule {
+    pub fn new(name: &str, version: &Version, source: &ModuleSource, rev: Option<String>) -> Self {
+        let (git, git_ref, module_dir, url) = match source {
+            ModuleSource::Git { url, git_ref, module_dir } => {
+                (Some(url.clone()), git_ref.clone(), module_dir.clone(), None)
+            }
+            ModuleSource::Url(url) => (None, None, None, Some(url.clone())),
+        };
+        Self { name: name.to_owned(), version: version.to_string(), git, git_ref, module_dir, rev, url }
+    }
+
+    /// The source `baler.toml` declared when the lock was written.
+    pub fn declared_source(&self) -> Result<ModuleSource> {
+        match (&self.git, &self.url) {
+            (Some(git), None) => Ok(ModuleSource::Git {
+                url: git.clone(),
+                git_ref: self.git_ref.clone(),
+                module_dir: self.module_dir.clone(),
+            }),
+            (None, Some(url)) => Ok(ModuleSource::Url(url.clone())),
+            _ => bail!(
+                "baler.lock entry for module '{}' must have exactly one of `git` and `url`",
+                self.name
+            ),
+        }
+    }
+
+    /// The source to fetch: the pinned commit when there is one.
+    pub fn pinned_source(&self) -> Result<ModuleSource> {
+        Ok(match self.declared_source()? {
+            ModuleSource::Git { url, git_ref, module_dir } => {
+                ModuleSource::Git { url, git_ref: self.rev.clone().or(git_ref), module_dir }
+            }
+            other => other,
+        })
+    }
+
+    /// True when `declared` is the source this entry was locked from.
+    pub fn matches(&self, declared: &ModuleSource) -> bool {
+        self.declared_source().map(|own| &own == declared).unwrap_or(false)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct BalerLock {
@@ -79,10 +151,12 @@ pub struct BalerLock {
     pub r_version: Option<String>,
     #[serde(default, rename = "package")]
     pub packages: Vec<LockedPackage>,
+    #[serde(default, rename = "module", skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<LockedModule>,
 }
 
 fn default_version() -> u32 {
-    LOCK_FORMAT_VERSION
+    PACKAGES_ONLY_FORMAT_VERSION
 }
 
 impl BalerLock {
@@ -90,7 +164,29 @@ impl BalerLock {
     /// reconstructing a lock from a bundle's embedded manifest, where
     /// there is no baler.lock file on disk to read.
     pub fn from_packages(packages: Vec<LockedPackage>) -> Self {
-        Self { version: LOCK_FORMAT_VERSION, r_version: None, packages }
+        Self {
+            version: PACKAGES_ONLY_FORMAT_VERSION,
+            r_version: None,
+            packages,
+            modules: Vec::new(),
+        }
+    }
+
+    /// The same lock with these module entries. A lock that holds modules is
+    /// format 3, one that holds none stays format 2.
+    pub fn with_modules(mut self, mut modules: Vec<LockedModule>) -> Self {
+        modules.sort_by(|a, b| a.name.cmp(&b.name));
+        self.version = if modules.is_empty() {
+            PACKAGES_ONLY_FORMAT_VERSION
+        } else {
+            LOCK_FORMAT_VERSION
+        };
+        self.modules = modules;
+        self
+    }
+
+    pub fn locked_module(&self, name: &str) -> Option<&LockedModule> {
+        self.modules.iter().find(|m| m.name == name)
     }
 
     /// Look up a locked package by name and return its exact version,
@@ -131,6 +227,12 @@ impl BalerLock {
                 .filter(|p| !names.iter().any(|n| n == &p.name))
                 .cloned()
                 .collect(),
+            modules: self
+                .modules
+                .iter()
+                .filter(|m| !names.iter().any(|n| n == &m.name))
+                .cloned()
+                .collect(),
         }
     }
 
@@ -140,7 +242,15 @@ impl BalerLock {
     /// means the same thing as a freshly resolved one is not a change,
     /// and rewriting it would only add noise to a diff.
     pub fn same_content(&self, other: &BalerLock) -> bool {
-        self.r_version == other.r_version && self.canonical() == other.canonical()
+        self.r_version == other.r_version
+            && self.canonical() == other.canonical()
+            && self.canonical_modules() == other.canonical_modules()
+    }
+
+    fn canonical_modules(&self) -> Vec<LockedModule> {
+        let mut modules = self.modules.clone();
+        modules.sort_by(|a, b| a.name.cmp(&b.name));
+        modules
     }
 
     fn canonical(&self) -> Vec<LockedPackage> {
@@ -179,6 +289,33 @@ impl BalerLock {
                 (None, None) => {}
             }
         }
+        let old_modules: BTreeMap<&str, &LockedModule> =
+            self.modules.iter().map(|m| (m.name.as_str(), m)).collect();
+        let new_modules: BTreeMap<&str, &LockedModule> =
+            newer.modules.iter().map(|m| (m.name.as_str(), m)).collect();
+        let module_names: BTreeSet<&str> =
+            old_modules.keys().chain(new_modules.keys()).copied().collect();
+        for name in module_names {
+            match (old_modules.get(name), new_modules.get(name)) {
+                (None, Some(n)) => lines.push(format!("+ module {} {}", name, n.version)),
+                (Some(o), None) => lines.push(format!("- module {} {}", name, o.version)),
+                (Some(o), Some(n)) => {
+                    if o.version != n.version {
+                        lines.push(format!("~ module {} {} -> {}", name, o.version, n.version));
+                    } else if o.rev != n.rev {
+                        lines.push(format!(
+                            "~ module {} moved from {} to {}",
+                            name,
+                            o.rev.as_deref().unwrap_or("(none)"),
+                            n.rev.as_deref().unwrap_or("(none)")
+                        ));
+                    } else if o != n {
+                        lines.push(format!("~ module {} source changed", name));
+                    }
+                }
+                (None, None) => {}
+            }
+        }
         if self.r_version != newer.r_version {
             lines.push(format!(
                 "~ r_version {} -> {}",
@@ -204,21 +341,38 @@ fn parse_pin_version(name: &str, version: &str) -> Result<Version> {
 /// Shared by `read` and by the reader for a lock embedded in a bundle, so
 /// a lock from either place is held to the same rules.
 pub fn parse(contents: &str, origin: &str) -> Result<BalerLock> {
+    /// Only the format version, read leniently, so a lock written by a newer
+    /// baler gets an upgrade message and not an "unknown field" error.
+    #[derive(Deserialize)]
+    struct Header {
+        #[serde(default)]
+        version: Option<u32>,
+    }
+    let header: Header =
+        toml::from_str(contents).with_context(|| format!("Failed to parse {}", origin))?;
+    if let Some(version) = header.version {
+        check_format_version(version, origin)?;
+    }
+
     let lock: BalerLock =
         toml::from_str(contents).with_context(|| format!("Failed to parse {}", origin))?;
+    check_format_version(lock.version, origin)?;
+    Ok(lock)
+}
 
-    if lock.version < MIN_LOCK_FORMAT_VERSION || lock.version > LOCK_FORMAT_VERSION {
+fn check_format_version(version: u32, origin: &str) -> Result<()> {
+    if version < MIN_LOCK_FORMAT_VERSION || version > LOCK_FORMAT_VERSION {
         bail!(
             "{} declares lock format version {}, but this build of baler \
-             only understands versions {} to {}. Regenerate it with `baler lock`.",
+             only understands versions {} to {}. Regenerate it with `baler lock`. \
+             If it was written by a newer baler, update baler instead.",
             origin,
-            lock.version,
+            version,
             MIN_LOCK_FORMAT_VERSION,
             LOCK_FORMAT_VERSION
         );
     }
-
-    Ok(lock)
+    Ok(())
 }
 
 /// Read `baler.lock` from `project_root`. `Ok(None)` means the file
@@ -294,9 +448,10 @@ pub fn build_grouped(
     packages.sort_by(|a, b| a.name.cmp(&b.name));
 
     BalerLock {
-        version: LOCK_FORMAT_VERSION,
+        version: PACKAGES_ONLY_FORMAT_VERSION,
         r_version: r_version.map(str::to_owned),
         packages,
+        modules: Vec::new(),
     }
 }
 

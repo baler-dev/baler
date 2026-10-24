@@ -1,0 +1,159 @@
+---
+title: "The dependency solver"
+---
+
+This page explains how baler picks the versions of R packages for a module. It describes `baler lock` and `baler install` for CRAN packages. How module dependencies reach it is under [Modules](#modules).
+
+## Why a solver
+
+An R library holds one version of each package. So resolution has to pick exactly one version per package that satisfies every constraint that reaches it, and when no such version exists, say why.
+
+Taking the newest version that fits is not enough. Suppose `a 2.0` needs `cli >= 3`, `a 1.0` has no such need, and `b` needs `cli < 3`. A resolver that commits to `a 2.0` fails here, even though `a 1.0` and `cli 2.9` satisfy everyone. `{baler}`'s solver undoes the choice of `a 2.0` and tries `a 1.0`.
+
+The algorithm is [PubGrub](https://github.com/pubgrub-rs/pubgrub), the one used by uv and Dart's pub, through the `pubgrub` crate. It is wrapped in `resolver.rs`, which does no network access. Everything it needs to know comes from a `Universe`.
+
+## The pipeline
+
+Here's the graph of what's going on: 
+
+```{mermaid}
+flowchart LR
+    A["baler.toml and baler.lock"] --> B["roots and pins"]
+    B --> C["CranUniverse<br/>indexes and archive"]
+    C --> D["solver<br/>PubGrub"]
+    D --> E["Solution<br/>versions and edges"]
+    E --> F["install order"]
+   
+``` 
+
+1. `resolve_all` (in `cran/client/graph.rs`) turns the requested packages and the lock into roots for the solver, see [Install and lock](#install-and-lock).
+
+2. `CranUniverse` (in `cran/universe.rs`) answers the solver's questions from package indexes and the CRAN archive, fetching each one only when needed.
+
+3. The solver returns a `Solution`: one version per package and the edges  between them.
+
+4. Each version is turned back into the release as the repository publishes it (`0.3-1`, not `0.3.1`), and the packages are ordered dependencies first.
+
+## Versions and constraints
+
+Versions are R versions, not `semver` (though you can declare the versions taken from this format). The `Ver` type in `ver.rs` follows R's rules:
+
+1.  When `.` and/or `.` is used to separate components (they're the same). 
+
+2.  When the components are compared as numbers. For instance, `1.10` is technically above `1.9`. 
+
+3.  A longer version sorts above its prefix. Example would be: `1.0` < `1.0.0`
+
+4.  A fourth component sorts above the release. The most common one is the use of `x.y.z.9000` when writing R packages that are ongoing, and they are above `x.y.z`. 
+
+The text as published is kept (`Ver::as_str`), because a download URL needs `0.3-1` and not `0.3.1`. Equality and ordering ignore the spelling. The syntax of constraints is on [its own page](../reference/version-constraints.qmd).
+
+## How a version is chosen
+
+For each package the solver looks for a version in this order, and takes the first one that fits every constraint that has reached the package so far:
+
+1. The version the lock pins, if it comes from the same repository.
+2. The newest version in the repository's index.
+3. The newest archived version.
+
+Step 3 is only reached when the newest release does not fit. The archive listing is fetched once per package, and only then.
+
+The solver decides packages that have already caused conflicts first, with ties broken alphabetically. The same input always gives the same answer, in the same order, on every machine.
+
+## Each version is judged by its own dependencies
+
+The CRAN index describes the newest release of each package only. When the solver steps back to an older release, baler downloads that release's tarball from `Archive/` and reads its `DESCRIPTION`, so the older release is judged by what it really needs and not by what the newest one needs.
+
+::: {.callout-note title="Cost" icon="false"}
+Each older release the solver considers is one tarball download. There is no cache yet. In practice this happens only when the newest releases conflict, and when `baler lock` re-reads the dependencies of an older pinned release.
+:::
+
+## Where a package comes from {#repos}
+
+One rule decides the repository of every package, so a package never resolves  differently depending on who asked for it.
+
+1. A package listed in `baler.toml` comes from the `repo` declared for it, or the default CRAN mirror when you didn't declare any.
+
+2. Any other package, reached only as a dependency, is searched for in the default CRAN first, then in the declared repositories in alphabetical order. The first one that has it wins. This is deliberate by the way. A private repository cannot take over a CRAN package name for a dependency nobody declared. To use the private copy, declare it:
+
+``` toml
+[dependencies]
+purrr = { version = ">=1.2.0", repo = "https://packagemanager.posit.co/cran/2025-12-11/" }
+cli = { version = ">=3.6", repo = "https://r-universe.example.org" }
+``` 
+
+3. A dependency found in no repository is skipped with a warning, and `{baler}` assumes it is already installed (a Bioconductor package, for example).
+
+Packages that ship with R (`stats`, `utils`, `MASS`, and the rest of the base and recommended packages) are never looked up, and they are dependent to the R version constraints a particular module depends on. 
+
+## Install and lock {#install-and-lock}
+
+The same solver from `{baler}` serves for both commands. They differ in how much of the lock they trust.
+
+### When installing
+
+So, when you run `baler install` to install the module, it treats the lock as authoritative. Here are the scenarios: 
+
+-  A pin that still fits `baler.toml` is installed as pinned and is not solved. The solver is told it has no dependencies, because the lock already lists everything it needs.
+-  A pin that no longer fits is an error — i.e. the lock is stale — and `baler lock` updates it.
+-  A package the lock doesn't mention is solved the same way it would be with no lock, but it may not move a pinned package.
+
+### "Locking" the module
+
+How about when you run `baler lock`? By running this, it treats the lock as a starting point. Here are the scenarios: 
+
+-  Every requested package is solved again, preferring its pin. A pin that still fits is kept.
+-  A pin that no longer fits is solved again, and the change is printed.
+-  The dependencies of a pinned package are read from that release, so the lock keeps the closure that release really needs.
+
+The lock stores versions as `semver` strings, so a pin for `0.3-1` is stored as `0.3.1`. `{baler}` recovers the published spelling from the index or the archive before it downloads anything.
+
+## Reading a conflict
+
+When no set of versions works, the solver explains why as a chain:
+
+``` text
+No set of versions satisfies every dependency:
+Because there is no version of dplyr in <1.1.4 | >1.1.4 and dplyr 1.1.4
+depends on cli <3.0, dplyr depends on cli <3.0.
+And because purrr 1.0.2 depends on cli >=3.0 and there is no version of
+purrr in <1.0.2 | >1.0.2, dplyr *, purrr * are incompatible.
+And because the project 0 depends on dplyr and the project 0 depends on
+purrr, the project 0 is forbidden.
+``` 
+
+Read it from the top. Each line names the versions involved and what they require. "The project" is your `baler.toml`. The fix is usually to relax one of the constraints named, or to change the version of the package that asks for the incompatible one.
+
+## `box-bale` modules {#modules}
+
+A `box-bale` module has one version, the one its source declares, so the solver has nothing to choose between. Baler checks the module (source, version, cycles) and hands the R package constraints it collects to the solver.
+
+`baler lock` pins each module that has a source:
+
+``` toml
+[[module]]
+name = "rcalc"
+version = "0.1.0"
+git = "https://github.com/baler-dev/baler"
+ref = "main"
+module_dir = "examples/modules/rcalc"
+rev = "9fceb02"
+```
+
+`rev` is the commit that `ref` pointed at when the lock was written. A plain `baler lock` keeps it even if `main` has moved, and `baler lock --update rcalc` moves it. `baler install --install-deps` fetches that commit. A module from a `url` source is fetched from that URL as it is.
+
+## Where the code is
+
+When you plan to contribute `{baler}`'s dependency solver, here's the following table that points out where those features lived: 
+
+| Feature | File |
+|---|---|
+| Version and requirement types | `src/ver.rs` |
+| The solver and the `Universe` trait | `src/resolver.rs` |
+| Package indexes, archive, repository rule | `src/cran/universe.rs` |
+| Reading the CRAN index and archived `DESCRIPTION` files | `src/cran/packages.rs` |
+| Turning requests and the lock into a plan | `src/cran/client/graph.rs` |
+
+Tests are in `tests/`: `ver_tests.rs`, `solver_tests.rs`, `cran_universe_tests.rs`, `cran_packages_tests.rs` and `package_resolution_tests.rs`. The last one runs the whole resolution against a pretend network through `plan_packages`, so none of them needs the internet.
+
+To resolve from somewhere other than CRAN, implement `Universe`: say what the newest version of a node is, which older ones exist, and what a given version depends on. To see how a resolved package is downloaded and installed, read [Dependency Resolution](dependency-resolution.qmd).
