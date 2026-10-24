@@ -4,21 +4,26 @@ title: "Lockfile for {baler}"
 
 `baler.lock` is a lockfile (like `Cargo.lock` or `poetry.lock` from Python) that pins the exact R package versions (and repos) that `{baler}` resolved the last time you ran `baler lock`. Commit it next to `baler.toml` so later installs, either by you or by anyone else, will reuse those pins instead of re-resolving against CRAN.
 
-Three kinds of R packages are locked: runtime packages under `[dependencies]`, build-time packages under `[compiled-code]`'s `build_deps`, and packages under `[extras]`. Each entry records which of these it is needed for (see `groups` below). On the other hand, `{box}` module dependencies (`[dependencies.baler]`) have no automatic resolve-and-install path as of now, so there is nothing concrete to pin for them. External tools under `[extras.external]` are never locked either, since `{baler}` only checks for them.
+Three kinds of R packages are locked: runtime packages under `[dependencies]`, build-time packages under `[compiled-code]`'s `build_deps`, and packages under `[extras]`. Each entry records which of these it is needed for (see `groups` below). `{box}` modules under `[dependencies.baler]` that declare a source are locked too, as `[[module]]` entries (see [Modules](#modules)). External tools under `[extras.external]` are never locked either, since `{baler}` only checks for them.
 
 ## Format
 
-The file is TOML. Format version is currently `2`. Locks written with format version `1` are still read as they are, since a package without `groups` means the same thing in both. The table below summarizes the blocks and fields under `baler.lock`:
+The file is TOML. A lock with no modules is written as format version `2`, and a lock with `[[module]]` entries as version `3`. Locks written with format version `1` are still read as they are, since a package without `groups` means the same thing in both. A lock in a format newer than the `{baler}` reading it knows is rejected with a message to update `{baler}`. The table below summarizes the blocks and fields under `baler.lock`:
 
 | Field | Meaning |
 |--------------------------------|----------------------------------------|
-| `version` | Lock *format* version (not a package version). Defaults to the current format version if omitted when reading. |
+| `version` | Lock *format* version (not a package version). Defaults to `2` if omitted when reading. |
 | `r_version` | The R version that produced this lock, e.g. `"4.2.0"`. This is totally optional, and it has rather no use. This is only written when `baler lock` is run with `--with-rver`. The constraint actually enforced lives in `baler.toml`'s `r_version` field, checked separately at lock and install time (see below). |
 | `[[package]]` | One entry per pinned R package. Entries are written sorted by `name` so the file stays stable and diffable. |
 | `name` | Package name as it appears on the repo. |
-| `version` | Exact semver string baler resolved (e.g. `"1.2.2"`). |
+| `version` | Exact version baler resolved (e.g. `"1.2.2"`). It is stored as a semver string, so a CRAN version such as `0.3-1` is written `0.3.1`. Baler works out the published spelling again from the index when it installs. |
 | `repo` | Repo URL used for that resolution (default CRAN mirror, or an explicit repo from `[dependencies]`). |
 | `groups` | What the package is needed for: `runtime`, `build` (from `[compiled-code]`), or `extras` (from `[extras]`). When omitted, the package is needed at runtime only, which is the common case. A package needed by more than one group lists all of them, `runtime` included. An unknown group name is a parse error, so a typo fails loudly. |
+| `[[module]]` | One entry per `{box}` module under `[dependencies.baler]` that declares a source. Written sorted by `name`. |
+| `name`, `version` (module) | The module's name, and the `version` its own `baler.toml` declared when the lock was written. |
+| `git`, `ref`, `module_dir` | For a `git` source: the repository, the `branch`, `tag` or `rev` exactly as written in `baler.toml`, and the directory holding the module. Only the keys that were set are written. |
+| `rev` | The commit `ref` pointed at when the lock was written. |
+| `url` | For a `url` source: the archive URL. The URL is the pin, so there is no `rev`. |
 
 Here's an example:
 
@@ -62,6 +67,29 @@ version = "1.1.3"
 repo = "https://cloud.r-project.org"
 ```
 
+### Modules {#modules}
+
+A module under `[dependencies.baler]` that declares a source gets a `[[module]]` entry, and the lock is then format version `3`:
+
+``` toml
+version = 3
+
+[[module]]
+name = "rcalc"
+version = "0.1.0"
+git = "https://github.com/baler-dev/baler"
+ref = "main"
+module_dir = "examples/modules/rcalc"
+rev = "9fceb02"
+
+[[module]]
+name = "tools"
+version = "1.0.0"
+url = "https://github.com/user/repo/releases/download/v1.0.0/tools_1.0.0.tar.gz"
+```
+
+`rev` is the commit that `ref` pointed at when the lock was written. A plain `baler lock` keeps it even if `main` has moved, and `baler lock . --update rcalc` moves it. `baler install --install-deps` fetches that commit. If `git`, `ref` or `module_dir` changes in `baler.toml`, the old pin no longer matches and is ignored. A `url` module has nothing to pin beyond its URL.
+
 ## Writing the lock
 
 Generating the lockfile runs a simple command through `baler lock <path/of/the/proj>`, just isn't the same process as `Cargo.lock` being generated through builds. Run the following command and this will generate the certain lockfile that pins the dependencies:
@@ -76,7 +104,7 @@ What happens is that `{baler}` will read and validate `baler.toml` (the same che
 baler lock . --update
 ```
 
-`--update` discards the existing pins and re-resolves everything from scratch. Use it when you intentionally want newer upstream versions. To move only some packages, name them, and every other pin stays:
+`--update` discards the existing pins and re-resolves everything from scratch. Use it when you intentionally want newer upstream versions. To move only some packages or modules, name them, and every other pin stays:
 
 ``` bash
 baler lock . --update purrr cli
@@ -84,9 +112,11 @@ baler lock . --update purrr cli
 
 A project with no dependencies resolves to an empty set: the lock is still there written, but with no `[[package]]` entries.
 
+`baler lock` also fetches the modules under `[dependencies.baler]` that declare a source, so it needs network access in that case. It locks the R packages those modules need together with your own, and pins each module. A module that declares no source is skipped with a warning, since there is nothing to fetch.
+
 ### Running it again
 
-A plain `baler lock` never moves a pin that still satisfies `baler.toml`, including the transitive packages you never declared. If the lock already matches, the file isn't touched at all, not even its modification time. If `baler.toml` changed, `{baler}` keeps what still fits, adds or drops what the manifest changed, re-resolves only a package whose repo or constraint no longer fits its pin, and prints what moved. This also means two machines with different R or CRAN states get the same lock, as long as `baler.toml` is the same.
+A plain `baler lock` never moves a pin that still satisfies `baler.toml`, including the transitive packages you never declared. A module stays at its pinned commit even if its branch has moved. If the lock already matches, the file isn't touched at all, not even its modification time. If `baler.toml` changed, `{baler}` keeps what still fits, adds or drops what the manifest changed, re-resolves only a package whose repo or constraint no longer fits its pin, and prints what moved. This also means two machines with different R or CRAN states get the same lock, as long as `baler.toml` is the same.
 
 ### Checking the lock in CI
 
@@ -125,9 +155,10 @@ When `baler.lock` is present in the project root:
 -   Every runtime package listed in the lock, including the transitive ones you never declared, is installed at that [exact version]{.underline} and repo.
 -   Packages tagged only `build` or `extras` stay pinned in the lock, but a normal install does not install them. Build packages are installed when the module's native code is built, and `[extras]` packages are installed only with `baler install --install-deps --extras`, at their locked versions.
 -   A package declared in `baler.toml` but missing from the lock, or one whose `repo` or version constraint no longer fits its pin, is an error telling you the lock is stale. Run `baler lock` and commit the new lock.
+-   A module that is not installed yet is installed by `baler install --install-deps` from its declared source, at the pinned commit when the lock has an entry for that source. If `git`, `ref` or `module_dir` changed in `baler.toml`, that entry is ignored and the declared source is used.
 -   `baler install` never writes the lock.
 
-`baler bundle` checks the lock the same way before packaging: it warns when the lock is missing or stale, and `baler bundle --locked` fails instead.
+`baler bundle` checks the lock the same way before packaging: it warns when the lock is missing or stale, and `baler bundle --locked` fails instead. A lock that holds modules is also stale when a module that declares a source is not pinned in it, or is pinned at a version `baler.toml` no longer accepts. A lock written before modules were pinned is not asked for them.
 
 ## R version
 
@@ -139,7 +170,8 @@ When `baler.lock` is present in the project root:
 
 1.  Packages are sorted by name on write so routine re-locks do not produce noisy diffs when the resolved graph is unchanged.
 2.  An invalid version string inside a lock entry fails hard on lookup rather than falling through to a fresh resolve.
-3.  The lock format version field exists so future schema changes can be detected and handled without silently misreading old locks. Version `2` only added the optional `groups` field.
+3.  The lock format version field exists so future schema changes can be detected and handled without silently misreading old locks. Version `2` only added the optional `groups` field, and version `3` added `[[module]]` entries. A lock with no modules is still written as version `2`, so a project that does not use modules keeps a lock that older `{baler}` can read.
 4.  `r_version` is opt-in (`--with-rver`) rather than always written, for the same diff-stability reason as (1): it depends on the machine running `baler lock`, not on `baler.toml`, so recording it unconditionally would defeat (1) for any two contributors on different R installs.
 5.  `groups` is omitted for runtime-only packages, so a project with no `[compiled-code]` build deps and no `[extras]` writes the same entries as before.
 6.  Versions of external tools are never written to the lock. They depend on the machine, not on `baler.toml`, which is the same reasoning as (4).
+7.  A lock in a format newer than `{baler}` knows is rejected with a message to update `{baler}`, instead of failing on a field it does not recognize.
