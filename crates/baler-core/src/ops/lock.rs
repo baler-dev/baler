@@ -309,10 +309,12 @@ fn plan_for_group(
         true,
     )?;
     for pin in &pins {
-        match &pin.rev {
-            Some(rev) => println!("  module {} {} (pinned to {rev})", pin.name, pin.version),
-            None => println!("  module {} {} (the source gave no commit to pin)", pin.name, pin.version),
-        }
+        let note = match (&pin.rev, &pin.source) {
+            (Some(rev), _) => format!("pinned to {rev}"),
+            (None, crate::baler_toml::ModuleSource::Url(url)) => format!("from {url}"),
+            (None, source) => format!("from {source}, no commit found to pin"),
+        };
+        println!("  module {} {} ({note})", pin.name, pin.version);
     }
     Ok((plan, pins))
 }
