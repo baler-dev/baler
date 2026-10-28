@@ -105,12 +105,12 @@ And the structure can go deeper than this. If you know the structure of Python p
 3.  Install from an archive, a local project directory, or GitHub:
 
     ``` bash
-    baler install --path path/of/the/<name-of-the-module>_0.1.0.tar.gz
+    baler install --path path/of/the/module_0.1.0.tar.gz
     baler install --path .
     baler install --git https://github.com/username/repo
     ```
 
-    *Note: Running `baler install <module>`, where `<module>` is just a bare name, no prefixes or whatsoever, is valid but reserved for installation of packages from a registry or a remote repository. `{baler}` is still at its early stage, and I would like to hear words from you, feedback is very welcome.*
+    *Note: Running `baler install <module>`, where `<module>` is just a bare name, no prefixes or whatsoever, is valid but reserved for installation of packages from a registry or a remote repository. `{baler}` is still at its early stage, and I would like to hear words from you, feedback is very welcome. Also, there are plenty of ways to install a module from a GitHub repo, so please read the [docs](https://baler-dev.github.io/baler/reference/cli.html#module-installation) to know more. *
 
 4.  Remove the installed module
 
@@ -134,4 +134,19 @@ Try `{convert}` module, which belongs to `convert-proj` from the `examples/`:
 # baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj
 box::use(cv = convert)
 cv$mass$mass_conversion_table(1000)
+#>
+#>  Mass conversion table for 1000 kg
+#>  -----------------------------------
+#>  mg         : 1e+09
+#>  g          : 1e+06
+#>  kg         : 1000
+#>  t          : 1
+#>  oz         : 35274
+#>  lb         : 2204.62
+#>  st         : 157.473
+#>  ton_us     : 1.10231
+#>  ct         : 5e+06
+#>  amu        : 6.02214e+29
+#>  -----------------------------------
+#>
 ```

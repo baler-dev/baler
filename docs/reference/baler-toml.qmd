@@ -2,7 +2,7 @@
 title: "baler.toml"
 ---
 
-A `{box}`-`{baler}` module needs one metadata file: `baler.toml`. It sits at the root of the module project, one level above the source directory, and declares identity, dependencies, and (optionally) compiled code. It can contain up to five tables:
+A `box-bale` module needs one metadata file: `baler.toml`. It sits at the root of the module project, one level above the source directory, and declares identity, dependencies, and (optionally) compiled code. It can contain up to five tables:
 
 | Table | Required | Purpose |
 |--------------------|----------------------------|-------------------------|
@@ -14,7 +14,7 @@ A `{box}`-`{baler}` module needs one metadata file: `baler.toml`. It sits at the
 
 ## `[project]`
 
-This block defines the authorship of the module, and this block is always required. As what the table below said, this contains the info of the author of `{box}`-`{baler}` module library:
+This block defines the authorship of the module, and this block is always required. As what the table below said, this contains the info of the author of `box-bale` module library:
 
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
