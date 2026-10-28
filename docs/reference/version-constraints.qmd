@@ -1,0 +1,66 @@
+---
+title: "Version constraints"
+---
+
+A version constraint says which versions of a package a module accepts. It is
+the value (or the `version` key) of an entry under `[dependencies]`:
+
+``` toml
+[dependencies]
+cli = ">=3.6.3"
+rlang = { version = ">=1.1.0, <2", repo = "https://cloud.r-project.org" }
+purrr = "*"
+``` 
+
+## Syntax
+
+When you declare the version constraints under `[dependencies]`, at least it needs to match up with the declared version. Reminder that not all R packages exist in CRAN follows the `MAJOR.MINOR.PATCH` version rule. Here's a following table that summarizes several constraints separated by commas that must all hold: 
+
+| Write | Meaning |
+|---|---|
+| `*` or empty | Any version |
+| `>=1.2`, `>1.2`, `<=1.2`, `<1.2` | Compare with that version |
+| `==1.2` or `=1.2` | Exactly that version |
+| `^1.2.3` | `>=1.2.3, <2` |
+| `^0.2.3` | `>=0.2.3, <0.3` |
+| `^0.0.3` | `>=0.0.3, <0.0.4` |
+| `~1.2.3` | `>=1.2.3, <1.3` |
+| `~1` | `>=1, <2` |
+| `1.2.3` (no operator) | Same as `^1.2.3` |
+
+Spaces after an operator are allowed, so `>= 1.2.3` works.
+
+## Versions are R versions
+
+`{baler}` will make versions compare the way R compares them. It is properly parsed because R packages does not always follow the way semver does:
+
+-  `4.0-3` and `4.0.3` are the same version.
+-  `1.10` is above `1.9`.
+-  `1.0` is below `1.0.0`, so `==1.0` does not match `1.0.0`.
+-  `1.2.3.9000` is above `1.2.3`, so `>=1.2.3` accepts it.
+-  A version is numbers separated by `.` or `-`. A tag such as `1.2.3-beta` is not an R version and is rejected.
+
+## What is not accepted
+
+Just take note what rules that are invalid when declaring the version constraints in `{baler}`: 
+
+| Written | Why | Use instead |
+|---|---|---|
+| `1.*` | Wildcards are not supported | `^1` |
+| `>=` | An operator needs a version | `>=1.0` |
+| `1.2.3-beta` | Not an R version | `1.2.3` |
+
+An invalid constraint stops resolution with a message that names the package:
+
+``` text
+Invalid version constraint for 'cli' in baler.toml
+``` 
+
+When the invalid constraint comes from another package's own metadata, the message names both packages and says which release declared it.
+
+## Several modules asking for the same package
+
+Constraints from all modules, and from your own `baler.toml`, are combined. `cli >=3.0` from one module and `cli <4` from another means `>=3.0, <4`. If nothing satisfies the combination, the error names each package that asked and what it asked for. See [the solver](../internals/solver.md).
+
+Two dependents may not ask for the same package from different repositories.
+That is an error, and the fix is to make them agree on one `repo`.

@@ -8,11 +8,13 @@ use anyhow::{Context, Result};
 use semver::Version;
 
 use crate::cran::packages::RVersion;
+use crate::cran::universe::Sources;
 use crate::lockfile::BalerLock;
 use crate::ops::resolve::ResolvedPackage;
 
 use download::download_and_unpack;
-use graph::{resolve_all, topo_order, RepoResolution};
+use graph::resolve_all;
+pub use graph::Planned;
 
 /// Resolve every package (direct and transitive) to exact versions and
 /// repos, without downloading or installing anything — what `baler
@@ -28,8 +30,24 @@ pub fn resolve_packages(
     packages: &BTreeMap<String, ResolvedPackage>,
     lock: Option<&BalerLock>,
 ) -> Result<HashMap<String, (Version, String)>> {
-    let (_, globally_resolved) = resolve_all(packages, lock, true)?;
-    Ok(globally_resolved)
+    let planned = resolve_all(packages, lock, true)?;
+    Ok(planned
+        .into_iter()
+        .map(|p| (p.name, (p.version.semver().clone(), p.repo)))
+        .collect())
+}
+
+/// Resolve `packages` against the given sources and return the releases to
+/// install, dependencies first. `resolve_packages` and `install_packages`
+/// read the network. This is the same resolution with the repositories
+/// supplied by the caller, so it can run without one (tests, tools).
+pub fn plan_packages(
+    packages: &BTreeMap<String, ResolvedPackage>,
+    lock: Option<&BalerLock>,
+    relock: bool,
+    sources: &Sources<'_>,
+) -> Result<Vec<Planned>> {
+    graph::resolve_all_with(packages, lock, relock, sources)
 }
 
 /// Install a set of resolved R packages into `lib_path`, resolving first
@@ -49,48 +67,51 @@ pub fn install_packages(
     lib_path: &Path,
     lock: Option<&BalerLock>,
 ) -> Result<HashMap<String, (Version, String)>> {
-    let (per_repo, mut globally_resolved) = resolve_all(packages, lock, false)?;
+    let planned = resolve_all(packages, lock, false)?;
+    let mut globally_resolved: HashMap<String, (Version, String)> = planned
+        .iter()
+        .map(|p| (p.name.clone(), (p.version.semver().clone(), p.repo.clone())))
+        .collect();
 
     std::fs::create_dir_all(lib_path)
         .with_context(|| format!("Failed to create R lib dir: {}", lib_path.display()))?;
 
-    for (_repo, RepoResolution { index, to_install }) in &per_repo {
-        let order = topo_order(to_install, index);
+    // `planned` is already in install order, dependencies first.
+    for resolved in &planned {
+        let pkg = &resolved.name;
+        let pkg_dir = lib_path.join(pkg);
 
-        for pkg in &order {
-            let resolved = &to_install[pkg];
-            let pkg_dir = lib_path.join(pkg);
-
-            if pkg_dir.is_dir() {
-                let desc_path = pkg_dir.join("DESCRIPTION");
-                match read_installed_version(&desc_path) {
-                    Ok(installed_version) => {
-                        if installed_version == resolved.version {
-                            println!(" [ok] {} {} (already satisfied)", pkg, installed_version);
-                            continue;
-                        }
-                        println!(" [switching] {} {} → {}...", pkg, installed_version, resolved.version);
+        if pkg_dir.is_dir() {
+            let desc_path = pkg_dir.join("DESCRIPTION");
+            match read_installed_version(&desc_path) {
+                Ok(installed_version) => {
+                    // Compare versions the way R does. Comparing the text would
+                    // reinstall a package whose lock spelled 0.3-1 as 0.3.1.
+                    if installed_version.ver() == resolved.version.ver() {
+                        println!(" [ok] {} {} (already satisfied)", pkg, installed_version);
+                        continue;
                     }
-                    Err(_) => {
-                        println!(" [reinstalling] {} (could not read installed version)...", pkg);
-                    }
+                    println!(" [switching] {} {} → {}...", pkg, installed_version, resolved.version);
                 }
-            } else {
-                println!(" [installing] {} {}...", pkg, resolved.version);
+                Err(_) => {
+                    println!(" [reinstalling] {} (could not read installed version)...", pkg);
+                }
             }
+        } else {
+            println!(" [installing] {} {}...", pkg, resolved.version);
+        }
 
-            match download_and_unpack(pkg, resolved.version.as_str(), &resolved.repo, lib_path) {
-                Ok(()) => {
-                    println!(" [done] {} {}", pkg, resolved.version);
-                }
-                Err(e) => {
-                    let is_direct = packages.contains_key(pkg.as_str());
-                    if is_direct || lock.is_some() {
-                        return Err(e.context(format!("Failed to install {}", pkg)));
-                    } else {
-                        eprintln!(" [warn] skipping transitive dep {} — {}", pkg, e);
-                        globally_resolved.remove(pkg);
-                    }
+        match download_and_unpack(pkg, resolved.version.as_str(), &resolved.repo, lib_path) {
+            Ok(()) => {
+                println!(" [done] {} {}", pkg, resolved.version);
+            }
+            Err(e) => {
+                let is_direct = packages.contains_key(pkg.as_str());
+                if is_direct || lock.is_some() {
+                    return Err(e.context(format!("Failed to install {}", pkg)));
+                } else {
+                    eprintln!(" [warn] skipping transitive dep {} - {}", pkg, e);
+                    globally_resolved.remove(pkg);
                 }
             }
         }

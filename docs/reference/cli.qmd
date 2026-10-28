@@ -135,7 +135,7 @@ baler bundle [<path>] [--locked]
 | Argument | Description |
 |---|---|
 | `<path>` | The project's root directory, wherever `baler.toml` lives. Defaults to `.`. |
-| `--locked` | Fail instead of warning when `baler.lock` is missing, unreadable, or doesn't match `baler.toml`. Like `cargo publish --locked`. The lock ships inside the bundle, so a stale one breaks installs of it. Without the flag, `bundle` only warns. |
+| `--locked` | Fail instead of warning when `baler.lock` is missing, unreadable, or doesn't match `baler.toml`. Like `cargo publish --locked`. The lock ships inside the bundle, so a stale one breaks installs of it. Without the flag, `bundle` only warns. A module dependency that declares a source must also be pinned in a lock that holds modules. |
 
 ::: {.callout-note title="Legacy of {carrier}" collapse="true"}
 It is decided that the `--binary` or `--keep-source` are now dropped. Now, what the archive contains is decided by `[compiled-code]` in `baler.toml` through the following:
@@ -172,6 +172,8 @@ Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to insta
 
 The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether CRAN-style R packages (they are linked from CRAN by default) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
 
+Modules are installed from the source their entry declares under `[dependencies.baler]`, at the commit `baler.lock` pins when it has one for that source. A module that is already installed is left alone. Before installing one, `{baler}` checks that the source is the module the entry names and that the version it declares satisfies the entry's constraint, and stops with an error if either is wrong.
+
 `--extras` also installs the R packages (and `{box}` modules) the module declares under `[extras]`, such as test frameworks or development tooling. It only works together with `--install-deps`, since extras are R packages installed from CRAN, and passing it alone is an error. If the module declares nothing under `[extras]`, `{baler}` says so and installs nothing extra. When the module has a `baler.lock`, the extras are installed at the versions pinned there, transitive packages included, and a missing or outdated extras pin is an error telling you to run `baler lock`. Without a lock, `[extras]` is resolved together with the regular dependencies, and a package declared in both with different version constraints is an error. Without `--extras`, extras-only pins are never installed.
 
 `baler install` never writes `baler.lock`. If the lock doesn't match `baler.toml`, the install fails and points you to `baler lock`. On the other hand, with no lock at all, it resolves fresh.
@@ -188,11 +190,13 @@ baler lock [<path>] [--update [<pkg>...]] [--with-rver] [--check] [--remove]
 
 `baler lock` is idempotent. If `baler.lock` already matches `baler.toml`, nothing is written, so running it twice, or on another machine, never shows up in a diff. If `baler.toml` changed, every pin that still fits is kept, and only what changed is added, dropped or re-resolved.
 
+`baler lock` also fetches the modules listed under `[dependencies.baler]` that declare a source, so it needs network access in that case. It locks the R packages those modules need along with your own, and pins each module: a `git` source to the commit its ref pointed at, a `url` source to the URL itself. A plain run keeps a pinned commit even if the branch has moved. A module that declares no source is skipped with a warning.
+
 | Argument | Description |
 |---|---|
 | `<path>` | The project's root directory. Defaults to `.`. |
-| `--update` | Ignore the existing pins and re-resolve every dependency from scratch. Use this when you want to pick up newer versions. |
-| `--update <pkg>...` | Re-resolve only the named packages (e.g. `--update purrr cli`) and keep every other pin. A name that isn't in the lock is an error. |
+| `--update` | Ignore the existing pins and re-resolve every dependency from scratch, module pins included. Use this when you want to pick up newer versions. |
+| `--update <pkg>...` | Re-resolve only the named packages or modules (e.g. `--update purrr cli rcalc`) and keep every other pin. A name that isn't in the lock is an error. |
 | `--with-rver` | Also record the R version you currently have on your system inside `baler.lock`. This is informational only, it's never enforced or checked against on install. Only allowed when the lock is being created, or together with `--update`. |
 | `--check` | Never write anything. Exit with an error if `baler.lock` is missing or doesn't match `baler.toml`. Meant for CI. Can't be combined with `--update`, `--with-rver` or `--remove`. |
 | `--remove` | Delete `baler.lock` instead of writing one. Safe to run any time, if there's no lockfile, `{baler}` just resolves dependencies fresh each time, same as a project that never had one. |

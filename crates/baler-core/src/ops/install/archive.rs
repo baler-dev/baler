@@ -1,14 +1,17 @@
 use anyhow::{bail, Context, Result};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-use crate::baler_toml::BalerToml;
+use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource};
 use crate::formats::tar;
 use crate::lockfile::{self, BalerLock};
 use crate::ops::external_tools::check_external_tools;
+use crate::ops::module_graph::plan_module_installs;
 use crate::ops::resolve;
 use crate::paths::resolve_install_dir;
 
+use super::github::{download_and_install, install_from_github, GitHubFetcher};
 use super::native::build_native_if_present;
 
 /// Install a module from a `.tar.gz`, enforcing a lock if there is one.
@@ -107,8 +110,46 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
     resolve::print_plan(&plan);
     resolve::execute_plan(&plan, !install_deps, effective_lock.as_ref())?;
 
+    let mut modules_wanted: BTreeMap<String, ModuleDep> = module_deps.clone().unwrap_or_default();
+    if let Some(extra) = wanted_extras {
+        modules_wanted.extend(extra.baler.clone().unwrap_or_default());
+    }
+    install_declared_modules(&modules_wanted, install_deps, effective_lock.as_ref())?;
+
     build_native_if_present(&module_path, &name, install_deps, &toml)?;
 
+    Ok(())
+}
+
+/// Installs the module dependencies that are not installed yet, each from
+/// the source its dependency entry declares. A dry run (no `--install-deps`)
+/// installs nothing and does not touch the network, and without the
+/// `network` feature there is nothing to fetch a module with.
+///
+/// A module the lock pins is installed at the pinned commit.
+///
+/// Each module installs like any other, so its own R packages and module
+/// dependencies follow. The module being installed is already in place by
+/// now, so a dependency cycle ends instead of looping.
+fn install_declared_modules(
+    modules: &BTreeMap<String, ModuleDep>,
+    install_deps: bool,
+    lock: Option<&BalerLock>,
+) -> Result<()> {
+    if modules.is_empty() || !install_deps || !cfg!(feature = "network") {
+        return Ok(());
+    }
+    let planned = plan_module_installs(modules, &GitHubFetcher, &resolve::already_installed_module, lock)?;
+    for module in planned {
+        println!("  Installing module {} {} from {}...", module.name, module.version, module.source);
+        match &module.source {
+            ModuleSource::Git { url, git_ref, module_dir } => {
+                install_from_github(url, module_dir.as_deref(), git_ref.as_deref(), true, false)
+            }
+            ModuleSource::Url(url) => download_and_install(url, true, false),
+        }
+        .with_context(|| format!("Failed to install module '{}'", module.name))?;
+    }
     Ok(())
 }
 

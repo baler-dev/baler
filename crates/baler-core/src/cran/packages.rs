@@ -1,9 +1,11 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
 use semver::Version;
+
+use crate::ver::Ver;
 
 /// Packages that ship with R itself (they never installable from CRAN).
 const BASE_PACKAGES: &[&str] = &[
@@ -17,9 +19,15 @@ const BASE_PACKAGES: &[&str] = &[
     "spatial", "survival",
 ];
 
+/// True for packages that ship with R and are on no repository index.
+pub fn is_base_package(name: &str) -> bool {
+    BASE_PACKAGES.contains(&name)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RVersion {
     raw: String,
+    ver: Ver,
     semver: Version,
 }
 
@@ -27,30 +35,45 @@ impl RVersion {
     /// The one place a CRAN-style version string becomes a value. Used
     /// for every version that comes from PACKAGES.gz, a CRAN Archive
     /// listing, or a package's own installed DESCRIPTION, so all three
-    /// normalize identically instead of drifting into their own
-    /// slightly-different parsing.
+    /// read versions identically instead of drifting into their own
+    /// slightly-different parsing. `ver()` is the R-ordered value to
+    /// compare. `semver()` is derived from it for code that still holds
+    /// `semver` values, and a zero-padded component (`1.0-01`), which
+    /// `semver` rejects, no longer makes a package disappear.
     pub fn parse(raw: &str) -> Result<Self> {
-        let semver = Version::parse(&normalize_r_version(raw))
-            .with_context(|| format!("Failed to parse version: {raw}"))?;
-        Ok(Self { raw: raw.to_owned(), semver })
+        let ver = Ver::parse(raw).with_context(|| format!("Failed to parse version: {raw}"))?;
+        let semver = ver.to_semver();
+        Ok(Self { raw: ver.as_str().to_owned(), ver, semver })
     }
 
     /// A version with no real raw string behind it, e.g. reused across
     /// a repo boundary where only the parsed `Version` survived. Falls
     /// back to `Version`'s own `Display`, which round-trips correctly
     /// for ordinary 3-component versions but not for anything that
-    /// went through the dash-as-pre-release reshaping in
-    /// `normalize_r_version` — that's a real, disclosed gap, not a
-    /// silent one.
+    /// went through the fourth-component-as-pre-release reshaping in
+    /// `Ver::to_semver`, nor for a dash that was not a dot (`0.3-1`).
+    /// That is a real, disclosed gap, not a silent one. `ver()` is exact
+    /// for the pre-release spelling. A pre-release that is not numeric
+    /// cannot come from an R version, so it falls back to its first three
+    /// components instead of failing, and callers that read pins from a
+    /// lock check them with `Ver::from_semver` first.
     pub fn synthetic(semver: Version) -> Self {
         let raw = semver.to_string();
-        Self { raw, semver }
+        let ver = Ver::from_semver(&semver)
+            .unwrap_or_else(|_| Ver::from_parts(vec![semver.major, semver.minor, semver.patch]));
+        Self { raw, ver, semver }
     }
 
     /// The exact string as published. Use this, never `Display` on the
     /// `semver::Version`, when building a CRAN URL or filename.
     pub fn as_str(&self) -> &str {
         &self.raw
+    }
+
+    /// The value to compare and match against requirements, with R's
+    /// ordering.
+    pub fn ver(&self) -> &Ver {
+        &self.ver
     }
 
     pub fn semver(&self) -> &Version {
@@ -141,11 +164,64 @@ pub fn fetch_archive_versions(repo_url: &str, pkg: &str) -> Result<Vec<RVersion>
     Ok(parse_archive_listing(&body, pkg))
 }
 
+/// The `Depends`, `Imports` and `LinkingTo` entries of one archived release.
+///
+/// The CRAN index only describes the newest release of each package, so an
+/// older release's real dependencies live in its own tarball. This downloads
+/// that tarball and reads `DESCRIPTION` from it. It is called only when the
+/// solver has to step off the newest release.
+pub fn fetch_archive_deps(
+    repo_url: &str,
+    pkg: &str,
+    version: &RVersion,
+) -> Result<Vec<(String, String)>> {
+    let url = format!(
+        "{}/src/contrib/Archive/{}/{}_{}.tar.gz",
+        repo_url.trim_end_matches('/'),
+        pkg,
+        pkg,
+        version.as_str()
+    );
+    let response = http_client()?
+        .get(&url)
+        .send()
+        .with_context(|| format!("Failed to download {url}"))?
+        .error_for_status()
+        .with_context(|| format!("Failed to download {url}"))?;
+    let bytes = response
+        .bytes()
+        .with_context(|| format!("Failed to read the body of {url}"))?;
+    description_deps(bytes.as_ref(), pkg)
+        .with_context(|| format!("Failed to read the dependencies of {pkg} {version} from {url}"))
+}
+
+/// Dependencies declared by the `DESCRIPTION` inside a package tarball.
+pub fn description_deps(tarball: &[u8], pkg: &str) -> Result<Vec<(String, String)>> {
+    let wanted = std::path::PathBuf::from(pkg).join("DESCRIPTION");
+    let mut archive = tar::Archive::new(GzDecoder::new(tarball));
+    for entry in archive.entries().context("Failed to list the tarball")? {
+        let mut entry = entry.context("Failed to read a tarball entry")?;
+        if entry.path().context("Bad path in the tarball")? != wanted {
+            continue;
+        }
+        let mut text = String::new();
+        entry
+            .read_to_string(&mut text)
+            .context("DESCRIPTION is not valid UTF-8")?;
+        let records = parse_dcf(text.as_bytes())?;
+        return match records.into_values().next() {
+            Some(record) => Ok(record.deps),
+            None => bail!("DESCRIPTION has no readable Package and Version fields"),
+        };
+    }
+    bail!("{} is not in the tarball", wanted.display())
+}
+
 /// Parse an Apache-style HTML directory listing for `{pkg}_{version}.tar.gz`
 /// links. Deliberately a simple substring scan rather than a full HTML
 /// parser. CRAN's Archive listings are consistently plain `<a href="...">`
 /// tags, so this avoids pulling in an HTML parsing dependency for one job.
-fn parse_archive_listing(html: &str, pkg: &str) -> Vec<RVersion> {
+pub fn parse_archive_listing(html: &str, pkg: &str) -> Vec<RVersion> {
     let prefix = format!("{}_", pkg);
     let mut versions = Vec::new();
 
@@ -161,126 +237,127 @@ fn parse_archive_listing(html: &str, pkg: &str) -> Vec<RVersion> {
         }
     }
 
-    versions.sort_by(|a, b| b.semver().cmp(a.semver()));
+    versions.sort_by(|a, b| b.ver().cmp(a.ver()));
     versions
 }
 
-/// Normalize an R-style version string into something `semver::Version`
-/// can parse. R versions use dash or dot separators and often carry a 4th
-/// component CRAN doesn't (`1.2.3.9000` for a dev build) (semver only
-/// has room for three). The previous approach truncated anything past the
-/// 3rd component, which meant `1.2.3.9000` and `1.2.3.1` both normalized
-/// to `1.2.3` and compared equal, silently skipping a reinstall that
-/// should have happened. Anything past the 3rd component now becomes a
-/// semver pre-release identifier instead of being discarded, so distinct
-/// versions stay distinct.
-///
-/// This does not give correct *ordering* for 4-component versions, so
-/// semver treats a pre-release as lower precedence than the plain
-/// release (`1.2.3-9000 < 1.2.3`), while R's own convention treats a
-/// higher trailing number as newer. Equality is now reliable; ordering
-/// across a 4-component and a 3-component version of the same package is
-/// still not something to trust.
-fn normalize_r_version(raw: &str) -> String {
-    let dashed = raw.replace('-', ".");
-    let mut parts = dashed.splitn(4, '.');
-    let major = parts.next().unwrap_or("0");
-    let minor = parts.next().unwrap_or("0");
-    let patch = parts.next().unwrap_or("0");
-    match parts.next() {
-        Some(extra) if !extra.is_empty() => format!("{major}.{minor}.{patch}-{extra}"),
-        _ => format!("{major}.{minor}.{patch}"),
+/// One record of a DCF file while it is being read.
+#[derive(Default)]
+struct Pending {
+    name: Option<String>,
+    version: Option<String>,
+    deps: Vec<(String, String)>,
+    /// The dependency field being read, joined across its continuation
+    /// lines. These fields are wrapped at a fixed width, even in the middle
+    /// of an entry (`rlang (>=` then `1.3.0)`), so a field can only be
+    /// parsed once all of it has been read.
+    field: Option<String>,
+    problem: Option<String>,
+}
+
+impl Pending {
+    fn finish_field(&mut self) {
+        let Some(text) = self.field.take() else {
+            return;
+        };
+        match parse_dep_field(&text) {
+            Ok(found) => self.deps.extend(found),
+            Err(error) => {
+                self.problem.get_or_insert(format!("{error:#}"));
+            }
+        }
     }
 }
 
-fn parse_dcf(reader: impl BufRead) -> Result<HashMap<String, PackageRecord>> {
+pub fn parse_dcf(reader: impl BufRead) -> Result<HashMap<String, PackageRecord>> {
     let mut map = HashMap::new();
-
-    let mut name: Option<String> = None;
-    let mut version: Option<String> = None;
-    let mut deps: Vec<(String, String)> = Vec::new();
-    let mut in_dep_field = false;
+    let mut pending = Pending::default();
 
     for line in reader.lines() {
         let line = line.context("Failed to read line from PACKAGES")?;
 
         if line.is_empty() {
-            flush(&mut map, &mut name, &mut version, &mut deps);
-            in_dep_field = false;
+            pending.finish_field();
+            flush(&mut map, std::mem::take(&mut pending));
             continue;
         }
 
         // Continuation line (starts with whitespace)
         if line.starts_with(' ') || line.starts_with('\t') {
-            if in_dep_field {
-                deps.extend(parse_dep_field(line.trim()));
+            if let Some(text) = pending.field.as_mut() {
+                text.push(' ');
+                text.push_str(line.trim());
             }
             continue;
         }
 
         // New field
-        in_dep_field = false;
+        pending.finish_field();
         if let Some((key, val)) = line.split_once(": ") {
             match key {
-                "Package" => name = Some(val.to_owned()),
-                "Version" => version = Some(val.to_owned()),
-                "Imports" | "Depends" | "LinkingTo" => {
-                    deps.extend(parse_dep_field(val));
-                    in_dep_field = true;
-                }
+                "Package" => pending.name = Some(val.to_owned()),
+                "Version" => pending.version = Some(val.to_owned()),
+                "Imports" | "Depends" | "LinkingTo" => pending.field = Some(val.to_owned()),
                 _ => {}
             }
         }
     }
 
-    // Final block — file may not end with a blank line
-    flush(&mut map, &mut name, &mut version, &mut deps);
+    // Final block, the file may not end with a blank line
+    pending.finish_field();
+    flush(&mut map, pending);
 
     Ok(map)
 }
 
-fn flush(
-    map: &mut HashMap<String, PackageRecord>,
-    name: &mut Option<String>,
-    version: &mut Option<String>,
-    deps: &mut Vec<(String, String)>,
-) {
-    if let (Some(n), Some(v)) = (name.take(), version.take()) {
-        match RVersion::parse(&v) {
-            Ok(parsed) => {
-                map.insert(n, PackageRecord {
-                    version: parsed,
-                    deps: std::mem::take(deps),
-                });
-            }
-            Err(_) => {
-                deps.clear();
-            }
+/// Add a finished record to the index. A record that cannot be read is
+/// skipped with a warning that says why, so a package never turns up with
+/// half its dependencies.
+fn flush(map: &mut HashMap<String, PackageRecord>, pending: Pending) {
+    let (Some(name), Some(version)) = (pending.name, pending.version) else {
+        return;
+    };
+    if let Some(problem) = pending.problem {
+        eprintln!("  [warn] skipping '{name}' in the package index: {problem}");
+        return;
+    }
+    match RVersion::parse(&version) {
+        Ok(parsed) => {
+            map.insert(name, PackageRecord { version: parsed, deps: pending.deps });
         }
-    } else {
-        deps.clear();
+        Err(error) => eprintln!("  [warn] skipping '{name}' in the package index: {error:#}"),
     }
 }
 
 /// Parse a comma-separated dep field into bare package names.
 /// Handles both `"rlang (>= 1.0.0)"` and `"rlang(>=1.0.0)"` (no space).
 /// Filters out base and recommended packages.
-fn parse_dep_field(s: &str) -> Vec<(String, String)> {
-    s.split(',')
-        .filter_map(|entry| {
-            let trimmed = entry.trim();
-            let (bare, constraint) = match trimmed.split_once('(') {
-                Some((name, rest)) => (name.trim(), rest.trim_end_matches(')').trim().to_owned()),
-                None => {
-                    let bare = trimmed.split_once(' ').map(|(n, _)| n).unwrap_or(trimmed);
-                    (bare.trim(), "*".to_owned())
-                }
-            };
-            if bare.is_empty() || BASE_PACKAGES.contains(&bare) {
-                None
-            } else {
-                Some((bare.to_owned(), constraint))
+pub fn parse_dep_field(s: &str) -> Result<Vec<(String, String)>> {
+    let mut found = Vec::new();
+    for entry in s.split(',') {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (bare, constraint) = match trimmed.split_once('(') {
+            Some((name, rest)) => (name.trim(), rest.trim_end_matches(')').trim().to_owned()),
+            None => {
+                let bare = trimmed.split_once(' ').map(|(n, _)| n).unwrap_or(trimmed);
+                (bare.trim(), "*".to_owned())
             }
-        })
-        .collect()
+        };
+        if !is_package_name(bare) {
+            bail!("{trimmed:?} is not a package name with an optional (constraint)");
+        }
+        if BASE_PACKAGES.contains(&bare) {
+            continue;
+        }
+        found.push((bare.to_owned(), constraint));
+    }
+    Ok(found)
+}
+
+fn is_package_name(text: &str) -> bool {
+    text.chars().next().is_some_and(|first| first.is_ascii_alphabetic())
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '.')
 }

@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{bail, Context, Result};
 
-use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource};
+use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource, PackageDep};
+use crate::lockfile::{BalerLock, LockedModule};
 use crate::ops::resolve::{resolve_packages_from_specs, ResolvedPlan};
 use crate::version::VersionSpec;
 
@@ -14,6 +15,46 @@ use crate::version::VersionSpec;
 /// HashMap in a test.
 pub trait ModuleFetcher {
     fn fetch(&self, source: &ModuleSource) -> Result<BalerToml>;
+
+    /// `fetch`, and also the commit a `git` source resolved to, when the
+    /// fetcher can tell. The lock records it so that later installs get the
+    /// same code even if a branch or tag has moved.
+    fn fetch_pinned(&self, source: &ModuleSource) -> Result<(BalerToml, Option<String>)> {
+        Ok((self.fetch(source)?, None))
+    }
+}
+
+/// What a walk found out about one module, for the lock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModulePin {
+    pub name: String,
+    pub version: semver::Version,
+    /// The source as `baler.toml` declares it.
+    pub source: ModuleSource,
+    /// The commit the source resolved to, when known.
+    pub rev: Option<String>,
+}
+
+/// Fetches modules at the commit a lock pinned them to, when the lock has an
+/// entry for the declared source. A source the lock does not match (its tag or
+/// URL changed in `baler.toml`) is fetched as declared.
+pub struct PinnedFetcher<'a> {
+    pub inner: &'a dyn ModuleFetcher,
+    pub locked: &'a [LockedModule],
+}
+
+impl ModuleFetcher for PinnedFetcher<'_> {
+    fn fetch(&self, source: &ModuleSource) -> Result<BalerToml> {
+        Ok(self.fetch_pinned(source)?.0)
+    }
+
+    fn fetch_pinned(&self, source: &ModuleSource) -> Result<(BalerToml, Option<String>)> {
+        if let Some(pin) = self.locked.iter().find(|pin| pin.matches(source)) {
+            let (toml, found) = self.inner.fetch_pinned(&pin.pinned_source()?)?;
+            return Ok((toml, pin.rev.clone().or(found)));
+        }
+        self.inner.fetch_pinned(source)
+    }
 }
 
 /// Walk the full module dependency graph, starting from `root`,
@@ -36,13 +77,42 @@ pub fn resolve_transitive(
     root: &BalerToml,
     fetcher: &dyn ModuleFetcher,
 ) -> Result<ResolvedPlan> {
+    resolve_dependencies(
+        &root.dependencies.packages,
+        root.dependencies.baler.as_ref(),
+        fetcher,
+        false,
+    )
+}
+
+/// `resolve_transitive` for dependency tables that are not a whole manifest.
+///
+/// With `skip_sourceless`, a module dependency that declares no source is
+/// skipped with a warning instead of being an error. There is nothing to
+/// fetch for it, so its own dependencies cannot be resolved. `baler lock`
+/// uses this so that an old manifest does not stop locking.
+pub fn resolve_dependencies(
+    packages: &BTreeMap<String, PackageDep>,
+    modules: Option<&BTreeMap<String, ModuleDep>>,
+    fetcher: &dyn ModuleFetcher,
+    skip_sourceless: bool,
+) -> Result<ResolvedPlan> {
+    Ok(resolve_dependencies_pinned(packages, modules, fetcher, skip_sourceless)?.0)
+}
+
+/// `resolve_dependencies`, and also what the lock needs to know about each
+/// module that was fetched: its version, declared source and commit.
+pub fn resolve_dependencies_pinned(
+    packages: &BTreeMap<String, PackageDep>,
+    modules: Option<&BTreeMap<String, ModuleDep>>,
+    fetcher: &dyn ModuleFetcher,
+    skip_sourceless: bool,
+) -> Result<(ResolvedPlan, Vec<ModulePin>)> {
     let mut pkg_specs: BTreeMap<String, Vec<VersionSpec>> = BTreeMap::new();
     let mut pkg_repos: BTreeMap<String, String> = BTreeMap::new();
 
-    for (name, dep) in &root.dependencies.packages {
-        let spec = VersionSpec::parse(dep.version())?;
-        pkg_specs.entry(name.clone()).or_default().push(spec);
-        pkg_repos.insert(name.clone(), dep.repo().to_owned());
+    for (name, dep) in packages {
+        record_package(name, dep, &mut pkg_specs, &mut pkg_repos)?;
     }
 
     // name => (resolved version, source it came from). A module already
@@ -57,8 +127,9 @@ pub fn resolve_transitive(
     // this path, that's a genuine cycle. The graph has no valid order
     // to fetch these in.
     let mut path: Vec<String> = Vec::new();
+    let mut pins: BTreeMap<String, ModulePin> = BTreeMap::new();
 
-    for (name, dep) in root.dependencies.baler.as_ref().unwrap_or(&BTreeMap::new()) {
+    for (name, dep) in modules.unwrap_or(&BTreeMap::new()) {
         resolve_module(
             name,
             dep,
@@ -67,6 +138,8 @@ pub fn resolve_transitive(
             &mut path,
             &mut pkg_specs,
             &mut pkg_repos,
+            &mut pins,
+            skip_sourceless,
         )?;
     }
 
@@ -76,7 +149,7 @@ pub fn resolve_transitive(
         .map(|(name, (version, _source))| (name, version.to_string()))
         .collect();
 
-    Ok(ResolvedPlan { packages, modules })
+    Ok((ResolvedPlan { packages, modules }, pins.into_values().collect()))
 }
 
 /// Resolve one box-module dep and recurse into its own dependencies.
@@ -90,7 +163,21 @@ fn resolve_module(
     path: &mut Vec<String>,
     pkg_specs: &mut BTreeMap<String, Vec<VersionSpec>>,
     pkg_repos: &mut BTreeMap<String, String>,
+    pins: &mut BTreeMap<String, ModulePin>,
+    skip_sourceless: bool,
 ) -> Result<()> {
+    if skip_sourceless
+        && dep
+            .source()
+            .with_context(|| format!("Invalid source for module '{name}'"))?
+            .is_none()
+    {
+        eprintln!(
+            "  [warn] module '{name}' declares no source, so its own dependencies are not resolved"
+        );
+        return Ok(());
+    }
+
     if let Some((existing_version, existing_source)) = resolved_modules.get(name) {
         let source = declared_source(name, dep)?;
         if &source != existing_source {
@@ -119,8 +206,8 @@ fn resolve_module(
 
     let source = declared_source(name, dep)?;
 
-    let fetched = fetcher
-        .fetch(&source)
+    let (fetched, rev) = fetcher
+        .fetch_pinned(&source)
         .with_context(|| format!("Failed to fetch module '{name}' from '{source}'"))?;
 
     // Reuses ModuleMeta::semver() (the same check `from_dir` runs on a
@@ -138,19 +225,65 @@ fn resolve_module(
         );
     }
 
-    for (pkg_name, pkg_dep) in fetched.dependencies.packages {
-        let pkg_spec = VersionSpec::parse(pkg_dep.version())?;
-        pkg_specs.entry(pkg_name.clone()).or_default().push(pkg_spec);
-        pkg_repos.insert(pkg_name, pkg_dep.repo().to_owned());
+    for (pkg_name, pkg_dep) in &fetched.dependencies.packages {
+        record_package(pkg_name, pkg_dep, pkg_specs, pkg_repos)?;
     }
 
     path.push(name.to_owned());
     for (dep_name, dep_dep) in fetched.dependencies.baler.unwrap_or_default() {
-        resolve_module(&dep_name, &dep_dep, fetcher, resolved_modules, path, pkg_specs, pkg_repos)?;
+        resolve_module(
+            &dep_name,
+            &dep_dep,
+            fetcher,
+            resolved_modules,
+            path,
+            pkg_specs,
+            pkg_repos,
+            pins,
+            skip_sourceless,
+        )?;
     }
     path.pop();
 
+    pins.insert(
+        name.to_owned(),
+        ModulePin {
+            name: name.to_owned(),
+            version: fetched_version.clone(),
+            source: source.clone(),
+            rev,
+        },
+    );
     resolved_modules.insert(name.to_owned(), (fetched_version, source));
+    Ok(())
+}
+
+/// Fold one package dependency into the accumulated specs. A package is
+/// installed from exactly one repo, so two dependents that each name a
+/// repository for it must name the same one: anything else is an error, never
+/// a silent last-writer-wins that depends on the order the graph was walked
+/// in. A dependent that names no repository does not care, and so never
+/// clashes with one that does. Repo URLs are compared without a trailing
+/// slash.
+fn record_package(
+    name: &str,
+    dep: &PackageDep,
+    pkg_specs: &mut BTreeMap<String, Vec<VersionSpec>>,
+    pkg_repos: &mut BTreeMap<String, String>,
+) -> Result<()> {
+    if let Some(repo) = dep.explicit_repo() {
+        if let Some(existing) = pkg_repos.get(name) {
+            if existing.trim_end_matches('/') != repo.trim_end_matches('/') {
+                bail!(
+                    "Package '{name}' is requested from two repos: {existing} and {repo}. \
+                     Make every dependent that names a repo use the same one."
+                );
+            }
+        }
+        pkg_repos.insert(name.to_owned(), repo.to_owned());
+    }
+    let spec = VersionSpec::parse(dep.version())?;
+    pkg_specs.entry(name.to_owned()).or_default().push(spec);
     Ok(())
 }
 
@@ -166,4 +299,73 @@ fn declared_source(name: &str, dep: &ModuleDep) -> Result<ModuleSource> {
                  Declare it as: {name} = {{ git = \"https://github.com/user/repo\", tag = \"...\" }}"
             )
         })
+}
+
+/// A module that is not installed yet, and where to install it from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleInstall {
+    pub name: String,
+    pub source: ModuleSource,
+    pub version: semver::Version,
+}
+
+/// Which of `modules` have to be installed, and from where.
+///
+/// A module that is already installed is left alone and nothing is fetched
+/// for it. For the others, the source is fetched and checked before anything
+/// is installed: it must be the module the entry names, and the version it
+/// declares must satisfy the entry's constraint. A module that is missing and
+/// declares no source cannot be installed, so it is reported and skipped.
+///
+/// When `lock` pins a module, the pinned commit is what is fetched and what
+/// the plan says to install.
+pub fn plan_module_installs(
+    modules: &BTreeMap<String, ModuleDep>,
+    fetcher: &dyn ModuleFetcher,
+    is_installed: &dyn Fn(&str) -> Result<bool>,
+    lock: Option<&BalerLock>,
+) -> Result<Vec<ModuleInstall>> {
+    let locked: &[LockedModule] = lock.map(|l| l.modules.as_slice()).unwrap_or(&[]);
+    let fetcher = PinnedFetcher { inner: fetcher, locked };
+    let mut planned = Vec::new();
+    for (name, dep) in modules {
+        if is_installed(name)? {
+            continue;
+        }
+        let Some(source) = dep
+            .source()
+            .with_context(|| format!("Invalid source for module '{name}'"))?
+        else {
+            eprintln!(
+                "  [warn] module '{name}' is not installed and declares no source, so baler \
+                 cannot install it. Declare it as: {name} = {{ git = \"https://github.com/user/repo\", tag = \"...\" }}"
+            );
+            continue;
+        };
+
+        let fetched = fetcher
+            .fetch(&source)
+            .with_context(|| format!("Failed to fetch module '{name}' from '{source}'"))?;
+        if fetched.project.name != *name {
+            bail!(
+                "'{name}' is declared with the source '{source}', but that source is the \
+                 module '{}'. The dependency key must be the module's own name.",
+                fetched.project.name
+            );
+        }
+        let version = fetched
+            .project
+            .semver()
+            .with_context(|| format!("Module '{name}' at '{source}' has an invalid version"))?;
+        let spec = VersionSpec::parse(dep.version())?;
+        if !spec.matches(&version) {
+            bail!("'{name}' requires version {spec} but the source at '{source}' declares {version}.");
+        }
+        let install_from = match locked.iter().find(|pin| pin.matches(&source)) {
+            Some(pin) => pin.pinned_source()?,
+            None => source,
+        };
+        planned.push(ModuleInstall { name: name.clone(), source: install_from, version });
+    }
+    Ok(planned)
 }

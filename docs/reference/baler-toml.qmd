@@ -75,23 +75,33 @@ utils = { git = "https://github.com/<user>/<repo>", branch = "main", module_dir 
 
 A bare string value works the same as a table with only `version` set: the `repo` used is the default mirror, `https://cloud.r-project.org`.
 
+Every package is installed from exactly one repository:
+
+-   A package listed in `baler.toml` comes from the `repo` set for it, or the default CRAN mirror when none is set. If it isn't in that repository, that is an error naming the repository.
+-   A package you didn't list, that something you listed needs, comes from the first repository that has it: the default CRAN, then every `repo` named in `baler.toml` (including by modules you depend on), in alphabetical order. A private repository can't take over a CRAN package name this way. To use its copy, list the package with a `repo`.
+-   Two entries that each name a different `repo` for the same package are an error. An entry that names no `repo` doesn't clash with one that does.
+
 ::: {.callout-note title="Technical Notes"}
 Because module deps and package deps share one table, told apart by whether an entry sits under the reserved `baler` key rather than by any `type`/`mode` field, an R package literally named `baler` cannot be declared as a bare key here.
 :::
 
 ### Version-spec syntax
 
-Version requirements follow `Cargo.toml`-style syntax, always written as strings:
+Version requirements are written as strings. Several, separated by commas, must all hold:
 
-| Syntax              | Meaning                                  |
-|---------------------|------------------------------------------|
-| `"*"`               | Any version                              |
-| `">=1.0.0"`         | Lower bound only                         |
-| `">=1.0.0, <2.0.0"` | Inclusive range (comma-separated bounds) |
-| `"^1.2.0"`          | SemVer-compatible with 1.2.0             |
-| `"=1.2.3"`          | Exact pin                                |
+| Syntax | Meaning |
+|---|---|
+| `"*"` | Any version |
+| `">=1.0.0"` | Lower bound only (`>`, `<=` and `<` work the same way) |
+| `">=1.0.0, <2.0.0"` | Range (comma-separated bounds) |
+| `"^1.2.0"` | At least 1.2.0 and below 2.0.0 |
+| `"~1.2.0"` | At least 1.2.0 and below 1.3.0 |
+| `"=1.2.3"` or `"==1.2.3"` | Exact pin |
+| `"1.2.3"` | Same as `"^1.2.3"` |
 
-CRAN version strings that use dashes (e.g. `4.0-3`) are normalised to dots before parsing.
+R packages compare versions the way R does, so `4.0-3` and `4.0.3` are the same version, `1.2.3.9000` is newer than `1.2.3`, and `1.0` is below `1.0.0`. A tag such as `1.2.3-beta` and a wildcard such as `1.*` are not accepted for R packages (use `^1`). A requirement that can't be read stops `baler lock` and `baler install` with an error that names the package.
+
+A module dependency's `version` is checked against the module's own semver `version` and uses semver syntax, so `"=1.2.3"` is the exact pin there and `"==1.2.3"` isn't accepted.
 
 ### Module dependencies: `git` and `url`
 
@@ -101,7 +111,7 @@ A `[dependencies.baler]` entry names where the module comes from, using the same
 |---|---|---|
 | `version` | no | Constraint string, e.g. `"^1.0"`. Defaults to `"*"` when omitted. Still checked against the fetched module's own declared `version`. |
 | `git` | one of `git` / `url` | A `https://github.com/...` repository URL. Only `github.com` URLs are supported, the same as `baler install --git`. |
-| `branch`, `tag`, `rev` | no | At most one of these, and only together with `git`. Selects a specific ref to fetch. |
+| `branch`, `tag`, `rev` | no | At most one of these, and only together with `git`. Selects a specific ref to fetch. `baler lock` records the commit it points at. |
 | `module_dir` | no | Directory inside the `git` repo that holds the module, for a repo holding more than one. Only valid with `git`. |
 | `url` | one of `git` / `url` | A direct link to an already-bundled `.tar.gz`, e.g. a GitHub Release asset produced by `baler bundle`. |
 
@@ -114,12 +124,16 @@ core = "^2.0"    # bare string: registry lookup, not implemented yet
 
 Exactly one of `git` or `url` may be set. Setting both, or setting `branch`/`tag`/`rev`/`module_dir` without `git`, fails to load `baler.toml` immediately, before any resolution or fetch is attempted. Unknown keys (a typo such as `tga`) are rejected the same way, rather than being silently ignored.
 
+`baler lock` fetches each module that has a source, locks the R packages it needs, and pins it: a `git` source to the commit its ref pointed at, a `url` source to the URL itself (see [Modules in the lockfile](baler-lock.qmd#modules)). `baler install --install-deps` installs a module that isn't installed yet from its source, at the pinned commit when the lock has one. Before it installs, `{baler}` checks that the source is the module the entry names (the key must be the module's own `name`) and that the `version` it declares satisfies the entry's constraint.
+
 A bare-string entry, or a table with only `version` set, parses fine but has no source to resolve against, since there's no default module registry yet:
 
 ``` toml
 [dependencies.baler]
-other_module = "*"   # will fail at resolution time, no registry yet
+other_module = "*"   # no source: skipped with a warning
 ```
+
+`baler lock` skips such an entry with a warning. If the module isn't installed, `baler install --install-deps` warns that it can't be installed.
 
 ## Extra dependencies for development 
 

@@ -3,6 +3,8 @@ pub mod cran;
 pub mod formats;
 pub mod paths;
 pub mod ops;
+pub mod resolver;
+pub mod ver;
 pub mod version;
 pub mod lockfile;
 
