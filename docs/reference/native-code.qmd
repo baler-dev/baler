@@ -135,11 +135,24 @@ dll = NULL
 .on_unload = function(ns) {
     dyn.unload(box::file(paste0(".lib/cpp", .Platform$dynlib.ext)))
 }
+
 ```
 
 The pure C / cpp11 variant is identical except that it omits the `box::use(Rcpp[...])` line. The `cpp/` is the name of the native directory and just a placeholder. `box::file()` resolves relative to the calling module, so the library is found next to the R files.
 
 If you run `baler init <module-name>` without `--native`, then the generation tends to writes the pure R equivalent instead. The `hello_world()` / `add()` logic are pretty much the same as how they are implemented under the chosen "low-level" language, same file layout, but implemented directly in R, thus no file like `hook.r` which calls `dyn.load()` / `dyn.unload()` calls. A fresh module always starts from runnable examples, compiled or not.
+
+### Makefile path configuration {#makevars-lib}
+
+You don't set `BALER_LIB` for a build. When `{baler}` compiles a module, it already holds the absolute path of the folder where installed modules live, and `make` reads environment variables as its own variables. So, in R, a `Makevars` can write `$(BALER_LIB)` wherever it needs that folder. Every installed module sits in its own subfolder named after the module, so `$(BALER_LIB)/foo` is where `foo` was installed. For example, if `foo` keeps its headers in a folder called `include`, this tells the compiler where to find them:
+
+``` makefile
+PKG_CPPFLAGS = -I"$(BALER_LIB)/foo/include"
+```
+
+Keep the quotes, just in case the folder name has a space in it. `Makevars.win` works the same way, and R code that runs during a build reads the same value with `Sys.getenv("BALER_LIB")`.
+
+This only holds when `{baler}` runs the build. If you run `R CMD SHLIB` yourself, `$(BALER_LIB)` is empty until you set `BALER_LIB` first. See [Where modules are installed](cli.qmd#module-dir) for how it is chosen.
 
 ### Binary bundles {#binary-bundles}
 
@@ -180,7 +193,7 @@ Successful builds are cached, keyed by module, platform, R version, and a hash o
 
 The global cache lives at `~/.baler/native-cache/<module>/<platform>/<R-major.minor>/<source-hash>/`. `<source-hash>` is a SHA-256 digest over every file's relative path and bytes under the native directory, sorted for determinism, so the same source always hashes the same way regardless of the order the filesystem happens to list files in. `target/` is excluded from that hash: Cargo's own build output for a module mixing in Rust isn't deterministic between builds, so hashing it would change the cache key on every build even when nothing real changed, quietly defeating the cache.
 
-Set `CARRIER_CACHE_DIR` to relocate the cache root away from `~/.baler/native-cache/`. This matters on a machine without a conventional home directory (some CI runners), or when several users share a machine and want separate caches.
+Set `BALER_CACHE_DIR` to relocate the cache root away from `~/.baler/native-cache/`. This matters on a machine without a conventional home directory (some CI runners), or when several users share a machine and want separate caches.
 
 ### Cleaning, or forcing a rebuild
 

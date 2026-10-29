@@ -208,6 +208,28 @@ The positional form isn't a fourth way to point at something — it always colla
 
 :::
 
+## Installed module location {#module-dir}
+
+These modules you installed will go to the default `~/.baler/modules` path, unless `BALER_LIB` points somewhere else. This is the folder `{box}` needs to see, so point `box.path` at it:
+
+``` r
+options(
+    box.path = Sys.getenv(
+        "BALER_LIB", 
+        file.path(
+            # Sys.getenv("USERPROFILE")
+            Sys.getenv("HOME"), 
+            ".baler", 
+            "modules"
+        )
+    )
+)
+```
+
+Every `baler` command sets `BALER_LIB` to the directory it settled on, as an absolute path, before it does anything else. Any process `{baler}` starts afterwards, R included, inherits it, so it is available even when you never set it yourself. A relative `BALER_LIB` is made absolute against the folder you ran the command from.
+
+A different `BALER_LIB` per project keeps the modules of one project away from another, much like a virtual environment does.
+
 ## Uninstall a module
 
 The bundle part gives you an archive, under `.tar.gz` format, of `{box}`-`{baler}` module. Then we have the "installation" part that archives the module and placed on the path where `~/.baler/modules` lived. `{baler}` also has an option to uninstall a previously installed module, through `baler remove`. Here's the following anatomy: 

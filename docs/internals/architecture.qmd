@@ -64,19 +64,24 @@ Two directories matter at runtime, and both follow an environment-variable-first
 
 ### Module install directory
 
-Under `paths::resolve_install_dir()`: 
+`{baler}` installs `{box}` modules into a single directory, which `paths::resolve_install_dir()` finds. It takes the first of these that applies:
 
-1. `CARRIER_LIB`, if set and non-empty.
-2. `~/.baler/modules`.
+1. The directory in `BALER_LIB`, when it is set. This lets you keep modules somewhere other than your home folder, such as one folder per project. A relative path is made absolute against the folder you ran `baler` from, and an empty value is treated as not set.
+
+2. Otherwise `~/.baler/modules`, which `{baler}` creates on the first install. On Windows, `~` is your user profile folder.
+
+At startup the CLI writes the directory it settled on back into `BALER_LIB`, as an absolute path, through `paths::export_install_dir()`. Every process `{baler}` starts afterwards inherits it. A `Makevars` can then read `$(BALER_LIB)`, and R code that runs during a build can read `Sys.getenv("BALER_LIB")`, whether or not you ever set it yourself.
 
 ### R user library directory
 
-Under `paths::resolve_r_lib_dir()`: 
+`{baler}` installs the R packages that modules depend on into a single library, which `paths::resolve_r_lib_dir()` finds. It takes the first of these that applies:
 
-1. `CARRIER_R_LIB`, if set and non-empty. The explicit override, meant for renv/rv-style project-local libraries.
-2. `R_LIBS_USER`, if set and non-empty. R's own variable.
-3. A subprocess fallback: `Rscript -e "cat(.libPaths()[1])"`.
+1. `BALER_R_LIB`, which is only if set and non-empty. The explicit override, on the other hand, is planned for renv/rv-style project-local libraries in the future updates.
 
-The third step is a real subprocess call. Invoking `baler install --install-deps` without `R`/`Rscript` on `PATH`, and without either environment variable set, fails there with a message pointing at `CARRIER_R_LIB`.
+2. If that isn't set, `R_LIBS_USER`, which is R's own setting for your personal library. Following it means packages land where your R already looks for them.
+
+3. If neither is set, the first entry of `.libPaths()`, which `{baler}` gets by running `Rscript -e "cat(.libPaths()[1])"`. That is where R itself would install a package by default.
+
+The third step is a real subprocess call. Invoking `baler install --install-deps` without `R`/`Rscript` on `PATH`, and without either environment variable set, fails there with a message pointing at `BALER_R_LIB`.
 
 ::: 
