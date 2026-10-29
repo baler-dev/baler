@@ -137,6 +137,8 @@ baler bundle [<path>] [--locked]
 | `<path>` | The project's root directory, wherever `baler.toml` lives. Defaults to `.`. |
 | `--locked` | Fail instead of warning when `baler.lock` is missing, unreadable, or doesn't match `baler.toml`. Like `cargo publish --locked`. The lock ships inside the bundle, so a stale one breaks installs of it. Without the flag, `bundle` only warns. A module dependency that declares a source must also be pinned in a lock that holds modules. |
 
+With `binary = true`, run `baler bundle` on each platform you support, in the same folder. An earlier `<name>_<version>.tar.gz` there that holds identical source is built on instead of replaced: only this machine's binary is compiled and the other platforms' binaries are kept, so one archive installs on all of them without compiling. See [Binary bundles](native-code.qmd#binary-bundles).
+
 ::: {.callout-note title="Legacy of {carrier}" collapse="true"}
 It is decided that the `--binary` or `--keep-source` are now dropped. Now, what the archive contains is decided by `[compiled-code]` in `baler.toml` through the following:
 
@@ -144,7 +146,7 @@ It is decided that the `--binary` or `--keep-source` are now dropped. Now, what 
 
 -  When `keep_source = true` is declared under the `[compiled-code]` from `baler.toml`, the native source code will be kept on the archives. This is only valid together with `binary = true`. 
 
-The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you set as `name` under `[project]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A bundle built with `binary = true` only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, even if `keep_source = true` was set at bundle time.
+The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you set as `name` under `[project]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A bundle built with `binary = true` is checked on install: a binary built for another OS or CPU is rejected with an error before anything is replaced. The check reads the OS and CPU from the binary itself, not the R version.
 :::
 
 ## Module installation

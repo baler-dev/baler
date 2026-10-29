@@ -145,11 +145,21 @@ If you run `baler init <module-name>` without `--native`, then the generation te
 
 Set `binary = true` under `[compiled-code]` and `baler bundle` runs the compile step first. Then it forces the normally-hidden `.lib/` directory into the archive and leaves the native source out. Add `keep_source = true` to ship the native source as well. If the module has no native code, `baler bundle` warns and bundles without a binary.
 
-The manifest records platform, R version, and source hash for each artifact, but nothing on the install side reads those back. A bundle built with `binary = true` and installed on a machine it wasn't built for unpacks its `.lib/` binary as-is and hands it straight to `dyn.load()` at runtime, with no compatibility check in between and no fallback. Even with `keep_source = true`, nothing currently detects a mismatch and recompiles from the kept source automatically.
+A compiled file records the OS and CPU it was built for in its own header, and that is what `{baler}` reads, the same way it checks CRAN package binaries. When you install a bundle that has no native source, its binary is checked first. One built for your OS and CPU goes into `.lib/` and is used with no compiler involved. One built for another platform is rejected with an error that names what the bundle holds and what your machine is, and your installed copy of the module is left untouched. A bundle that ships its native source (`keep_source = true`) installs as it always did.
 
-Until that exists, only distribute binary bundles to machines matching what they were built for.
+#### One bundle for every platform
 
-This is different from how baler handles R package binaries from CRAN, where a downloaded binary's actual architecture is read out of its compiled header and checked before it's trusted. That check exists for CRAN dependencies specifically; it doesn't extend to a module's own compiled artifacts yet.
+A binary only exists for the platform it was built on, so a bundle made on one machine installs only there. To cover more platforms, run `baler bundle .` on each of them, in the same folder as the earlier bundle. When `<name>_<version>.tar.gz` is already there and holds identical source, `baler bundle` builds only this machine's binary and keeps the ones already inside:
+
+```
+<module>/.lib/cpp.so                          # built on this machine
+<module>/.lib/.platforms/linux-x86_64/cpp.so  # carried over
+<module>/.lib/.platforms/macos-aarch64/cpp.so # carried over
+```
+
+Install moves the binary that fits into `.lib/`, so the same archive installs everywhere without a compiler. That includes a `[dependencies.baler]` entry that points at it with `url`. The binary built last stays in `.lib/`, where older versions of `{baler}` look.
+
+Bundling again on a platform that is already inside replaces its binary instead of adding a second one. If the source changed since the earlier bundle, or the earlier bundle can't be read, it is replaced with a note instead, so delete the file to start over. Bundles made before this change stay valid and can be added to the same way. In CI, hand the bundle from one platform's job to the next.
 
 ``` toml
 [compiled-code]

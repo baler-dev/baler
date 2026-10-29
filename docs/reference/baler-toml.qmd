@@ -253,7 +253,7 @@ The `binary` and `keep_source` options describe what the module ships, so they l
 | `true` | `true` | Compiled `.lib/` binary and native source. |
 | `false` | `true` | Rejected when `baler.toml` loads: `keep_source` needs `binary = true`. |
 
-If `binary = true` but the module has no native code, `baler bundle` prints a warning and bundles without a binary. A binary bundle only works reliably on the platform and R version it was built for, see [Binary bundles](native-code.qmd#binary-bundles).
+If `binary = true` but the module has no native code, `baler bundle` prints a warning and bundles without a binary. A binary bundle installs only on the OS and CPU it was built for, unless `baler bundle` was run on each platform in turn, see [Binary bundles](native-code.qmd#binary-bundles).
 
 ### Resolution rules
 
