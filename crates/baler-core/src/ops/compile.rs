@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::baler_toml::BalerToml;
+use crate::baler_toml::{target_of_platform, BalerToml, BinaryTarget};
 use crate::cran::client::read_installed_version;
 use crate::ops::external_tools::check_external_tools;
 use crate::ops::resolve;
@@ -121,6 +121,27 @@ pub fn run(project_root: &Path, mode: CompileMode) -> Result<Vec<CompiledArtifac
     }
 
     Ok(compiled)
+}
+
+/// The OS and CPU of the R that would load a compiled module, or `None`
+/// for a platform baler doesn't recognise.
+///
+/// It is asked of that R, not worked out from the machine baler itself
+/// runs on: an x86_64 R running under Rosetta on an arm64 Mac needs an
+/// x86_64 binary, and only R knows which one it is.
+pub fn host_target() -> Result<Option<BinaryTarget>> {
+    let output = std::process::Command::new("Rscript")
+        .args(["-e", "cat(R.version$platform)"])
+        .output()
+        .context("Failed to run Rscript to detect this machine's platform. Is R on PATH?")?;
+
+    if !output.status.success() {
+        bail!(
+            "Rscript failed while detecting this machine's platform: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(target_of_platform(&String::from_utf8_lossy(&output.stdout)))
 }
 
 pub struct CompiledArtifact {
