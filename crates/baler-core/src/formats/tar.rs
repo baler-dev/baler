@@ -1,9 +1,13 @@
+use std::collections::BTreeMap;
 use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use flate2::{write::GzEncoder, Compression};
 use tar::Builder;
+
+use crate::baler_toml::{first_target, BinaryTarget, HEAD_LEN, LIB_DIR, PLATFORMS_DIR};
 
 /// Bundle a module into a `.tar.gz` archive.
 ///
@@ -203,6 +207,249 @@ fn read_embedded_file(tar_path: &Path, name: &str) -> Result<Option<String>> {
     }
 
     Ok(None)
+}
+
+/// A `.lib/` directory found inside an archive, read without unpacking.
+pub struct ShippedLib {
+    /// The directory inside the module, for example `rcalc/.lib`.
+    pub lib_dir: PathBuf,
+    /// The platform each set of binaries in it was built for, read from
+    /// the files' own headers: the files directly in `.lib/` first, then
+    /// one entry per `.lib/.platforms/<name>/` directory. A set whose
+    /// files are none of ELF, Mach-O or PE is left out.
+    pub targets: Vec<BinaryTarget>,
+}
+
+/// Every `.lib/` directory in the archive, so an install can check the
+/// binaries fit this machine before it replaces anything.
+pub fn read_shipped_libs(tar_path: &Path) -> Result<Vec<ShippedLib>> {
+    let file = File::open(tar_path)
+        .with_context(|| format!("Failed to open: {}", tar_path.display()))?;
+
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let mut libs: BTreeMap<PathBuf, BTreeMap<String, Vec<Vec<u8>>>> = BTreeMap::new();
+
+    for entry in archive.entries().context("Failed to read tar.gz entries")? {
+        let mut entry = entry.context("Failed to read tar.gz entry")?;
+        let raw_path = entry.path()?.to_path_buf();
+        let stripped = strip_top_level(&raw_path)?;
+        let Some((lib_dir, rest)) = lib_split(&stripped) else { continue };
+        let sets = libs.entry(lib_dir).or_default();
+
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let Some(set) = set_name(&rest) else { continue };
+        let mut head = Vec::new();
+        (&mut entry)
+            .take(HEAD_LEN as u64)
+            .read_to_end(&mut head)
+            .with_context(|| format!("Failed to read {} from archive", stripped.display()))?;
+        sets.entry(set).or_default().push(head);
+    }
+
+    Ok(libs
+        .into_iter()
+        .map(|(lib_dir, sets)| ShippedLib {
+            lib_dir,
+            targets: sets.values().filter_map(|heads| first_target(heads)).collect(),
+        })
+        .collect())
+}
+
+/// Which set of binaries a path inside `.lib/` belongs to: `""` for a file
+/// directly in `.lib/`, the directory name for `.platforms/<name>/<file>`.
+fn set_name(rest: &Path) -> Option<String> {
+    let parts: Vec<String> = rest
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    match parts.as_slice() {
+        [_file] => Some(String::new()),
+        [dir, name, _file] if dir == PLATFORMS_DIR => Some(name.clone()),
+        _ => None,
+    }
+}
+
+/// One file of an archive, read whole.
+struct Member {
+    path: PathBuf,
+    mode: u32,
+    mtime: u64,
+    bytes: Vec<u8>,
+}
+
+/// One set of binaries for one platform.
+struct Group<'a> {
+    lib_dir: PathBuf,
+    /// The platform, as a directory name, for example `macos-aarch64`.
+    name: String,
+    files: Vec<&'a Member>,
+}
+
+/// Carry the binaries of an earlier bundle of the same module over into a
+/// freshly made one, writing the combined archive to `output`.
+///
+/// `fresh` is what `baler bundle` just built on this machine. It stays as
+/// it is, so its binary is in `.lib/`, where an older baler looks. Every
+/// platform `existing` holds that `fresh` doesn't goes to
+/// `.lib/.platforms/<os>-<cpu>/`, named after what each binary's own
+/// header says. Install picks the set that fits the machine and moves it
+/// into `.lib/`, so nothing is compiled there. A platform in both comes
+/// from `fresh`.
+///
+/// Returns `false`, and writes nothing, when `existing` holds different
+/// source: its binaries belong to code that is no longer there.
+pub fn add_platforms(fresh: &Path, existing: &Path, output: &Path) -> Result<bool> {
+    if output == fresh || output == existing {
+        bail!("The combined archive can't overwrite one of its inputs.");
+    }
+
+    let fresh_members = read_members(fresh)?;
+    let old_members = read_members(existing)?;
+    if source_files(&fresh_members) != source_files(&old_members) {
+        return Ok(false);
+    }
+
+    let mut kept: BTreeMap<(PathBuf, String), Vec<&Member>> = BTreeMap::new();
+    for group in groups(&fresh_members, fresh)? {
+        kept.insert((group.lib_dir.clone(), group.name.clone()), group.files);
+    }
+
+    let mut added: Vec<(PathBuf, &Member)> = Vec::new();
+    for group in groups(&old_members, existing)? {
+        let key = (group.lib_dir.clone(), group.name.clone());
+        if kept.contains_key(&key) {
+            continue;
+        }
+        for member in &group.files {
+            let Some(file) = member.path.file_name() else { continue };
+            let at = group.lib_dir.join(PLATFORMS_DIR).join(&group.name).join(file);
+            added.push((at, *member));
+        }
+        kept.insert(key, group.files);
+    }
+
+    let file = File::create(output)
+        .with_context(|| format!("Failed to create: {}", output.display()))?;
+    let enc = GzEncoder::new(file, Compression::default());
+    let mut archive = Builder::new(enc);
+
+    for member in &fresh_members {
+        append_bytes(&mut archive, &member.path, &member.bytes, member.mode, member.mtime)?;
+    }
+    for (path, member) in &added {
+        append_bytes(&mut archive, path, &member.bytes, member.mode, member.mtime)?;
+    }
+
+    archive.finish().context("Failed to finalize tar.gz archive")?;
+    Ok(true)
+}
+
+fn read_members(tar_path: &Path) -> Result<Vec<Member>> {
+    let file = File::open(tar_path)
+        .with_context(|| format!("Failed to open: {}", tar_path.display()))?;
+
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let mut members = Vec::new();
+    for entry in archive.entries().context("Failed to read tar.gz entries")? {
+        let mut entry = entry.context("Failed to read tar.gz entry")?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let path = entry.path()?.to_path_buf();
+        let mode = entry.header().mode().unwrap_or(0o644);
+        let mtime = entry.header().mtime().unwrap_or(0);
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).with_context(|| {
+            format!("Failed to read {} from {}", path.display(), tar_path.display())
+        })?;
+        members.push(Member { path, mode, mtime, bytes });
+    }
+    Ok(members)
+}
+
+/// Every set of binaries in an archive, each named after the platform its
+/// files' headers say they were built for.
+fn groups<'a>(members: &'a [Member], origin: &Path) -> Result<Vec<Group<'a>>> {
+    let mut sets: BTreeMap<(PathBuf, String), Vec<&Member>> = BTreeMap::new();
+    for member in members {
+        let Some((lib_dir, rest)) = lib_split(&member.path) else { continue };
+        let Some(set) = set_name(&rest) else { continue };
+        sets.entry((lib_dir, set)).or_default().push(member);
+    }
+
+    let mut found = Vec::new();
+    for ((lib_dir, _), files) in sets {
+        let heads: Vec<Vec<u8>> = files
+            .iter()
+            .map(|member| member.bytes[..member.bytes.len().min(HEAD_LEN)].to_vec())
+            .collect();
+        let Some(target) = first_target(&heads) else {
+            bail!(
+                "{} has files in {} that are not a recognisable ELF, Mach-O or PE binary, so \
+                 the platform they were built for is unknown. Bundle it on the platform it is \
+                 for, then merge.",
+                origin.display(),
+                slash(&lib_dir)
+            );
+        };
+        let Some(name) = target.dir_name() else {
+            bail!(
+                "{} has a binary in {} for a CPU baler doesn't know ({}).",
+                origin.display(),
+                slash(&lib_dir),
+                target.describe()
+            );
+        };
+        found.push(Group { lib_dir, name, files });
+    }
+    Ok(found)
+}
+
+/// Everything in an archive except `.lib/` contents, by path.
+fn source_files(members: &[Member]) -> BTreeMap<String, &Vec<u8>> {
+    members
+        .iter()
+        .filter(|member| lib_split(&member.path).is_none())
+        .map(|member| (slash(&member.path), &member.bytes))
+        .collect()
+}
+
+fn append_bytes(
+    archive: &mut Builder<GzEncoder<File>>,
+    path: &Path,
+    bytes: &[u8],
+    mode: u32,
+    mtime: u64,
+) -> Result<()> {
+    let name = slash(path);
+    let mut header = tar::Header::new_gnu();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(mode);
+    header.set_mtime(mtime);
+    header.set_cksum();
+    archive
+        .append_data(&mut header, &name, bytes)
+        .with_context(|| format!("Failed to add to archive: {name}"))
+}
+
+/// Splits a path at its `.lib` component into the path through `.lib`
+/// and what is inside it. `None` when the path isn't inside a `.lib`.
+fn lib_split(path: &Path) -> Option<(PathBuf, PathBuf)> {
+    let components: Vec<_> = path.components().collect();
+    let at = components.iter().position(|c| c.as_os_str() == LIB_DIR)?;
+    let lib_dir: PathBuf = components[..=at].iter().collect();
+    let rest: PathBuf = components[at + 1..].iter().collect();
+    Some((lib_dir, rest))
+}
+
+fn slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 pub fn collect_files(base: &Path) -> Result<Vec<String>> {
