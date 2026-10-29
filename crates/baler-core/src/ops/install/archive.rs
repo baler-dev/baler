@@ -3,16 +3,17 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-use crate::baler_toml::{BalerToml, ModuleDep, ModuleSource};
+use crate::baler_toml::{BalerToml, BinaryTarget, ModuleDep, ModuleSource};
 use crate::formats::tar;
 use crate::lockfile::{self, BalerLock};
+use crate::ops::compile;
 use crate::ops::external_tools::check_external_tools;
 use crate::ops::module_graph::plan_module_installs;
 use crate::ops::resolve;
 use crate::paths::resolve_install_dir;
 
 use super::github::{download_and_install, install_from_github, GitHubFetcher};
-use super::native::build_native_if_present;
+use super::native::{build_native_if_present, unusable_binary_message};
 
 /// Install a module from a `.tar.gz`, enforcing a lock if there is one.
 ///
@@ -35,6 +36,8 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
 
     let r_spec = toml.project.r_version_spec()?;
     crate::version::check_r_version(&r_spec)?;
+
+    check_shipped_binaries(tar_path, &toml)?;
 
     let name = toml.project.name.clone();
     let version = toml.project.version.clone();
@@ -118,6 +121,36 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
 
     build_native_if_present(&module_path, &name, install_deps, &toml)?;
 
+    Ok(())
+}
+
+/// Refuses an archive whose compiled binaries can't load on this machine
+/// and which carries no native source, before the installed copy of the
+/// module is removed. Without this the old, working version would
+/// already be gone when the install fails.
+///
+/// An archive that ships native source (`keep_source = true`) is left to
+/// `build_native_if_present`, which handles it as it always did. An
+/// archive with no compiled binary skips all of it, and does not ask R
+/// anything.
+fn check_shipped_binaries(tar_path: &PathBuf, toml: &BalerToml) -> Result<()> {
+    let keep_source = toml.compiled_code.as_ref().is_some_and(|c| c.keep_source);
+    if keep_source {
+        return Ok(());
+    }
+
+    let shipped = tar::read_shipped_libs(tar_path)?;
+    if shipped.iter().all(|lib| lib.targets.is_empty()) {
+        return Ok(());
+    }
+
+    let Some(host) = compile::host_target()? else { return Ok(()) };
+    for lib in &shipped {
+        if !lib.targets.is_empty() && !lib.targets.iter().any(|target| target.fits(&host)) {
+            let found = lib.targets.iter().map(BinaryTarget::describe).collect::<Vec<_>>().join(", ");
+            bail!("{}", unusable_binary_message(&toml.project.name, &found, &host.describe()));
+        }
+    }
     Ok(())
 }
 
