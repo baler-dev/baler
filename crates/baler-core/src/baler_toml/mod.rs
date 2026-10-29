@@ -12,7 +12,10 @@ mod template;
 mod tool;
 
 pub use author::Author;
-pub use compiled_code::{CompiledCode, NativePath};
+pub use compiled_code::{
+    first_target, sniff_binary, target_of_platform, BinaryArch, BinaryOs, BinaryTarget, CompiledCode,
+    NativePath, HEAD_LEN, LIB_DIR, PLATFORMS_DIR,
+};
 pub use dependencies::{
     Dependencies, ModuleDep, ModuleDepSpec, ModuleSource, PackageDep, DEFAULT_CRAN_MIRROR,
 };
