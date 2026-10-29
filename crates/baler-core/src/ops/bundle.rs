@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::baler_toml::BalerToml;
+use crate::baler_toml::{BalerToml, BinaryTarget};
 use crate::formats::tar;
 use crate::lockfile;
 use crate::ops::resolve;
@@ -57,6 +57,14 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
                  native code to compile. Bundling without a binary.",
                 meta.name
             );
+        } else if !keep_source {
+            let built_for = crate::ops::compile::host_target()?
+                .map_or_else(|| "this machine".to_owned(), |target| target.describe());
+            eprintln!(
+                "note: '{}' ships a binary for {} so far. Run `baler bundle` on each other \
+                 platform in this folder: the binaries already in the bundle are kept.",
+                meta.name, built_for
+            );
         }
     }
 
@@ -65,10 +73,10 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
     // explicit exclusion needed there. `binary = true` needs the
     // opposite: force it back in despite the dot, since shipping it is
     // the whole point. `binary = true` without `keep_source`
-    // additionally excludes native source; a mismatched/missing tag
-    // on install then has nothing to fall back to and must error
-    // clearly (not yet implemented on the install side, see the TODO
-    // on install.rs).
+    // additionally excludes native source; install then has nothing to
+    // fall back to when the binary's platform doesn't match, and fails
+    // before it replaces anything (see `check_shipped_binaries` in
+    // install/archive.rs).
     let (exclude, force_include): (Vec<PathBuf>, Vec<PathBuf>) = if binary {
         let lib_dirs: Vec<PathBuf> = toml
             .resolve_native_dirs(&project_root)
@@ -91,16 +99,20 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
 
     let output_path = cwd.join(format!("{}_{}.tar.gz", meta.name, meta.version));
 
+    // Written beside its destination first, so an earlier bundle of this
+    // module is still there to take the other platforms' binaries from.
+    let fresh_path = output_path.with_extension("gz.new");
     tar::bundle(
         &src_path,
         &project_root,
-        &output_path,
+        &fresh_path,
         &meta.name,
         &meta.version,
         &exclude,
         &force_include,
     )
     .with_context(|| format!("Failed to bundle: {}", src_path.display()))?;
+    place_bundle(&fresh_path, &output_path, binary)?;
 
     println!(
         "Bundled '{}' ({}) -> {}",
@@ -108,8 +120,44 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
         meta.version,
         output_path.display()
     );
+    if binary {
+        for lib in tar::read_shipped_libs(&output_path)? {
+            let built_for = lib.targets.iter().map(BinaryTarget::describe).collect::<Vec<_>>().join(", ");
+            println!("  binaries in {}: {}", lib.lib_dir.display(), built_for);
+        }
+    }
 
     Ok(())
+}
+
+/// Moves the bundle just built into place. With `binary = true` and an
+/// earlier bundle already there, the earlier one's other-platform binaries
+/// come along. An earlier bundle that holds different source, or can't be
+/// read, is replaced instead, with a note saying so.
+fn place_bundle(fresh_path: &Path, output_path: &Path, binary: bool) -> Result<()> {
+    if binary && output_path.exists() {
+        let combined_path = output_path.with_extension("gz.combined");
+        match tar::add_platforms(fresh_path, output_path, &combined_path) {
+            Ok(true) => {
+                std::fs::rename(&combined_path, output_path)
+                    .with_context(|| format!("Failed to write {}", output_path.display()))?;
+                std::fs::remove_file(fresh_path).ok();
+                return Ok(());
+            }
+            Ok(false) => eprintln!(
+                "note: {} holds different source, so its binaries are not kept. Replacing it.",
+                output_path.display()
+            ),
+            Err(e) => eprintln!(
+                "note: the binaries in {} can't be reused ({:#}). Replacing it.",
+                output_path.display(),
+                e
+            ),
+        }
+        std::fs::remove_file(&combined_path).ok();
+    }
+    std::fs::rename(fresh_path, output_path)
+        .with_context(|| format!("Failed to write {}", output_path.display()))
 }
 
 fn check_lock_before_bundling(project_root: &Path, toml: &BalerToml, locked: bool) -> Result<()> {
