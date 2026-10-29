@@ -212,6 +212,11 @@ enum Commands {
 pub fn run() {
     let cli = Cli::parse();
 
+    // Builds and R run from here on should see where modules are
+    // installed. Not being able to work it out is no reason to stop:
+    // the commands that need the directory report that themselves.
+    let _ = baler_core::export_install_dir();
+
     let result: Result<()> = match cli.command {
         Commands::Init { name, dir_name, module_name, src, native, backend } => {
             commands::init::run(InitArgs { name, dir_name, module_name, src, native, backend })

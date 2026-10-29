@@ -19,6 +19,27 @@ pub fn resolve_install_dir() -> Result<PathBuf> {
     Ok(global)
 }
 
+/// Puts the resolved install directory into this process's own
+/// `BALER_LIB`, so every child baler starts (`R CMD SHLIB`, `Rscript`,
+/// `R CMD INSTALL`) sees it. A `Makevars` can then write
+/// `$(BALER_LIB)/other/include` and R code run during a build can call
+/// `Sys.getenv("BALER_LIB")`, whether or not the user set it themselves.
+///
+/// The value is made absolute first. Builds run with the module's native
+/// directory as the working directory, so a relative `BALER_LIB` would
+/// point somewhere else for the child than it does for baler.
+///
+/// Returns the directory that was exported. Call it once, before any
+/// thread is started.
+pub fn export_install_dir() -> Result<PathBuf> {
+    let dir = resolve_install_dir()?;
+    let dir = std::path::absolute(&dir)
+        .with_context(|| format!("Cannot make {} absolute", dir.display()))?;
+    // Safe here because the CLI is still single-threaded when it calls this.
+    unsafe { std::env::set_var(BALER_LIB_ENV, &dir) };
+    Ok(dir)
+}
+
 pub struct RPlatform {
     pub os: RPlatformOs,
     pub r_version_short: String,

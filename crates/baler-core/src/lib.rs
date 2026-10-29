@@ -9,4 +9,4 @@ pub mod version;
 pub mod lockfile;
 
 pub use baler_toml::BalerToml;
-pub use paths::{resolve_install_dir, resolve_r_lib_dir};
+pub use paths::{export_install_dir, resolve_install_dir, resolve_r_lib_dir};
