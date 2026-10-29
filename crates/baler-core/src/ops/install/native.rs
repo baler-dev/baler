@@ -91,8 +91,8 @@ pub(super) fn unusable_binary_message(name: &str, found: &str, host: &str) -> St
     format!(
         "'{name}' ships compiled code for {found}, but this machine is {host}.\n\
          The bundle has no native source to build from, so it can't be used here.\n\
-         Ask the author for a bundle that includes {host}: bundle on that platform, then \
-         merge it in."
+         Ask the author for a bundle that includes {host}: they can run `baler bundle` on \
+         that platform, in the folder that holds the existing bundle."
     )
 }
 
