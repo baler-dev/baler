@@ -30,7 +30,14 @@ pub(super) fn build_native_if_present(
     install_deps: bool,
     toml: &BalerToml,
 ) -> Result<()> {
-    let native_dirs = toml.native_dirs_under(module_path);
+    // `[compiled-code].path` names directories whether or not they still
+    // hold any source, and a bundle made with `binary = true` leaves them
+    // empty. Only a directory that has source is built here.
+    let native_dirs: Vec<PathBuf> = toml
+        .native_dirs_under(module_path)
+        .into_iter()
+        .filter(|dir| baler_native::has_native_src(dir))
+        .collect();
 
     if native_dirs.is_empty() {
         return use_shipped_binary(module_path, name);
