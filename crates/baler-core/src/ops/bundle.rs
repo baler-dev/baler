@@ -57,6 +57,19 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
                  native code to compile. Bundling without a binary.",
                 meta.name
             );
+        } else if !keep_source {
+            // The binary is the only thing in this archive that runs
+            // native code, and it only loads on the platform and R series
+            // it was built for. Say which, so the author is not surprised
+            // when it fails on another machine.
+            let built_for = &compiled[0];
+            eprintln!(
+                "warning: '{}' is bundled with a binary for {} (R {}) and without \
+                 native source, so it can only be installed on that platform. \
+                 Set `keep_source = true` under [compiled-code] so other platforms \
+                 can build from source.",
+                meta.name, built_for.target_triple, built_for.r_version
+            );
         }
     }
 
@@ -68,7 +81,10 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
     // additionally excludes native source; a mismatched/missing tag
     // on install then has nothing to fall back to and must error
     // clearly (not yet implemented on the install side, see the TODO
-    // on install.rs).
+    // on install.rs). Each artifact in `.lib/` carries an `.abi.json`
+    // sidecar (written by `baler_native::build`) that ships with it, so
+    // install can compare the platform it was built for against the
+    // host's.
     let (exclude, force_include): (Vec<PathBuf>, Vec<PathBuf>) = if binary {
         let lib_dirs: Vec<PathBuf> = toml
             .resolve_native_dirs(&project_root)
