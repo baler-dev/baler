@@ -181,3 +181,16 @@ fn the_output_can_not_be_an_input() {
     let mac = bundle_with(work.path(), "mac", "x = 1\n", &macho(0x0100_000C));
     assert!(tar::add_platforms(&mac, &linux, &linux).is_err());
 }
+
+#[test]
+fn line_endings_do_not_make_the_source_differ() {
+    let work = tempfile::tempdir().unwrap();
+    let linux = bundle_with(work.path(), "linux", "x = 1\ny = 2\n", &elf(0x3E));
+    let windows = bundle_with(work.path(), "windows", "x = 1\r\ny = 2\r\n", &pe(0x8664));
+    let both = work.path().join("both.tar.gz");
+    assert!(tar::add_platforms(&windows, &linux, &both).unwrap());
+    assert_eq!(built_for(&both), vec!["windows x86_64", "linux x86_64"]);
+
+    let changed = bundle_with(work.path(), "changed", "x = 1\r\ny = 3\r\n", &macho(0x0100_000C));
+    assert!(!tar::add_platforms(&changed, &linux, &work.path().join("out.tar.gz")).unwrap());
+}

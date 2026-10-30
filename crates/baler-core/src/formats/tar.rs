@@ -412,12 +412,31 @@ fn groups<'a>(members: &'a [Member], origin: &Path) -> Result<Vec<Group<'a>>> {
 }
 
 /// Everything in an archive except `.lib/` contents, by path.
-fn source_files(members: &[Member]) -> BTreeMap<String, &Vec<u8>> {
+///
+/// A text file is read with CRLF as LF. A Git checkout on Windows turns
+/// every line ending into CRLF, so the same commit bundled on Windows and
+/// on Linux differs byte for byte, and would never count as the same
+/// source. A file with a NUL byte is a binary and is compared as it is.
+fn source_files(members: &[Member]) -> BTreeMap<String, Vec<u8>> {
     members
         .iter()
         .filter(|member| lib_split(&member.path).is_none())
-        .map(|member| (slash(&member.path), &member.bytes))
+        .map(|member| (slash(&member.path), lf_text(&member.bytes)))
         .collect()
+}
+
+fn lf_text(bytes: &[u8]) -> Vec<u8> {
+    if bytes.contains(&0) {
+        return bytes.to_vec();
+    }
+    let mut text = Vec::with_capacity(bytes.len());
+    for (at, byte) in bytes.iter().enumerate() {
+        if *byte == b'\r' && bytes.get(at + 1) == Some(&b'\n') {
+            continue;
+        }
+        text.push(*byte);
+    }
+    text
 }
 
 fn append_bytes(
