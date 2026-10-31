@@ -60,7 +60,9 @@ enum Commands {
 
     /// Bundle a module into <name>_<version>.tar.gz. Whether a compiled
     /// binary and native source are shipped is set by `binary` and
-    /// `keep_source` under `[compiled-code]` in baler.toml.
+    /// `keep_source` under `[compiled-code]` in baler.toml. Running it on
+    /// another platform against the same archive adds that platform's
+    /// binary, and --merge combines archives made on different platforms.
     Bundle {
         /// Path to the project root (e.g. `.` or `./my-project`)
         #[arg(default_value = ".")]
@@ -71,6 +73,13 @@ enum Commands {
         /// inside the bundle, so a stale one breaks installs of it.
         #[arg(long)]
         locked: bool,
+
+        /// Merge the binaries of these bundles of the same module, made
+        /// on other platforms, into one bundle, without compiling.
+        /// Each must come from the same files as the project. Give the
+        /// path first: `baler bundle . --merge a.tar.gz b.tar.gz`.
+        #[arg(long, num_args = 1.., value_name = "ARCHIVE")]
+        merge: Vec<String>,
     },
 
     /// Compile a module's native code in place for local dev/testing.
@@ -219,8 +228,8 @@ pub fn run() {
         Commands::Compile { path, clean, rebuild } => {
             commands::compile::run(CompileArgs { path, clean, rebuild })
         }
-        Commands::Bundle { path, locked } => {
-            commands::bundle::run(BundleArgs { path, locked })
+        Commands::Bundle { path, locked, merge } => {
+            commands::bundle::run(BundleArgs { path, locked, merge })
         }
         Commands::Install { source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir } => {
             commands::install::run(InstallArgs {
