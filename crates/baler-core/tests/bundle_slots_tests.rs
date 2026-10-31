@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-use baler_core::formats::tar::{bundle_with_binary, platform_tag, unpack, BundleSpec};
+use baler_core::formats::tar::{bundle_with_binary, merge_bundles, platform_tag, unpack, BundleSpec};
 
 const LINUX: &str = "x86_64-pc-linux-gnu_r4.4";
 const MAC: &str = "aarch64-apple-darwin20_r4.4";
@@ -41,14 +41,17 @@ impl Project {
     }
 
     fn bundle(&self, tag: &str) -> anyhow::Result<Vec<String>> {
+        self.bundle_to(tag, &self.archive())
+    }
+
+    fn bundle_to(&self, tag: &str, archive: &std::path::Path) -> anyhow::Result<Vec<String>> {
         let src = self.root.join("foo");
-        let archive = self.archive();
         let force_include = vec![self.lib()];
         bundle_with_binary(
             &BundleSpec {
                 src_path: &src,
                 project_root: &self.root,
-                output_path: &archive,
+                output_path: archive,
                 name: "foo",
                 version: "1.0.0",
                 exclude: &[],
@@ -56,6 +59,32 @@ impl Project {
             },
             tag,
         )
+    }
+
+    /// What `baler bundle --merge` passes: the module's files and no `.lib/`.
+    fn merge(&self, inputs: &[PathBuf]) -> anyhow::Result<Vec<String>> {
+        let src = self.root.join("foo");
+        let archive = self.archive();
+        merge_bundles(
+            &BundleSpec {
+                src_path: &src,
+                project_root: &self.root,
+                output_path: &archive,
+                name: "foo",
+                version: "1.0.0",
+                exclude: &[],
+                force_include: &[],
+            },
+            inputs,
+        )
+    }
+
+    /// A single-platform archive of the current files, as one CI job makes.
+    fn platform_archive(&self, file: &str, tag: &str, content: &str) -> PathBuf {
+        self.compile(content);
+        let path = self.root.join(file);
+        self.bundle_to(tag, &path).unwrap();
+        path
     }
 
     fn entries(&self) -> BTreeSet<String> {
@@ -195,4 +224,90 @@ fn platform_tag_is_a_single_safe_path_component() {
     assert_eq!(platform_tag("x86_64-pc-linux-gnu", "4.4"), LINUX);
     let odd = platform_tag("a/b c", "4.4\\x");
     assert!(!odd.contains('/') && !odd.contains('\\') && !odd.contains(' '), "{odd}");
+}
+
+#[test]
+fn merge_combines_single_platform_archives() {
+    let project = Project::new("merge");
+    let linux = project.platform_archive("linux.tar.gz", LINUX, "linux build");
+    let mac = project.platform_archive("mac.tar.gz", MAC, "mac build");
+
+    let tags = project.merge(&[linux, mac]).unwrap();
+
+    assert_eq!(tags, vec![MAC.to_owned(), LINUX.to_owned()]);
+    assert_eq!(project.read(&binary_entry(LINUX)), "linux build");
+    assert_eq!(project.read(&binary_entry(MAC)), "mac build");
+    assert!(project.entries().contains("foo_1.0.0/baler.toml"));
+    assert!(project.entries().contains("foo_1.0.0/foo/__init__.R"));
+}
+
+#[test]
+fn merge_may_replace_one_of_its_inputs() {
+    let project = Project::new("merge-in-place");
+    project.compile("linux build");
+    project.bundle(LINUX).unwrap();
+    let mac = project.platform_archive("mac.tar.gz", MAC, "mac build");
+
+    project.merge(&[project.archive(), mac]).unwrap();
+
+    assert_eq!(project.read(&binary_entry(LINUX)), "linux build");
+    assert_eq!(project.read(&binary_entry(MAC)), "mac build");
+}
+
+#[test]
+fn merge_refuses_an_archive_made_from_other_files() {
+    let project = Project::new("merge-stale");
+    let linux = project.platform_archive("linux.tar.gz", LINUX, "linux build");
+    project.edit_source("x = 2\n");
+    let mac = project.platform_archive("mac.tar.gz", MAC, "mac build");
+
+    let err = project.merge(&[linux, mac]).unwrap_err().to_string();
+
+    assert!(err.contains("linux.tar.gz"), "{err}");
+    assert!(!project.archive().exists());
+}
+
+#[test]
+fn merge_refuses_a_platform_that_two_archives_hold() {
+    let project = Project::new("merge-duplicate");
+    let first = project.platform_archive("first.tar.gz", LINUX, "one");
+    let second = project.platform_archive("second.tar.gz", LINUX, "two");
+
+    let err = project.merge(&[first, second]).unwrap_err().to_string();
+
+    assert!(err.contains(LINUX), "{err}");
+    assert!(err.contains("first.tar.gz") && err.contains("second.tar.gz"), "{err}");
+}
+
+#[test]
+fn merge_refuses_archives_without_binaries() {
+    let project = Project::new("merge-empty");
+    project.compile("linux build");
+    let plain = project.root.join("plain.tar.gz");
+    // An archive of the same files made without `.lib/`.
+    let src = project.root.join("foo");
+    baler_core::formats::tar::bundle(&src, &project.root, &plain, "foo", "1.0.0", &[], &[]).unwrap();
+
+    let err = project.merge(&[plain]).unwrap_err().to_string();
+
+    assert!(err.contains("binary"), "{err}");
+}
+
+#[test]
+fn merge_fails_on_an_unreadable_input_and_keeps_the_existing_archive() {
+    let project = Project::new("merge-unreadable");
+    project.compile("linux build");
+    project.bundle(LINUX).unwrap();
+    let before = std::fs::read(project.archive()).unwrap();
+    let broken = project.root.join("broken.tar.gz");
+    std::fs::write(&broken, b"not a gzip file").unwrap();
+
+    assert!(project.merge(&[broken]).is_err());
+    assert_eq!(std::fs::read(project.archive()).unwrap(), before);
+}
+
+#[test]
+fn merge_needs_at_least_one_archive() {
+    let project = Project::new("merge-none");
+    assert!(project.merge(&[]).is_err());
 }

@@ -141,22 +141,99 @@ pub fn bundle_with_binary(spec: &BundleSpec, tag: &str) -> Result<Vec<String>> {
     let mut tags: BTreeSet<String> = carried.iter().map(|entry| entry.tag.clone()).collect();
     tags.insert(tag.to_owned());
 
-    let file_name = spec
-        .output_path
+    replace_archive(spec.output_path, &planned, &carried)?;
+
+    Ok(tags.into_iter().collect())
+}
+
+/// Combine the binaries of several bundles of one module into a single
+/// bundle at `spec.output_path`, without compiling anything. Run it on
+/// the bundles that each platform produced:
+/// ``` text
+/// foo_1.0.0.tar.gz (linux) + foo_1.0.0.tar.gz (macos) -> foo_1.0.0.tar.gz (both)
+/// ```
+///
+/// The module's own files come from `spec`, which should leave
+/// `force_include` empty. Every file outside `.lib/` in each input must
+/// be byte for byte the same as those files, so binaries built from
+/// different source are never combined, and the call fails naming the
+/// input that differs. A platform that appears in more than one input
+/// fails too, since there is no telling which binary to keep. Nothing is
+/// written when the call fails, and `spec.output_path` may be one of the
+/// inputs, because every input is read before the output is replaced.
+///
+/// Returns the tags of every platform the new archive holds, sorted.
+pub fn merge_bundles(spec: &BundleSpec, inputs: &[PathBuf]) -> Result<Vec<String>> {
+    if inputs.is_empty() {
+        bail!("Nothing to merge, pass at least one archive.");
+    }
+
+    let planned = plan(spec, None)?;
+    let top = format!("{}_{}", spec.name, spec.version);
+
+    let mut carried: Vec<CarriedEntry> = Vec::new();
+    let mut first_seen: BTreeMap<String, usize> = BTreeMap::new();
+    for (index, input) in inputs.iter().enumerate() {
+        let previous = read_previous(input)
+            .with_context(|| format!("Failed to read {}", input.display()))?;
+
+        if !same_sources(&planned, &previous.sources, &top)? {
+            bail!(
+                "{} was bundled from files that differ from the module at {}, so its binaries may not belong to this source. Bundle it again from the current files.",
+                input.display(),
+                spec.project_root.display()
+            );
+        }
+        if previous.untagged > 0 {
+            eprintln!(
+                "warning: {} holds {} binary file(s) from an older baler that are not tied to a platform. They are not carried over.",
+                input.display(),
+                previous.untagged
+            );
+        }
+
+        for entry in previous.binaries {
+            match first_seen.get(&entry.tag) {
+                Some(&earlier) if earlier != index => bail!(
+                    "{} and {} both hold a binary for {}. Merge one of them only.",
+                    inputs[earlier].display(),
+                    input.display(),
+                    entry.tag
+                ),
+                _ => {
+                    first_seen.insert(entry.tag.clone(), index);
+                    carried.push(entry);
+                }
+            }
+        }
+    }
+
+    if carried.is_empty() {
+        bail!("None of the archives holds a binary to merge.");
+    }
+
+    let tags: BTreeSet<String> = carried.iter().map(|entry| entry.tag.clone()).collect();
+    replace_archive(spec.output_path, &planned, &carried)?;
+
+    Ok(tags.into_iter().collect())
+}
+
+/// Writes the archive next to `output_path` and renames it into place,
+/// so a failure leaves whatever was at `output_path` as it was.
+fn replace_archive(output_path: &Path, planned: &[Planned], carried: &[CarriedEntry]) -> Result<()> {
+    let file_name = output_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("bundle.tar.gz");
-    let partial = spec.output_path.with_file_name(format!("{}.partial", file_name));
+    let partial = output_path.with_file_name(format!("{}.partial", file_name));
     let file = File::create(&partial)
         .with_context(|| format!("Failed to create: {}", partial.display()))?;
-    if let Err(e) = write_archive(file, &planned, &carried) {
+    if let Err(e) = write_archive(file, planned, carried) {
         let _ = std::fs::remove_file(&partial);
         return Err(e);
     }
-    std::fs::rename(&partial, spec.output_path)
-        .with_context(|| format!("Failed to move {} to {}", partial.display(), spec.output_path.display()))?;
-
-    Ok(tags.into_iter().collect())
+    std::fs::rename(&partial, output_path)
+        .with_context(|| format!("Failed to move {} to {}", partial.display(), output_path.display()))
 }
 
 const LIB_DIR: &str = ".lib";
