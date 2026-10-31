@@ -6,7 +6,7 @@ pub struct BundleArgs {
     /// match baler.toml.
     pub locked: bool,
     /// Bundles of the same module made on other platforms. When there are
-    /// any, they are merged into one bundle and nothing is compiled.
+    /// any, their binaries are merged into the bundle.
     pub merge: Vec<String>,
 }
 

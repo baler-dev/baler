@@ -62,7 +62,8 @@ enum Commands {
     /// binary and native source are shipped is set by `binary` and
     /// `keep_source` under `[compiled-code]` in baler.toml. Running it on
     /// another platform against the same archive adds that platform's
-    /// binary, and --merge combines archives made on different platforms.
+    /// binary, and --merge adds the binaries of archives made on other
+    /// platforms.
     Bundle {
         /// Path to the project root (e.g. `.` or `./my-project`)
         #[arg(default_value = ".")]
@@ -74,10 +75,11 @@ enum Commands {
         #[arg(long)]
         locked: bool,
 
-        /// Merge the binaries of these bundles of the same module, made
-        /// on other platforms, into one bundle, without compiling.
-        /// Each must come from the same files as the project. Give the
-        /// path first: `baler bundle . --merge a.tar.gz b.tar.gz`.
+        /// Also merge into the bundle the binaries of these bundles of the
+        /// same module, made on other platforms. The bundle is compiled
+        /// for this platform as usual. Each archive must come from the
+        /// same files as the project. A path, if given, goes before this
+        /// flag: `baler bundle --merge a.tar.gz b.tar.gz`.
         #[arg(long, num_args = 1.., value_name = "ARCHIVE")]
         merge: Vec<String>,
     },
