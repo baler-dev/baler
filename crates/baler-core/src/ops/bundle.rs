@@ -44,19 +44,25 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
         .map(|c| (c.binary, c.keep_source))
         .unwrap_or((false, false));
 
+    // Set when a binary was compiled here: names the `.lib/<tag>/` folder
+    // this platform's binaries are stored under in the bundle.
+    let mut platform_tag: Option<String> = None;
+
     if binary {
-        // Compiled here for the side effect, the .lib/ artifacts it
-        // produces. There used to be a return value captured for
-        // manifest.json's native artifact metadata; nothing ever read
-        // that back, so only its emptiness is checked.
+        // Compiled here for the .lib/ artifacts it produces. The platform
+        // it compiled for names the folder those artifacts are stored
+        // under in the bundle.
         let compiled =
             crate::ops::compile::run(&project_root, crate::ops::compile::CompileMode::Normal)?;
-        if compiled.is_empty() {
-            eprintln!(
+        match compiled.first() {
+            Some(first) => {
+                platform_tag = Some(tar::platform_tag(&first.target_triple, &first.r_version));
+            }
+            None => eprintln!(
                 "warning: [compiled-code] sets `binary = true`, but '{}' has no \
                  native code to compile. Bundling without a binary.",
                 meta.name
-            );
+            ),
         }
     }
 
@@ -65,11 +71,16 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
     // explicit exclusion needed there. `binary = true` needs the
     // opposite: force it back in despite the dot, since shipping it is
     // the whole point. `binary = true` without `keep_source`
-    // additionally excludes native source; a bundle for another
-    // platform or R version then has nothing to fall back to, and
-    // install fails with a message naming both platforms (see
+    // additionally excludes native source; a machine none of the
+    // bundled binaries fit then has nothing to fall back to, and
+    // install fails with a message naming the platforms (see
     // `install/native.rs`). The platform each binary was built for is
     // recorded in the `.abi.json` sidecar that ships next to it.
+    //
+    // Binaries are stored per platform (`.lib/<tag>/`). If the output
+    // archive already exists and holds other platforms' binaries for the
+    // same files, they are kept, so running `baler bundle` on each OS
+    // against the same archive builds one bundle for all of them.
     let (exclude, force_include): (Vec<PathBuf>, Vec<PathBuf>) = if binary {
         let lib_dirs: Vec<PathBuf> = toml
             .resolve_native_dirs(&project_root)
@@ -92,15 +103,30 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
 
     let output_path = cwd.join(format!("{}_{}.tar.gz", meta.name, meta.version));
 
-    tar::bundle(
-        &src_path,
-        &project_root,
-        &output_path,
-        &meta.name,
-        &meta.version,
-        &exclude,
-        &force_include,
-    )
+    let platforms = match &platform_tag {
+        Some(tag) => tar::bundle_with_binary(
+            &tar::BundleSpec {
+                src_path: &src_path,
+                project_root: &project_root,
+                output_path: &output_path,
+                name: &meta.name,
+                version: &meta.version,
+                exclude: &exclude,
+                force_include: &force_include,
+            },
+            tag,
+        ),
+        None => tar::bundle(
+            &src_path,
+            &project_root,
+            &output_path,
+            &meta.name,
+            &meta.version,
+            &exclude,
+            &force_include,
+        )
+        .map(|()| Vec::new()),
+    }
     .with_context(|| format!("Failed to bundle: {}", src_path.display()))?;
 
     println!(
@@ -109,6 +135,9 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
         meta.version,
         output_path.display()
     );
+    if !platforms.is_empty() {
+        println!("Binaries in the bundle: {}", platforms.join(", "));
+    }
 
     Ok(())
 }
