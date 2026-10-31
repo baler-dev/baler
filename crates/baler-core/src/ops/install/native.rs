@@ -22,19 +22,22 @@ use crate::ops::resolve;
 /// baler.toml gives the identical answer without needing a generated
 /// copy to stay in sync with it.
 ///
-/// A bundle made with `binary = true` ships `.lib/` with each artifact's
-/// `.abi.json` sidecar, which records the platform and R version it was
-/// built for. Three cases follow from comparing that with this machine:
+/// A bundle made with `binary = true` ships `.lib/` with the binaries.
+/// A bundle made on several platforms has one `.lib/<platform>/` folder
+/// per platform. Install keeps the folder that fits this machine, moves
+/// its files up into `.lib/` and deletes the other folders. Each
+/// artifact's `.abi.json` sidecar records the platform and R version it
+/// was built for, and comparing that with this machine gives three cases:
 ///
 /// - The binary fits (same platform, same R `major.minor`, and the same
-///   source hash as the source that shipped next to it): it is used as it
-///   is. No compiler and no `--install-deps` are needed.
-/// - It does not fit but the source shipped too (`keep_source = true`):
-///   it is rebuilt here, as before. Without `--install-deps` a note says
-///   the shipped binary will not work on this machine.
+///   source hash as the source that shipped next to it): it is used as
+///   it is. No compiler and no `--install-deps` are needed.
+/// - It does not fit but the source shipped (`keep_source = true`): it
+///   is rebuilt here. Without `--install-deps` a note says the shipped
+///   binaries will not work on this machine.
 /// - It does not fit and there is no source: the install fails with a
-///   message naming both platforms, instead of leaving a binary that
-///   cannot load.
+///   message naming every platform the bundle holds and this machine's,
+///   instead of leaving a binary that cannot load.
 ///
 /// A binary with no sidecar has no recorded platform, so it cannot be
 /// checked and is left alone.
@@ -49,6 +52,23 @@ pub(super) fn build_native_if_present(
     install_deps: bool,
     toml: &BalerToml,
 ) -> Result<()> {
+    // Only ask R what this machine is when the bundle shipped binaries.
+    let lib_dirs = find_lib_dirs(module_path);
+    let host = if lib_dirs.is_empty() {
+        None
+    } else {
+        Some(host_abi()?)
+    };
+
+    // Binaries that shipped but cannot run here, from the platform
+    // folders and from `.lib/` itself.
+    let mut foreign: Vec<AbiInfo> = Vec::new();
+    if let Some((host_triple, host_r_version)) = &host {
+        for lib_dir in &lib_dirs {
+            foreign.extend(select_platform_folder(lib_dir, host_triple, host_r_version)?);
+        }
+    }
+
     // A declared native dir that is not in the archive (bundled with
     // `keep_source = false`) has nothing to build from.
     let native_dirs: Vec<PathBuf> = toml
@@ -58,7 +78,7 @@ pub(super) fn build_native_if_present(
         .collect();
 
     if native_dirs.is_empty() {
-        return check_binary_only(module_path, name);
+        return check_binary_only(name, &lib_dirs, &host, &foreign);
     }
 
     let mut by_lib_dir: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
@@ -70,20 +90,11 @@ pub(super) fn build_native_if_present(
             .push(native_dir.clone());
     }
 
-    // Only ask R what this machine is when there is a shipped binary to
-    // compare it with.
-    let host = if by_lib_dir.keys().any(|lib_dir| lib_dir.is_dir()) {
-        Some(host_abi()?)
-    } else {
-        None
-    };
-
     // A `.lib/` is reused only when every native dir feeding it has a
     // binary that fits. One that does not means the whole `.lib/` is
     // rebuilt, as it always was, since the artifacts there are cleared
     // together.
     let mut reusable: BTreeSet<PathBuf> = BTreeSet::new();
-    let mut foreign: Vec<AbiInfo> = Vec::new();
     if let Some((host_triple, host_r_version)) = &host {
         for (lib_dir, dirs) in &by_lib_dir {
             let shipped = read_abi_sidecars(lib_dir)?;
@@ -137,10 +148,13 @@ pub(super) fn build_native_if_present(
             " [native] {} has compiled code, build with: baler install --install-deps",
             name
         );
-        if let (Some(found), Some((host_triple, host_r_version))) = (foreign.first(), &host) {
+        if let (false, Some((host_triple, host_r_version))) = (foreign.is_empty(), &host) {
             println!(
-                " [native] the binary shipped with '{}' was built for {} (R {}), this machine is {} (R {}), so it will not work here until it is built",
-                name, found.target_triple, found.r_version, host_triple, host_r_version
+                " [native] the binaries shipped with '{}' were built for {}, this machine is {} (R {}), so none of them will work here until it is built",
+                name,
+                describe(&foreign),
+                host_triple,
+                host_r_version
             );
         }
         return Ok(());
@@ -184,40 +198,121 @@ pub(super) fn build_native_if_present(
     Ok(())
 }
 
-/// An archive with no native source (bundled with `binary = true` and
-/// `keep_source = false`) can only ever use the binary it shipped. If
-/// that was built for another platform or R version, fail now with a
-/// clear message, rather than leave a binary that cannot load.
-fn check_binary_only(module_path: &Path, name: &str) -> Result<()> {
-    let mut shipped: Vec<(PathBuf, AbiInfo)> = Vec::new();
-    for entry in walkdir::WalkDir::new(module_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_dir() && e.file_name().to_str() == Some(".lib"))
-    {
-        shipped.extend(read_abi_sidecars(entry.path())?);
+/// Every `.lib/` directory under `module_path`.
+fn find_lib_dirs(module_path: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut walker = walkdir::WalkDir::new(module_path).into_iter();
+    while let Some(entry) = walker.next() {
+        let Ok(entry) = entry else { continue };
+        if entry.file_type().is_dir() && entry.file_name().to_str() == Some(".lib") {
+            found.push(entry.path().to_path_buf());
+            walker.skip_current_dir();
+        }
     }
-    if shipped.is_empty() {
+    found
+}
+
+/// A bundle made on several platforms keeps each platform's binaries in
+/// `lib_dir/<platform>/`. Moves the files of the folder that fits this
+/// machine up into `lib_dir` and deletes every platform folder, so only
+/// the binary that can run here stays on disk.
+///
+/// Returns what shipped but cannot run here: empty when a folder fit,
+/// or when `lib_dir` has no platform folders at all (a bundle from an
+/// older baler keeps its binaries directly in `lib_dir`).
+fn select_platform_folder(lib_dir: &Path, host_triple: &str, host_r_version: &str) -> Result<Vec<AbiInfo>> {
+    let mut folders: Vec<PathBuf> = std::fs::read_dir(lib_dir)
+        .with_context(|| format!("Failed to read {}", lib_dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    if folders.is_empty() {
+        return Ok(Vec::new());
+    }
+    folders.sort();
+
+    let mut unusable = Vec::new();
+    let mut chosen: Option<&PathBuf> = None;
+    for folder in &folders {
+        let shipped = read_abi_sidecars(folder)?;
+        let Some((_, first)) = shipped.first() else { continue };
+        if shipped.iter().all(|(_, info)| info.is_compatible(host_triple, host_r_version)) {
+            if chosen.is_none() {
+                chosen = Some(folder);
+            }
+        } else {
+            unusable.push(first.clone());
+        }
+    }
+
+    if let Some(folder) = chosen {
+        for entry in std::fs::read_dir(folder)
+            .with_context(|| format!("Failed to read {}", folder.display()))?
+        {
+            let from = entry
+                .with_context(|| format!("Failed to read an entry of {}", folder.display()))?
+                .path();
+            let Some(file_name) = from.file_name() else { continue };
+            let to = lib_dir.join(file_name);
+            std::fs::rename(&from, &to)
+                .with_context(|| format!("Failed to move {} to {}", from.display(), to.display()))?;
+        }
+        unusable.clear();
+    }
+
+    for folder in &folders {
+        std::fs::remove_dir_all(folder)
+            .with_context(|| format!("Failed to remove {}", folder.display()))?;
+    }
+
+    Ok(unusable)
+}
+
+/// An archive with no native source (bundled with `binary = true` and
+/// `keep_source = false`) can only ever use the binaries it shipped. If
+/// none of them were built for this platform and R version, fail now
+/// with a clear message, rather than leave a binary that cannot load.
+fn check_binary_only(
+    name: &str,
+    lib_dirs: &[PathBuf],
+    host: &Option<(String, String)>,
+    foreign: &[AbiInfo],
+) -> Result<()> {
+    let Some((host_triple, host_r_version)) = host else {
+        return Ok(());
+    };
+
+    let mut unusable = foreign.to_vec();
+    for lib_dir in lib_dirs {
+        for (_, info) in read_abi_sidecars(lib_dir)? {
+            if !info.is_compatible(host_triple, host_r_version) {
+                unusable.push(info);
+            }
+        }
+    }
+    if unusable.is_empty() {
         return Ok(());
     }
 
-    let (host_triple, host_r_version) = host_abi()?;
-    if let Some((artifact, info)) = shipped
+    bail!(
+        "'{name}' ships binaries for {} and no native source, but this machine is {host_triple} (R {host_r_version}), so none of them can be used here.\n\
+         Ask the module's author to add a binary for this platform (run `baler bundle` on it against the same archive), \
+         or to bundle with `keep_source = true` under [compiled-code] in baler.toml so other platforms can build it from source.",
+        describe(&unusable)
+    );
+}
+
+/// `x86_64-pc-linux-gnu (R 4.4), aarch64-apple-darwin20 (R 4.4)`, each
+/// platform once.
+fn describe(infos: &[AbiInfo]) -> String {
+    let mut seen = BTreeSet::new();
+    infos
         .iter()
-        .find(|(_, info)| !info.is_compatible(&host_triple, &host_r_version))
-    {
-        let file = artifact.file_name().unwrap_or_default().to_string_lossy();
-        bail!(
-            "'{name}' ships {file} built for {} (R {}) and no native source, \
-             but this machine is {host_triple} (R {host_r_version}), so it cannot be used here.\n\
-             Ask the module's author to bundle it with `keep_source = true` under \
-             [compiled-code] in baler.toml so other platforms can build it from source, \
-             or to publish a bundle built on this platform.",
-            info.target_triple,
-            info.r_version
-        );
-    }
-    Ok(())
+        .map(|info| format!("{} (R {})", info.target_triple, info.r_version))
+        .filter(|text| seen.insert(text.clone()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn remove_native_source(native_dir: &Path) -> Result<()> {
