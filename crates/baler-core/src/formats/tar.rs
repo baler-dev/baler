@@ -146,29 +146,35 @@ pub fn bundle_with_binary(spec: &BundleSpec, tag: &str) -> Result<Vec<String>> {
     Ok(tags.into_iter().collect())
 }
 
-/// Combine the binaries of several bundles of one module into a single
-/// bundle at `spec.output_path`, without compiling anything. Run it on
-/// the bundles that each platform produced:
+/// Combine the binaries of several bundles of one module, made on other
+/// platforms, with the binary compiled here, into a single bundle at
+/// `spec.output_path`:
 /// ``` text
-/// foo_1.0.0.tar.gz (linux) + foo_1.0.0.tar.gz (macos) -> foo_1.0.0.tar.gz (both)
+/// this platform + foo_1.0.0.tar.gz (linux) + foo_1.0.0.tar.gz (macos) -> foo_1.0.0.tar.gz (all three)
 /// ```
 ///
-/// The module's own files come from `spec`, which should leave
-/// `force_include` empty. Every file outside `.lib/` in each input must
-/// be byte for byte the same as those files, so binaries built from
-/// different source are never combined, and the call fails naming the
-/// input that differs. A platform that appears in more than one input
-/// fails too, since there is no telling which binary to keep. Nothing is
-/// written when the call fails, and `spec.output_path` may be one of the
-/// inputs, because every input is read before the output is replaced.
+/// The module's own files come from `spec`. When a binary was compiled
+/// here, `spec.force_include` holds its `.lib/` directories and
+/// `local_tag` names its platform, as for `bundle_with_binary`; both are
+/// empty and `None` when nothing was compiled, and only the inputs'
+/// binaries are combined.
+///
+/// Every file outside `.lib/` in each input must be byte for byte the
+/// same as the module's files, so binaries built from different source
+/// are never combined, and the call fails naming the input that differs.
+/// A platform that appears in more than one input fails too, and so does
+/// an input that holds `local_tag`, since there is no telling which
+/// binary to keep. Nothing is written when the call fails, and
+/// `spec.output_path` may be one of the inputs, because every input is
+/// read before the output is replaced.
 ///
 /// Returns the tags of every platform the new archive holds, sorted.
-pub fn merge_bundles(spec: &BundleSpec, inputs: &[PathBuf]) -> Result<Vec<String>> {
+pub fn merge_bundles(spec: &BundleSpec, inputs: &[PathBuf], local_tag: Option<&str>) -> Result<Vec<String>> {
     if inputs.is_empty() {
         bail!("Nothing to merge, pass at least one archive.");
     }
 
-    let planned = plan(spec, None)?;
+    let planned = plan(spec, local_tag)?;
     let top = format!("{}_{}", spec.name, spec.version);
 
     let mut carried: Vec<CarriedEntry> = Vec::new();
@@ -193,6 +199,13 @@ pub fn merge_bundles(spec: &BundleSpec, inputs: &[PathBuf]) -> Result<Vec<String
         }
 
         for entry in previous.binaries {
+            if Some(entry.tag.as_str()) == local_tag {
+                bail!(
+                    "{} holds a binary for {}, the platform being bundled here. Leave it out of the merge, or bundle on another platform.",
+                    input.display(),
+                    entry.tag
+                );
+            }
             match first_seen.get(&entry.tag) {
                 Some(&earlier) if earlier != index => bail!(
                     "{} and {} both hold a binary for {}. Merge one of them only.",
@@ -212,7 +225,10 @@ pub fn merge_bundles(spec: &BundleSpec, inputs: &[PathBuf]) -> Result<Vec<String
         bail!("None of the archives holds a binary to merge.");
     }
 
-    let tags: BTreeSet<String> = carried.iter().map(|entry| entry.tag.clone()).collect();
+    let mut tags: BTreeSet<String> = carried.iter().map(|entry| entry.tag.clone()).collect();
+    if let Some(tag) = local_tag {
+        tags.insert(tag.to_owned());
+    }
     replace_archive(spec.output_path, &planned, &carried)?;
 
     Ok(tags.into_iter().collect())

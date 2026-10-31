@@ -7,6 +7,7 @@ use baler_core::formats::tar::{bundle_with_binary, merge_bundles, platform_tag, 
 
 const LINUX: &str = "x86_64-pc-linux-gnu_r4.4";
 const MAC: &str = "aarch64-apple-darwin20_r4.4";
+const WIN: &str = "x86_64-w64-mingw32_r4.4";
 
 struct Project {
     root: PathBuf,
@@ -61,7 +62,7 @@ impl Project {
         )
     }
 
-    /// What `baler bundle --merge` passes: the module's files and no `.lib/`.
+    /// A merge where nothing was compiled here: only the inputs' binaries.
     fn merge(&self, inputs: &[PathBuf]) -> anyhow::Result<Vec<String>> {
         let src = self.root.join("foo");
         let archive = self.archive();
@@ -76,6 +77,28 @@ impl Project {
                 force_include: &[],
             },
             inputs,
+            None,
+        )
+    }
+
+    /// What `baler bundle --merge` does after compiling here: the binary
+    /// in `.lib/` belongs to `tag`, and the inputs come from other platforms.
+    fn merge_with_local(&self, inputs: &[PathBuf], tag: &str) -> anyhow::Result<Vec<String>> {
+        let src = self.root.join("foo");
+        let archive = self.archive();
+        let force_include = vec![self.lib()];
+        merge_bundles(
+            &BundleSpec {
+                src_path: &src,
+                project_root: &self.root,
+                output_path: &archive,
+                name: "foo",
+                version: "1.0.0",
+                exclude: &[],
+                force_include: &force_include,
+            },
+            inputs,
+            Some(tag),
         )
     }
 
@@ -310,4 +333,31 @@ fn merge_fails_on_an_unreadable_input_and_keeps_the_existing_archive() {
 fn merge_needs_at_least_one_archive() {
     let project = Project::new("merge-none");
     assert!(project.merge(&[]).is_err());
+}
+
+#[test]
+fn merge_adds_the_binary_compiled_here_to_the_other_platforms() {
+    let project = Project::new("merge-local");
+    let linux = project.platform_archive("linux.tar.gz", LINUX, "linux build");
+    let mac = project.platform_archive("mac.tar.gz", MAC, "mac build");
+
+    project.compile("windows build");
+    let tags = project.merge_with_local(&[linux, mac], WIN).unwrap();
+
+    assert_eq!(tags, vec![MAC.to_owned(), LINUX.to_owned(), WIN.to_owned()]);
+    assert_eq!(project.read(&binary_entry(LINUX)), "linux build");
+    assert_eq!(project.read(&binary_entry(MAC)), "mac build");
+    assert_eq!(project.read(&binary_entry(WIN)), "windows build");
+}
+
+#[test]
+fn merge_refuses_an_input_for_the_platform_bundled_here() {
+    let project = Project::new("merge-local-duplicate");
+    let linux = project.platform_archive("linux.tar.gz", LINUX, "old linux build");
+
+    project.compile("new linux build");
+    let err = project.merge_with_local(&[linux], LINUX).unwrap_err().to_string();
+
+    assert!(err.contains("linux.tar.gz") && err.contains(LINUX), "{err}");
+    assert!(!project.archive().exists());
 }

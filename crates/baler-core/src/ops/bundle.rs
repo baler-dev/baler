@@ -24,6 +24,24 @@ pub fn run(path: &str) -> Result<()> {
 /// anyway. With `locked: true`, in the style of `cargo publish --locked`,
 /// it fails, and a missing or unreadable lock fails too.
 pub fn run_with(path: &str, locked: bool) -> Result<()> {
+    bundle_project(path, locked, &[])
+}
+
+/// `run_with` plus `--merge`: bundles the project as usual, which compiles
+/// for this platform when `binary = true`, and also brings in the
+/// binaries of the bundles in `archives`, made on other platforms. Each
+/// archive must come from the same files as the project. Needs
+/// `binary = true` under `[compiled-code]`, since a bundle only ships
+/// binaries then.
+///
+/// Like a normal bundle, it writes `<name>_<version>.tar.gz` in the
+/// current directory and replaces an archive already there, so list it
+/// among `archives` to keep what it holds.
+pub fn merge_with(path: &str, locked: bool, archives: &[String]) -> Result<()> {
+    bundle_project(path, locked, archives)
+}
+
+fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
     let project_root = PathBuf::from(path);
 
     if !project_root.exists() {
@@ -43,6 +61,20 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
         .as_ref()
         .map(|c| (c.binary, c.keep_source))
         .unwrap_or((false, false));
+
+    // Checked before compiling, so a mistake does not cost a build.
+    if !merge.is_empty() {
+        if !binary {
+            bail!(
+                "--merge needs `binary = true` under [compiled-code] in baler.toml, since only then does a bundle ship binaries."
+            );
+        }
+        for archive in merge {
+            if !Path::new(archive).is_file() {
+                bail!("Archive does not exist: {}", archive);
+            }
+        }
+    }
 
     // Set when a binary was compiled here: names the `.lib/<tag>/` folder
     // this platform's binaries are stored under in the bundle.
@@ -103,29 +135,32 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
 
     let output_path = cwd.join(format!("{}_{}.tar.gz", meta.name, meta.version));
 
-    let platforms = match &platform_tag {
-        Some(tag) => tar::bundle_with_binary(
-            &tar::BundleSpec {
-                src_path: &src_path,
-                project_root: &project_root,
-                output_path: &output_path,
-                name: &meta.name,
-                version: &meta.version,
-                exclude: &exclude,
-                force_include: &force_include,
-            },
-            tag,
-        ),
-        None => tar::bundle(
-            &src_path,
-            &project_root,
-            &output_path,
-            &meta.name,
-            &meta.version,
-            &exclude,
-            &force_include,
-        )
-        .map(|()| Vec::new()),
+    let spec = tar::BundleSpec {
+        src_path: &src_path,
+        project_root: &project_root,
+        output_path: &output_path,
+        name: &meta.name,
+        version: &meta.version,
+        exclude: &exclude,
+        force_include: &force_include,
+    };
+    let platforms = if !merge.is_empty() {
+        let inputs: Vec<PathBuf> = merge.iter().map(PathBuf::from).collect();
+        tar::merge_bundles(&spec, &inputs, platform_tag.as_deref())
+    } else {
+        match &platform_tag {
+            Some(tag) => tar::bundle_with_binary(&spec, tag),
+            None => tar::bundle(
+                &src_path,
+                &project_root,
+                &output_path,
+                &meta.name,
+                &meta.version,
+                &exclude,
+                &force_include,
+            )
+            .map(|()| Vec::new()),
+        }
     }
     .with_context(|| format!("Failed to bundle: {}", src_path.display()))?;
 
@@ -135,91 +170,12 @@ pub fn run_with(path: &str, locked: bool) -> Result<()> {
         meta.version,
         output_path.display()
     );
+    if !merge.is_empty() {
+        println!("Merged {} archive(s).", merge.len());
+    }
     if !platforms.is_empty() {
         println!("Binaries in the bundle: {}", platforms.join(", "));
     }
-
-    Ok(())
-}
-
-/// `baler bundle <path> --merge <archive>...`: combine the binaries of
-/// bundles that were made on different platforms into one bundle, without
-/// compiling. Each archive must come from the same files as the project at
-/// `path`, which is what `baler bundle` on each platform produces. The
-/// project's own `.lib/` is not used.
-///
-/// Needs `binary = true` under `[compiled-code]`, since a bundle only
-/// ships binaries then. The merged bundle is written to the same
-/// `<name>_<version>.tar.gz` in the current directory as a normal bundle,
-/// and an archive already there is replaced, so list it among the inputs
-/// to keep what it holds.
-pub fn merge_with(path: &str, locked: bool, archives: &[String]) -> Result<()> {
-    let project_root = PathBuf::from(path);
-
-    if !project_root.exists() {
-        bail!("Path does not exist: {}", project_root.display());
-    }
-    if !project_root.is_dir() {
-        bail!("Path is not a directory: {}", project_root.display());
-    }
-
-    let toml = BalerToml::from_dir(&project_root)?;
-    check_lock_before_bundling(&project_root, &toml, locked)?;
-    let src_path = toml.resolve_src_dir(&project_root)?;
-    let meta = &toml.project;
-
-    let (binary, keep_source) = toml
-        .compiled_code
-        .as_ref()
-        .map(|c| (c.binary, c.keep_source))
-        .unwrap_or((false, false));
-    if !binary {
-        bail!(
-            "--merge needs `binary = true` under [compiled-code] in baler.toml, since only then does a bundle ship binaries."
-        );
-    }
-
-    // Same files as the bundles being merged were made from, so native
-    // source is left out unless `keep_source` ships it.
-    let exclude = if keep_source {
-        Vec::new()
-    } else {
-        toml.resolve_native_dirs(&project_root).unwrap_or_default()
-    };
-
-    let inputs: Vec<PathBuf> = archives.iter().map(PathBuf::from).collect();
-    for input in &inputs {
-        if !input.is_file() {
-            bail!("Archive does not exist: {}", input.display());
-        }
-    }
-
-    let cwd = std::env::current_dir()
-        .context("Failed to get current working directory")?;
-    let output_path = cwd.join(format!("{}_{}.tar.gz", meta.name, meta.version));
-
-    let platforms = tar::merge_bundles(
-        &tar::BundleSpec {
-            src_path: &src_path,
-            project_root: &project_root,
-            output_path: &output_path,
-            name: &meta.name,
-            version: &meta.version,
-            exclude: &exclude,
-            force_include: &[],
-        },
-        &inputs,
-    )
-    .with_context(|| format!("Failed to merge into {}", output_path.display()))?;
-
-    println!(
-        "Merged {} archive(s) of '{}' ({}) -> {}",
-        inputs.len(),
-        meta.name,
-        meta.version,
-        output_path.display()
-    );
-    println!("Binaries in the bundle: {}", platforms.join(", "));
 
     Ok(())
 }
