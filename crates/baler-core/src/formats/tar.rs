@@ -1,7 +1,9 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use flate2::{write::GzEncoder, Compression};
 use tar::Builder;
 
@@ -36,51 +38,299 @@ pub fn bundle(
     exclude: &[PathBuf],
     force_include: &[PathBuf],
 ) -> Result<()> {
+    let spec = BundleSpec {
+        src_path,
+        project_root,
+        output_path,
+        name,
+        version,
+        exclude,
+        force_include,
+    };
+    let planned = plan(&spec, None)?;
     let file = File::create(output_path)
         .with_context(|| format!("Failed to create: {}", output_path.display()))?;
+    write_archive(file, &planned, &[])
+}
 
-    let enc = GzEncoder::new(file, Compression::default());
-    let mut archive = Builder::new(enc);
+/// Everything needed to write one bundle.
+pub struct BundleSpec<'a> {
+    pub src_path: &'a Path,
+    pub project_root: &'a Path,
+    pub output_path: &'a Path,
+    pub name: &'a str,
+    pub version: &'a str,
+    pub exclude: &'a [PathBuf],
+    pub force_include: &'a [PathBuf],
+}
 
-    let top = format!("{}_{}", name, version);
+/// Directory name for one platform's binaries under `.lib/`, built from
+/// the target triple and R `major.minor` that `.abi.json` records, e.g.
+/// `x86_64-pc-linux-gnu_r4.4`. Anything outside `A-Za-z0-9._-` becomes
+/// `_`, so the tag is always a single safe path component.
+pub fn platform_tag(target_triple: &str, r_version: &str) -> String {
+    let clean = |text: &str| -> String {
+        text.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .collect()
+    };
+    format!("{}_r{}", clean(target_triple), clean(r_version))
+}
 
-    for entry in all_files(src_path, exclude, force_include) {
+/// Bundle like `bundle`, but store the compiled binaries under
+/// `.lib/<tag>/` and keep the binaries of other platforms that an
+/// earlier run left in the same `output_path`:
+/// ``` text
+/// tstk_0.1.0/tstk/src/.lib/x86_64-pc-linux-gnu_r4.4/cpp.so
+/// tstk_0.1.0/tstk/src/.lib/aarch64-apple-darwin20_r4.4/cpp.so
+/// ```
+/// Running `baler bundle` on each platform against the same archive
+/// builds one bundle that holds every platform's binary, and install
+/// keeps only the one that fits the machine.
+///
+/// An existing archive is only reused when everything outside `.lib/`
+/// is byte for byte the same as what is being bundled now, otherwise
+/// binaries from other source would be shipped under this version, and
+/// the call fails without touching the archive. An archive that holds
+/// no other platform's binary is simply replaced. The new archive is
+/// written next to `output_path` and renamed over it, so a failure
+/// leaves the old archive in place.
+///
+/// Returns the tags of every platform the archive now holds, sorted.
+pub fn bundle_with_binary(spec: &BundleSpec, tag: &str) -> Result<Vec<String>> {
+    let planned = plan(spec, Some(tag))?;
+    let top = format!("{}_{}", spec.name, spec.version);
+
+    let mut carried: Vec<CarriedEntry> = Vec::new();
+    if spec.output_path.exists() {
+        match read_previous(spec.output_path) {
+            Ok(previous) => {
+                let others: Vec<CarriedEntry> = previous
+                    .binaries
+                    .into_iter()
+                    .filter(|entry| entry.tag != tag)
+                    .collect();
+                if !others.is_empty() {
+                    if !same_sources(&planned, &previous.sources, &top)? {
+                        let tags: BTreeSet<&str> = others.iter().map(|entry| entry.tag.as_str()).collect();
+                        bail!(
+                            "{} already holds binaries for {}, but the module's files differ from the ones it was bundled from, so those binaries may not belong to this source.\nTo start over and drop those binaries, delete {} and bundle again. To keep them, bundle the same files.",
+                            spec.output_path.display(),
+                            tags.into_iter().collect::<Vec<_>>().join(", "),
+                            spec.output_path.display()
+                        );
+                    }
+                    if previous.untagged > 0 {
+                        eprintln!(
+                            "warning: {} holds {} binary file(s) from an older baler that are not tied to a platform. They are not carried over.",
+                            spec.output_path.display(),
+                            previous.untagged
+                        );
+                    }
+                    carried = others;
+                }
+            }
+            Err(e) => eprintln!(
+                "warning: {} exists but could not be read ({:#}). It is replaced.",
+                spec.output_path.display(),
+                e
+            ),
+        }
+    }
+
+    let mut tags: BTreeSet<String> = carried.iter().map(|entry| entry.tag.clone()).collect();
+    tags.insert(tag.to_owned());
+
+    let file_name = spec
+        .output_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("bundle.tar.gz");
+    let partial = spec.output_path.with_file_name(format!("{}.partial", file_name));
+    let file = File::create(&partial)
+        .with_context(|| format!("Failed to create: {}", partial.display()))?;
+    if let Err(e) = write_archive(file, &planned, &carried) {
+        let _ = std::fs::remove_file(&partial);
+        return Err(e);
+    }
+    std::fs::rename(&partial, spec.output_path)
+        .with_context(|| format!("Failed to move {} to {}", partial.display(), spec.output_path.display()))?;
+
+    Ok(tags.into_iter().collect())
+}
+
+const LIB_DIR: &str = ".lib";
+
+/// One file to write: where it is on disk and its name in the archive.
+/// `binary` marks files under a forced-in `.lib/`.
+struct Planned {
+    disk: PathBuf,
+    tar_name: String,
+    binary: bool,
+}
+
+/// A binary from an earlier archive, kept as it was written.
+struct CarriedEntry {
+    tag: String,
+    tar_name: String,
+    header: tar::Header,
+    bytes: Vec<u8>,
+}
+
+/// What an earlier archive at the same path holds: every file outside
+/// `.lib/` by its path inside the top directory, the binaries stored
+/// under `.lib/<tag>/`, and a count of files directly under `.lib/`
+/// (written by a baler that did not tag binaries by platform).
+struct Previous {
+    sources: BTreeMap<String, Vec<u8>>,
+    binaries: Vec<CarriedEntry>,
+    untagged: usize,
+}
+
+fn slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// The files of a bundle in the order they are written. With a `tag`,
+/// files under a forced-in `.lib/` get the tag as an extra directory.
+fn plan(spec: &BundleSpec, tag: Option<&str>) -> Result<Vec<Planned>> {
+    let top = format!("{}_{}", spec.name, spec.version);
+    let mut planned = Vec::new();
+
+    for entry in all_files(spec.src_path, spec.exclude, spec.force_include) {
         let rel = entry
-            .strip_prefix(src_path)
+            .strip_prefix(spec.src_path)
             .with_context(|| format!("Failed to strip prefix from {}", entry.display()))?;
+        let lib_dir = spec.force_include.iter().find(|dir| entry.starts_with(dir));
 
-        let tar_name = format!(
-            "{}/{}/{}",
-            top,
-            name,
-            rel.to_string_lossy().replace('\\', "/")
-        );
+        let inner = match (tag, lib_dir) {
+            (Some(tag), Some(lib_dir)) => {
+                let lib_rel = lib_dir
+                    .strip_prefix(spec.src_path)
+                    .with_context(|| format!("Failed to strip prefix from {}", lib_dir.display()))?;
+                let inside = entry
+                    .strip_prefix(lib_dir)
+                    .with_context(|| format!("Failed to strip prefix from {}", entry.display()))?;
+                format!("{}/{}/{}", slash(lib_rel), tag, slash(inside))
+            }
+            _ => slash(rel),
+        };
 
-        archive
-            .append_path_with_name(&entry, &tar_name)
-            .with_context(|| format!("Failed to add to archive: {tar_name}"))?;
+        let binary = lib_dir.is_some();
+        planned.push(Planned {
+            disk: entry,
+            tar_name: format!("{}/{}/{}", top, spec.name, inner),
+            binary,
+        });
     }
 
     // baler.toml and baler.lock land at the archive root, a sibling of
-    // {name}/ — never inside the module's own namespace, so a module
+    // {name}/, never inside the module's own namespace, so a module
     // file that happens to be named either of those can't collide
     // with them.
-    let toml_path = project_root.join("baler.toml");
-    let toml_tar_name = format!("{}/baler.toml", top);
-    archive
-        .append_path_with_name(&toml_path, &toml_tar_name)
-        .with_context(|| format!("Failed to add baler.toml to archive: {toml_tar_name}"))?;
+    planned.push(Planned {
+        disk: spec.project_root.join("baler.toml"),
+        tar_name: format!("{}/baler.toml", top),
+        binary: false,
+    });
 
-    let lock_path = project_root.join(crate::lockfile::LOCK_FILE_NAME);
+    let lock_path = spec.project_root.join(crate::lockfile::LOCK_FILE_NAME);
     if lock_path.exists() {
-        let lock_tar_name = format!("{}/baler.lock", top);
-        archive
-            .append_path_with_name(&lock_path, &lock_tar_name)
-            .with_context(|| format!("Failed to add baler.lock to archive: {lock_tar_name}"))?;
+        planned.push(Planned {
+            disk: lock_path,
+            tar_name: format!("{}/baler.lock", top),
+            binary: false,
+        });
     }
 
-    archive.finish().context("Failed to finalize tar.gz archive")?;
+    Ok(planned)
+}
+
+fn write_archive(file: File, planned: &[Planned], carried: &[CarriedEntry]) -> Result<()> {
+    let enc = GzEncoder::new(file, Compression::default());
+    let mut archive = Builder::new(enc);
+
+    for item in planned {
+        archive
+            .append_path_with_name(&item.disk, &item.tar_name)
+            .with_context(|| format!("Failed to add to archive: {}", item.tar_name))?;
+    }
+
+    for entry in carried {
+        let mut header = entry.header.clone();
+        archive
+            .append_data(&mut header, &entry.tar_name, &entry.bytes[..])
+            .with_context(|| format!("Failed to carry over: {}", entry.tar_name))?;
+    }
+
+    let enc = archive.into_inner().context("Failed to finalize tar archive")?;
+    enc.finish().context("Failed to finalize gzip stream")?;
     Ok(())
+}
+
+fn read_previous(path: &Path) -> Result<Previous> {
+    let file = File::open(path)
+        .with_context(|| format!("Failed to open: {}", path.display()))?;
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let mut previous = Previous {
+        sources: BTreeMap::new(),
+        binaries: Vec::new(),
+        untagged: 0,
+    };
+
+    for entry in archive.entries().context("Failed to read tar.gz entries")? {
+        let mut entry = entry.context("Failed to read tar.gz entry")?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let raw = entry.path().context("Failed to get entry path")?.to_path_buf();
+        let stripped = strip_top_level(&raw)?;
+        let parts: Vec<String> = stripped
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .with_context(|| format!("Failed to read {} from archive", raw.display()))?;
+
+        match parts.iter().position(|part| part == LIB_DIR) {
+            None => {
+                previous.sources.insert(slash(&stripped), bytes);
+            }
+            Some(i) if parts.len() > i + 2 => previous.binaries.push(CarriedEntry {
+                tag: parts[i + 1].clone(),
+                tar_name: slash(&raw),
+                header: entry.header().clone(),
+                bytes,
+            }),
+            Some(_) => previous.untagged += 1,
+        }
+    }
+
+    Ok(previous)
+}
+
+/// True when every non-binary file about to be written matches, byte
+/// for byte, the file of the same path in the earlier archive, and the
+/// earlier archive has no other such file.
+fn same_sources(planned: &[Planned], previous: &BTreeMap<String, Vec<u8>>, top: &str) -> Result<bool> {
+    let prefix = format!("{}/", top);
+    let mut seen = BTreeSet::new();
+    for item in planned.iter().filter(|item| !item.binary) {
+        let key = item.tar_name.strip_prefix(&prefix).unwrap_or(&item.tar_name).to_owned();
+        let current = std::fs::read(&item.disk)
+            .with_context(|| format!("Failed to read {}", item.disk.display()))?;
+        match previous.get(&key) {
+            Some(old) if *old == current => {}
+            _ => return Ok(false),
+        }
+        seen.insert(key);
+    }
+    Ok(seen.len() == previous.len())
 }
 
 /// Unpack a `.tar.gz` baler archive into the install directory.
