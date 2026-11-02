@@ -79,8 +79,6 @@ impl BalerToml {
             .with_context(|| format!("Invalid dependency in {}", toml_path.display()))?;
         parsed.validate_external_tools()
             .with_context(|| format!("Invalid external tool in {}", toml_path.display()))?;
-        parsed.validate_compiled_code()
-            .with_context(|| format!("Invalid [compiled-code] in {}", toml_path.display()))?;
         Ok(parsed)
     }
 
@@ -124,18 +122,6 @@ impl BalerToml {
                         );
                     }
                 }
-            }
-        }
-        Ok(())
-    }
-
-    /// `keep_source` ships native source next to a compiled binary, so
-    /// it means nothing without `binary = true`. Caught here, when the
-    /// manifest loads, instead of when `baler bundle` starts.
-    fn validate_compiled_code(&self) -> Result<()> {
-        if let Some(cc) = &self.compiled_code {
-            if cc.keep_source && !cc.binary {
-                bail!("`keep_source` only applies together with `binary = true`.");
             }
         }
         Ok(())

@@ -58,12 +58,11 @@ enum Commands {
         backend: Option<String>,
     },
 
-    /// Bundle a module into <name>_<version>.tar.gz. Whether a compiled
-    /// binary and native source are shipped is set by `binary` and
-    /// `keep_source` under `[compiled-code]` in baler.toml. Running it on
-    /// another platform against the same archive adds that platform's
-    /// binary, and --merge adds the binaries of archives made on other
-    /// platforms.
+    /// Bundle a module into <name>_<version>.tar.gz. Native source always
+    /// ships, and `binary = true` under `[compiled-code]` in baler.toml
+    /// adds the binary compiled on this platform. Running it on another
+    /// platform against the same archive adds that platform's binary, and
+    /// --merge adds the binaries of archives made on other platforms.
     Bundle {
         /// Path to the project root (e.g. `.` or `./my-project`)
         #[arg(default_value = ".")]
