@@ -31,21 +31,27 @@ use crate::ops::resolve;
 ///
 /// - The binary fits (same platform, same R `major.minor`, and the same
 ///   source hash as the source that shipped next to it): it is used as
-///   it is. No compiler and no `--install-deps` are needed.
-/// - It does not fit but the source shipped (`keep_source = true`): it
-///   is rebuilt here. Without `--install-deps` a note says the shipped
-///   binaries will not work on this machine.
-/// - It does not fit and there is no source: the install fails with a
-///   message naming every platform the bundle holds and this machine's,
-///   instead of leaving a binary that cannot load.
+///   it is. No compiler is needed.
+/// - It does not fit, or the bundle shipped no binary: it is built here
+///   from the source that shipped with the bundle, the way R builds a
+///   source package. A failed build fails the install and names what the
+///   compiler reported.
+/// - It does not fit and there is no source, which only a bundle from an
+///   older baler can be: the install fails with a message naming every
+///   platform the bundle holds and this machine's, instead of leaving a
+///   binary that cannot load.
+///
+/// Once a native dir is built, or its shipped binary is in use, its
+/// source is deleted. An installed module keeps the compiled artifact
+/// and not the source it came from.
 ///
 /// A binary with no sidecar has no recorded platform, so it cannot be
 /// checked and is left alone.
 ///
-/// Building is gated behind `install_deps`: `[compiled-code].build_deps`
-/// are resolved and installed here, separately from
-/// `[dependencies]` and skipping `baler.lock`, since they're
-/// compile-time-only, not a runtime contract.
+/// `install_deps` only decides whether `[compiled-code].build_deps` are
+/// installed before building. They are resolved separately from
+/// `[dependencies]` and skip `baler.lock`, since they're compile-time-only,
+/// not a runtime contract. Building itself does not depend on it.
 pub(super) fn build_native_if_present(
     module_path: &PathBuf,
     name: &str,
@@ -69,8 +75,8 @@ pub(super) fn build_native_if_present(
         }
     }
 
-    // A declared native dir that is not in the archive (bundled with
-    // `keep_source = false`) has nothing to build from.
+    // A declared native dir that is not in the archive (a bundle from an
+    // older baler that left the source out) has nothing to build from.
     let native_dirs: Vec<PathBuf> = toml
         .native_dirs_under(module_path)
         .into_iter()
@@ -125,7 +131,7 @@ pub(super) fn build_native_if_present(
         }
     }
 
-    // What fits is used whatever `install_deps` says, it needs no compiler.
+    // What fits is used as it is, it needs no compiler.
     if !reusable.is_empty() {
         for lib_dir in &reusable {
             for native_dir in &by_lib_dir[lib_dir] {
@@ -143,32 +149,28 @@ pub(super) fn build_native_if_present(
         return Ok(());
     }
 
-    if !install_deps {
-        println!(
-            " [native] {} has compiled code, build with: baler install --install-deps",
-            name
-        );
-        if let (false, Some((host_triple, host_r_version))) = (foreign.is_empty(), &host) {
-            println!(
-                " [native] the binaries shipped with '{}' were built for {}, this machine is {} (R {}), so none of them will work here until it is built",
-                name,
-                describe(&foreign),
-                host_triple,
-                host_r_version
-            );
-        }
-        return Ok(());
-    }
-
     let build_deps = toml.compiled_code.as_ref()
         .and_then(|n| n.build_deps.clone())
         .filter(|deps| !deps.is_empty());
+    let has_build_deps = build_deps.is_some();
+
+    if let (false, Some((host_triple, host_r_version))) = (foreign.is_empty(), &host) {
+        println!(
+            " [native] the binaries shipped with '{}' were built for {}, this machine is {} (R {}), so it is built from source here",
+            name,
+            describe(&foreign),
+            host_triple,
+            host_r_version
+        );
+    }
 
     if let Some(deps) = build_deps {
-        println!("  Installing native build deps for '{}'...", name);
-        let plan = resolve::resolve(&Some(deps), &None)?;
-        resolve::print_plan(&plan);
-        resolve::execute_plan(&plan, false, None)?;
+        if install_deps {
+            println!("  Installing native build deps for '{}'...", name);
+            let plan = resolve::resolve(&Some(deps), &None)?;
+            resolve::print_plan(&plan);
+            resolve::execute_plan(&plan, false, None)?;
+        }
     }
 
     for (lib_dir, dirs) in pending {
@@ -183,7 +185,19 @@ pub(super) fn build_native_if_present(
 
             println!("Building native code for '{}' ({})...", name, native_dir.display());
             let outcome = baler_native::build(target_dir, native_dir, binary_name, name)
-                .with_context(|| format!("Failed to build native code for '{}' at {}", name, native_dir.display()))?;
+                .with_context(|| {
+                    let hint = if has_build_deps && !install_deps {
+                        " Its [compiled-code] build_deps were not installed, pass --install-deps to install them."
+                    } else {
+                        ""
+                    };
+                    format!(
+                        "Failed to build native code for '{}' at {}.{}",
+                        name,
+                        native_dir.display(),
+                        hint
+                    )
+                })?;
 
             println!(
                 " built: {} ({})",
@@ -269,10 +283,10 @@ fn select_platform_folder(lib_dir: &Path, host_triple: &str, host_r_version: &st
     Ok(unusable)
 }
 
-/// An archive with no native source (bundled with `binary = true` and
-/// `keep_source = false`) can only ever use the binaries it shipped. If
-/// none of them were built for this platform and R version, fail now
-/// with a clear message, rather than leave a binary that cannot load.
+/// An archive with no native source (made by an older baler, which could
+/// leave it out) can only ever use the binaries it shipped. If none of
+/// them were built for this platform and R version, fail now with a
+/// clear message, rather than leave a binary that cannot load.
 fn check_binary_only(
     name: &str,
     lib_dirs: &[PathBuf],
@@ -297,8 +311,9 @@ fn check_binary_only(
 
     bail!(
         "'{name}' ships binaries for {} and no native source, but this machine is {host_triple} (R {host_r_version}), so none of them can be used here.\n\
-         Ask the module's author to add a binary for this platform (run `baler bundle` on it against the same archive), \
-         or to bundle with `keep_source = true` under [compiled-code] in baler.toml so other platforms can build it from source.",
+         This bundle was made by an older baler, which could leave the native source out. \
+         Ask the module's author to bundle it again with a current baler, which always ships the source, \
+         or to add a binary for this platform (run `baler bundle` on it against the same archive).",
         describe(&unusable)
     );
 }
@@ -315,6 +330,7 @@ fn describe(infos: &[AbiInfo]) -> String {
         .join(", ")
 }
 
+/// Deletes a native dir once it is built or its shipped binary is in use.
 fn remove_native_source(native_dir: &Path) -> Result<()> {
     std::fs::remove_dir_all(native_dir)
         .with_context(|| format!("Failed to remove native source at {}", native_dir.display()))
