@@ -12,9 +12,9 @@ pub fn run(path: &str) -> Result<()> {
     run_with(path, false)
 }
 
-/// `binary` and `keep_source` come from `[compiled-code]` in
-/// baler.toml, not from flags. `keep_source` without `binary` is
-/// rejected when the manifest is parsed (`BalerToml::from_dir`).
+/// `binary` comes from `[compiled-code]` in baler.toml, not from a
+/// flag. Native source is always shipped, so `binary` only decides
+/// whether compiled binaries ship with it.
 ///
 /// A bundle ships `baler.lock` as it is, and whoever installs the bundle
 /// has no project to run `baler lock` in. So a lock that doesn't match
@@ -56,11 +56,7 @@ fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
     let src_path = toml.resolve_src_dir(&project_root)?;
     let meta = &toml.project;
 
-    let (binary, keep_source) = toml
-        .compiled_code
-        .as_ref()
-        .map(|c| (c.binary, c.keep_source))
-        .unwrap_or((false, false));
+    let binary = toml.compiled_code.as_ref().is_some_and(|c| c.binary);
 
     // Checked before compiling, so a mistake does not cost a build.
     if !merge.is_empty() {
@@ -102,10 +98,8 @@ fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
     // filter excludes it from a plain bundle automatically, no
     // explicit exclusion needed there. `binary = true` needs the
     // opposite: force it back in despite the dot, since shipping it is
-    // the whole point. `binary = true` without `keep_source`
-    // additionally excludes native source; a machine none of the
-    // bundled binaries fit then has nothing to fall back to, and
-    // install fails with a message naming the platforms (see
+    // the whole point. Native source is always shipped, so a machine
+    // none of the bundled binaries fit builds from it at install (see
     // `install/native.rs`). The platform each binary was built for is
     // recorded in the `.abi.json` sidecar that ships next to it.
     //
@@ -113,21 +107,14 @@ fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
     // archive already exists and holds other platforms' binaries for the
     // same files, they are kept, so running `baler bundle` on each OS
     // against the same archive builds one bundle for all of them.
-    let (exclude, force_include): (Vec<PathBuf>, Vec<PathBuf>) = if binary {
-        let lib_dirs: Vec<PathBuf> = toml
-            .resolve_native_dirs(&project_root)
+    let force_include: Vec<PathBuf> = if binary {
+        toml.resolve_native_dirs(&project_root)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|d| d.parent().map(|p| p.join(".lib")))
-            .collect();
-        let src_exclude = if keep_source {
-            Vec::new()
-        } else {
-            toml.resolve_native_dirs(&project_root).unwrap_or_default()
-        };
-        (src_exclude, lib_dirs)
+            .collect()
     } else {
-        (Vec::new(), Vec::new())
+        Vec::new()
     };
 
     let cwd = std::env::current_dir()
@@ -141,7 +128,7 @@ fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
         output_path: &output_path,
         name: &meta.name,
         version: &meta.version,
-        exclude: &exclude,
+        exclude: &[],
         force_include: &force_include,
     };
     let platforms = if !merge.is_empty() {
@@ -156,7 +143,7 @@ fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
                 &output_path,
                 &meta.name,
                 &meta.version,
-                &exclude,
+                &[],
                 &force_include,
             )
             .map(|()| Vec::new()),
