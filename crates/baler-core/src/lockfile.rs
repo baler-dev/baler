@@ -6,13 +6,31 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::baler_toml::ModuleSource;
+use crate::cran::client::git::is_git_id;
 
 pub const LOCK_FILE_NAME: &str = "baler.lock";
 /// Newest lock format this build can read. Version 3 added `[[module]]`
-/// entries. A lock with no modules is still written as version 2, so a project
-/// that does not use modules keeps a lock that older baler can read.
-const LOCK_FORMAT_VERSION: u32 = 3;
+/// entries, and version 4 packages whose `repo` is a GitHub source id
+/// (`git+https://...#<commit>`). A lock that uses neither is still written
+/// as version 2, so a project that does not use them keeps a lock that older
+/// baler can read.
+const LOCK_FORMAT_VERSION: u32 = 4;
 const PACKAGES_ONLY_FORMAT_VERSION: u32 = 2;
+const MODULES_FORMAT_VERSION: u32 = 3;
+const GIT_PACKAGES_FORMAT_VERSION: u32 = 4;
+
+/// The oldest format that can hold these packages and modules: an older baler
+/// would read a GitHub source id as a repository URL, so a lock that has one
+/// has to be refused by it.
+fn format_for(packages: &[LockedPackage], has_modules: bool) -> u32 {
+    if packages.iter().any(|p| is_git_id(&p.repo)) {
+        GIT_PACKAGES_FORMAT_VERSION
+    } else if has_modules {
+        MODULES_FORMAT_VERSION
+    } else {
+        PACKAGES_ONLY_FORMAT_VERSION
+    }
+}
 /// Oldest lock format still readable. Version 2 only added the optional
 /// `groups` field, and a package without it is a runtime package, so a
 /// version 1 file means the same thing under version 2.
@@ -165,7 +183,7 @@ impl BalerLock {
     /// there is no baler.lock file on disk to read.
     pub fn from_packages(packages: Vec<LockedPackage>) -> Self {
         Self {
-            version: PACKAGES_ONLY_FORMAT_VERSION,
+            version: format_for(&packages, false),
             r_version: None,
             packages,
             modules: Vec::new(),
@@ -173,14 +191,11 @@ impl BalerLock {
     }
 
     /// The same lock with these module entries. A lock that holds modules is
-    /// format 3, one that holds none stays format 2.
+    /// format 3, one that holds none stays format 2, and one with a GitHub
+    /// package is format 4 either way.
     pub fn with_modules(mut self, mut modules: Vec<LockedModule>) -> Self {
         modules.sort_by(|a, b| a.name.cmp(&b.name));
-        self.version = if modules.is_empty() {
-            PACKAGES_ONLY_FORMAT_VERSION
-        } else {
-            LOCK_FORMAT_VERSION
-        };
+        self.version = format_for(&self.packages, !modules.is_empty());
         self.modules = modules;
         self
     }
@@ -448,7 +463,7 @@ pub fn build_grouped(
     packages.sort_by(|a, b| a.name.cmp(&b.name));
 
     BalerLock {
-        version: PACKAGES_ONLY_FORMAT_VERSION,
+        version: format_for(&packages, false),
         r_version: r_version.map(str::to_owned),
         packages,
         modules: Vec::new(),
