@@ -78,10 +78,10 @@ fn lock_with(repo: &str) -> baler_core::lockfile::BalerLock {
 const SHA: &str = "5a1b9c0d2e3f4a5b6c7d8e9f00112233445566778";
 
 #[test]
-fn a_lock_with_a_github_package_is_format_four_and_reads_back() {
+fn a_lock_with_a_github_package_is_format_three_and_reads_back() {
     let repo = format!("git+https://github.com/eddelbuettel/bh#{}", &SHA[..40]);
     let lock = lock_with(&repo);
-    assert_eq!(lock.version, 4);
+    assert_eq!(lock.version, 3);
     let text = toml::to_string_pretty(&lock).unwrap();
     let read = parse(&text, "baler.lock").unwrap();
     assert!(read.same_content(&lock));
