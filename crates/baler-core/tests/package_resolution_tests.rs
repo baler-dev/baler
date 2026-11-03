@@ -34,6 +34,7 @@ impl Net {
                 let record = PackageRecord {
                     version: RVersion::parse(version).unwrap(),
                     deps: deps.iter().map(|(d, c)| (d.to_string(), c.to_string())).collect(),
+                    source: None,
                 };
                 (name.to_string(), record)
             })
