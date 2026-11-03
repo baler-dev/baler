@@ -22,6 +22,7 @@ use std::rc::Rc;
 use anyhow::{bail, Context, Result};
 
 use crate::baler_toml::DEFAULT_CRAN_MIRROR;
+use crate::cran::client::git;
 use crate::cran::packages::{
     fetch, fetch_archive_deps, fetch_archive_versions, PackageRecord, RVersion,
 };
@@ -40,10 +41,19 @@ pub struct Sources<'a> {
     pub archive_deps: &'a dyn Fn(&str, &str, &RVersion) -> Result<Vec<(String, String)>>,
 }
 
+/// The index of a CRAN-like repository, or the one package of a GitHub source.
+fn fetch_index(repo: &str) -> Result<Index> {
+    if git::is_git_id(repo) {
+        git::fetch_index(repo)
+    } else {
+        fetch(repo)
+    }
+}
+
 impl Sources<'static> {
     pub fn network() -> Self {
         Self {
-            index: &fetch,
+            index: &fetch_index,
             archive_versions: &fetch_archive_versions,
             archive_deps: &fetch_archive_deps,
         }
@@ -74,7 +84,13 @@ impl<'a> CranUniverse<'a> {
         declared: HashMap<String, String>,
         leaves: HashSet<String>,
     ) -> Self {
-        let mut others: Vec<String> = declared.values().cloned().collect();
+        // A GitHub source holds the one package it was declared for, so it is
+        // never searched for somebody else's dependency.
+        let mut others: Vec<String> = declared
+            .values()
+            .filter(|repo| !git::is_git_id(repo))
+            .cloned()
+            .collect();
         others.sort();
         let mut search = vec![DEFAULT_CRAN_MIRROR.to_owned()];
         for repo in others {
@@ -98,7 +114,11 @@ impl<'a> CranUniverse<'a> {
         if let Some(known) = self.indexes.borrow().get(repo) {
             return Ok(known.clone());
         }
-        println!("Fetching package index from {repo}...");
+        if git::is_git_id(repo) {
+            println!("Reading DESCRIPTION from {repo}...");
+        } else {
+            println!("Fetching package index from {repo}...");
+        }
         let fetched = Rc::new((self.sources.index)(repo)?);
         self.indexes.borrow_mut().insert(repo.to_owned(), fetched.clone());
         Ok(fetched)
@@ -127,6 +147,10 @@ impl<'a> CranUniverse<'a> {
     }
 
     fn archived_releases(&self, repo: &str, name: &str) -> Result<Vec<RVersion>> {
+        // A GitHub source has one release, the commit it names.
+        if git::is_git_id(repo) {
+            return Ok(Vec::new());
+        }
         let key = (repo.to_owned(), name.to_owned());
         if let Some(known) = self.archived.borrow().get(&key) {
             return Ok(known.clone());
@@ -149,7 +173,8 @@ impl<'a> CranUniverse<'a> {
         };
         if let Some(record) = self.index_of(&repo)?.get(name) {
             if record.version.ver() == version {
-                return Ok((record.version.clone(), repo));
+                let source = record.source.clone().unwrap_or(repo);
+                return Ok((record.version.clone(), source));
             }
         }
         match self

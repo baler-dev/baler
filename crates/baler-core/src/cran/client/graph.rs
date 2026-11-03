@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use anyhow::{bail, Context, Result};
 use semver::Version;
 
+use super::git::{is_git_id, pinned_source, same_source};
 use crate::cran::packages::{is_base_package, RVersion};
 use crate::cran::universe::{CranUniverse, Sources};
 use crate::lockfile::BalerLock;
@@ -99,6 +100,10 @@ pub(super) fn resolve_all_with(
     // What the lock fixes (install only) and what is left for the solver.
     let mut fixed: BTreeMap<String, Version> = BTreeMap::new();
     let mut roots: BTreeMap<String, String> = BTreeMap::new();
+    // The source each requested package is looked up at. As declared, except
+    // that a GitHub package whose lock entry is still valid keeps its locked
+    // commit, so neither `baler lock` nor an install moves it.
+    let mut sources_of: HashMap<String, String> = HashMap::new();
 
     for (name, pkg) in &wanted {
         let repo = &pkg.repo;
@@ -107,12 +112,13 @@ pub(super) fn resolve_all_with(
             Some(l) => l.locked_version(name)?,
             None => None,
         };
+        sources_of.insert((*name).clone(), repo.clone());
         let Some((version, locked_repo)) = locked else {
             roots.insert((*name).clone(), spec.clone());
             continue;
         };
 
-        if locked_repo != *repo {
+        if !same_source(repo, &locked_repo) {
             if relock {
                 println!(
                     " [relock] '{name}' moved from {locked_repo} to {repo} in \
@@ -126,6 +132,10 @@ pub(super) fn resolve_all_with(
                  now points at {repo}. Run `baler lock` to update the lock, or \
                  revert baler.toml's repo for this package."
             );
+        }
+
+        if let Some(pinned) = pinned_source(repo, &locked_repo) {
+            sources_of.insert((*name).clone(), pinned);
         }
 
         let required = requested_req(name, spec)?;
@@ -152,17 +162,19 @@ pub(super) fn resolve_all_with(
         }
     }
 
-    let declared: HashMap<String, String> = wanted
-        .iter()
-        .map(|(name, pkg)| ((*name).clone(), pkg.repo.clone()))
-        .collect();
-    let universe = CranUniverse::new(sources, declared, fixed.keys().cloned().collect());
+    let universe = CranUniverse::new(sources, sources_of.clone(), fixed.keys().cloned().collect());
 
     let mut requested: Vec<(Node, VerReq)> = Vec::new();
     for (name, spec) in &roots {
         let node = Node::Cran(name.clone());
         if universe.current(&node)?.is_none() {
-            let repo = &wanted[name].repo;
+            let repo = &sources_of[name];
+            if is_git_id(repo) {
+                bail!(
+                    "{repo} does not hold an R package named '{name}'. The name in baler.toml \
+                     has to be the Package field of its DESCRIPTION."
+                );
+            }
             bail!("'{name}' is not in the package index of {repo}");
         }
         requested.push((node, requested_req(name, spec)?));
