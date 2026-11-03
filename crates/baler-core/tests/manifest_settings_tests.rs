@@ -46,32 +46,15 @@ fn external(extra: &str) -> std::collections::BTreeMap<String, ExternalToolDep> 
 // ---- [compiled-code] ----
 
 #[test]
-fn compiled_code_flags_default_to_false() {
+fn binary_defaults_to_false() {
     let cc = load("[compiled-code]\npath = \"cpp\"\n").unwrap().compiled_code.unwrap();
     assert!(!cc.binary);
-    assert!(!cc.keep_source);
 }
 
 #[test]
-fn binary_and_keep_source_are_read() {
-    let cc = load("[compiled-code]\nbinary = true\nkeep_source = true\n")
-        .unwrap()
-        .compiled_code
-        .unwrap();
-    assert!(cc.binary);
-    assert!(cc.keep_source);
-}
-
-#[test]
-fn binary_without_keep_source_is_fine() {
+fn binary_is_read() {
     let cc = load("[compiled-code]\nbinary = true\n").unwrap().compiled_code.unwrap();
     assert!(cc.binary);
-    assert!(!cc.keep_source);
-}
-
-#[test]
-fn keep_source_without_binary_is_rejected_at_load() {
-    assert!(error_text("[compiled-code]\nkeep_source = true\n").contains("keep_source"));
 }
 
 // ---- [extras.external]: types ----
