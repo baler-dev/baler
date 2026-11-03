@@ -33,14 +33,13 @@ fn lock(packages: Vec<LockedPackage>, r_version: Option<&str>) -> BalerLock {
 fn parse_accepts_both_supported_format_versions() {
     assert!(parse("version = 1\n", "x").is_ok());
     assert!(parse("version = 2\n", "x").is_ok());
-    assert!(parse("version = 4\n", "x").is_ok());
 }
 
 #[test]
 fn parse_rejects_unknown_format_versions_and_names_the_origin() {
-    let err = parse("version = 5\n", "bundle.tar.gz").unwrap_err().to_string();
+    let err = parse("version = 4\n", "bundle.tar.gz").unwrap_err().to_string();
     assert!(err.contains("bundle.tar.gz"), "{err}");
-    assert!(err.contains("version 5"), "{err}");
+    assert!(err.contains("version 4"), "{err}");
     assert!(parse("version = 0\n", "x").is_err());
 }
 

@@ -10,23 +10,19 @@ use crate::cran::client::git::is_git_id;
 
 pub const LOCK_FILE_NAME: &str = "baler.lock";
 /// Newest lock format this build can read. Version 3 added `[[module]]`
-/// entries, and version 4 packages whose `repo` is a GitHub source id
+/// entries and packages whose `repo` is a GitHub source id
 /// (`git+https://...#<commit>`). A lock that uses neither is still written
 /// as version 2, so a project that does not use them keeps a lock that older
 /// baler can read.
-const LOCK_FORMAT_VERSION: u32 = 4;
+const LOCK_FORMAT_VERSION: u32 = 3;
 const PACKAGES_ONLY_FORMAT_VERSION: u32 = 2;
-const MODULES_FORMAT_VERSION: u32 = 3;
-const GIT_PACKAGES_FORMAT_VERSION: u32 = 4;
 
-/// The oldest format that can hold these packages and modules: an older baler
+/// The oldest format that can hold these packages and modules. An older baler
 /// would read a GitHub source id as a repository URL, so a lock that has one
 /// has to be refused by it.
 fn format_for(packages: &[LockedPackage], has_modules: bool) -> u32 {
-    if packages.iter().any(|p| is_git_id(&p.repo)) {
-        GIT_PACKAGES_FORMAT_VERSION
-    } else if has_modules {
-        MODULES_FORMAT_VERSION
+    if has_modules || packages.iter().any(|p| is_git_id(&p.repo)) {
+        LOCK_FORMAT_VERSION
     } else {
         PACKAGES_ONLY_FORMAT_VERSION
     }
@@ -191,8 +187,8 @@ impl BalerLock {
     }
 
     /// The same lock with these module entries. A lock that holds modules is
-    /// format 3, one that holds none stays format 2, and one with a GitHub
-    /// package is format 4 either way.
+    /// format 3, one that holds none stays format 2, unless it has a GitHub
+    /// package, which makes it format 3 either way.
     pub fn with_modules(mut self, mut modules: Vec<LockedModule>) -> Self {
         modules.sort_by(|a, b| a.name.cmp(&b.name));
         self.version = format_for(&self.packages, !modules.is_empty());

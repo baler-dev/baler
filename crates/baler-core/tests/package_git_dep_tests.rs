@@ -1,126 +1,128 @@
-//! R package dependencies that come from GitHub, checked through
-//! `BalerToml::from_dir` so the load-time validation runs too.
+//! A GitHub package declared in baler.toml reaches the resolver as a source
+//! id, and the lock keeps the commit it was resolved to.
 
-use baler_core::baler_toml::{BalerToml, PackageDep, PackageGitSpec};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::BTreeMap;
 
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
+use baler_core::baler_toml::{PackageDep, PackageGitSpec, DEFAULT_CRAN_MIRROR};
+use baler_core::lockfile::{build_grouped, parse, LockGroup, PinnedPackage};
+use baler_core::ops::resolve::{resolve, resolve_locked};
+use semver::Version;
 
-const HEADER: &str = r#"
-[project]
-name = "demo"
-version = "0.1.0"
-description = "demo"
-authors = ["Someone"]
-license = "MIT"
-r_version = ">=4.0.0"
-"#;
-
-const BH: &str = "https://github.com/eddelbuettel/bh";
-
-/// Writes `HEADER` plus `extra` to a fresh temp dir and loads it.
-fn load(extra: &str) -> anyhow::Result<BalerToml> {
-    let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let dir: PathBuf =
-        std::env::temp_dir().join(format!("baler-package-git-{}-{}", std::process::id(), n));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("baler.toml"), format!("{HEADER}\n{extra}")).unwrap();
-    let loaded = BalerToml::from_dir(&dir);
-    let _ = std::fs::remove_dir_all(&dir);
-    loaded
+fn git_dep(spec: PackageGitSpec) -> BTreeMap<String, PackageDep> {
+    let mut deps = BTreeMap::new();
+    deps.insert("BH".to_string(), PackageDep::Git(spec));
+    deps
 }
 
-fn error_text(extra: &str) -> String {
-    format!("{:#}", load(extra).expect_err("manifest should be rejected"))
-}
-
-fn git_spec(dep: &PackageDep) -> &PackageGitSpec {
-    match dep {
-        PackageDep::Git(spec) => spec,
-        other => panic!("expected a git entry, got {other:?}"),
-    }
+fn bh() -> PackageGitSpec {
+    PackageGitSpec { git: "https://github.com/eddelbuettel/bh".to_string(), ..Default::default() }
 }
 
 #[test]
-fn git_alone_is_read_and_the_version_defaults_to_any() {
-    let toml = load(&format!("[dependencies]\nBH = {{ git = \"{BH}\" }}\n")).unwrap();
-    let dep = &toml.dependencies.packages["BH"];
-    assert_eq!(git_spec(dep).git, BH);
-    assert_eq!(dep.version(), "*");
-    assert_eq!(dep.repo(), BH);
-    assert_eq!(dep.explicit_repo(), Some(BH));
+fn a_github_package_resolves_to_its_source_id() {
+    let plan = resolve(&Some(git_dep(bh())), &None).unwrap();
+    assert_eq!(plan.packages["BH"].repo, "git+https://github.com/eddelbuettel/bh");
+    assert_eq!(plan.packages["BH"].version_spec, "*");
 }
 
 #[test]
-fn git_with_a_tag_and_a_version_is_read() {
-    let toml = load(&format!(
-        "[dependencies]\nBH = {{ git = \"{BH}\", tag = \"1.84.0-0\", version = \">=1.80\" }}\n"
-    ))
-    .unwrap();
-    let dep = &toml.dependencies.packages["BH"];
-    assert_eq!(git_spec(dep).git_ref(), Some("1.84.0-0"));
-    assert_eq!(dep.version(), ">=1.80");
+fn a_branch_a_tag_and_a_rev_each_end_up_in_the_id() {
+    let branch = PackageGitSpec { branch: Some("devel".into()), ..bh() };
+    assert_eq!(branch.id(), "git+https://github.com/eddelbuettel/bh@devel");
+
+    let tag = PackageGitSpec { tag: Some("v1.2".into()), ..bh() };
+    assert_eq!(tag.id(), "git+https://github.com/eddelbuettel/bh@v1.2");
+
+    let rev = PackageGitSpec { rev: Some("5a1b9c0".into()), ..bh() };
+    assert_eq!(rev.id(), "git+https://github.com/eddelbuettel/bh#5a1b9c0");
 }
 
 #[test]
-fn git_is_read_in_build_deps() {
-    let toml = load(&format!(
-        "[compiled-code.build_deps]\nBH = {{ git = \"{BH}\" }}\nRcpp = \"*\"\n"
-    ))
-    .unwrap();
-    let build = toml.compiled_code.unwrap().build_deps.unwrap();
-    assert_eq!(git_spec(&build["BH"]).git, BH);
-    assert!(matches!(build["Rcpp"], PackageDep::Simple(_)));
+fn a_trailing_slash_or_dot_git_does_not_make_another_source() {
+    let plain = PackageGitSpec { git: "https://github.com/eddelbuettel/bh/".into(), ..bh() };
+    let dotted = PackageGitSpec { git: "https://github.com/eddelbuettel/bh.git".into(), ..bh() };
+    assert_eq!(plain.id(), bh().id());
+    assert_eq!(dotted.id(), bh().id());
 }
 
 #[test]
-fn git_is_read_in_extras() {
-    let toml = load(&format!("[extras]\nBH = {{ git = \"{BH}\" }}\n")).unwrap();
-    let extras = toml.extras.unwrap();
-    assert_eq!(git_spec(&extras.packages["BH"]).git, BH);
+fn the_version_constraint_of_a_github_package_is_kept() {
+    let spec = PackageGitSpec { version: Some(">= 1.80".into()), ..bh() };
+    let plan = resolve(&Some(git_dep(spec)), &None).unwrap();
+    assert!(plan.packages["BH"].version_spec.contains("1.80"), "{}", plan.packages["BH"].version_spec);
 }
 
 #[test]
-fn bare_version_and_repo_entries_still_read_as_before() {
-    let toml = load(
-        "[dependencies]\ncli = \">=3.6\"\n\
-         dplyr = { version = \">=1.1\", repo = \"https://packagemanager.posit.co/cran/latest\" }\n",
-    )
-    .unwrap();
-    let packages = &toml.dependencies.packages;
-    assert!(matches!(packages["cli"], PackageDep::Simple(_)));
-    assert!(matches!(packages["dplyr"], PackageDep::Extended { .. }));
-    assert_eq!(
-        packages["dplyr"].explicit_repo(),
-        Some("https://packagemanager.posit.co/cran/latest")
+fn a_cran_package_still_resolves() {
+    let mut deps = BTreeMap::new();
+    deps.insert("cli".to_string(), PackageDep::Simple(">=3.6".to_string()));
+    let plan = resolve(&Some(deps), &None).unwrap();
+    assert_eq!(plan.packages["cli"].repo, DEFAULT_CRAN_MIRROR);
+}
+
+// ---- the lock ----
+
+fn lock_with(repo: &str) -> baler_core::lockfile::BalerLock {
+    let mut pinned = BTreeMap::new();
+    pinned.insert(
+        "BH".to_string(),
+        PinnedPackage {
+            version: Version::parse("1.87.0-1").unwrap(),
+            repo: repo.to_string(),
+            groups: vec![LockGroup::Build],
+        },
     );
-    assert_eq!(packages["cli"].explicit_repo(), None);
+    build_grouped(&pinned, None)
+}
+
+const SHA: &str = "5a1b9c0d2e3f4a5b6c7d8e9f00112233445566778";
+
+#[test]
+fn a_lock_with_a_github_package_is_format_three_and_reads_back() {
+    let repo = format!("git+https://github.com/eddelbuettel/bh#{}", &SHA[..40]);
+    let lock = lock_with(&repo);
+    assert_eq!(lock.version, 3);
+    let text = toml::to_string_pretty(&lock).unwrap();
+    let read = parse(&text, "baler.lock").unwrap();
+    assert!(read.same_content(&lock));
+    assert_eq!(read.packages[0].repo, repo);
 }
 
 #[test]
-fn git_together_with_repo_is_rejected() {
-    let err = error_text(&format!(
-        "[dependencies]\nBH = {{ git = \"{BH}\", repo = \"https://cloud.r-project.org\" }}\n"
-    ));
-    assert!(err.contains("BH"), "{err}");
-    assert!(err.contains("mutually exclusive"), "{err}");
+fn a_lock_without_one_stays_format_two() {
+    assert_eq!(lock_with(DEFAULT_CRAN_MIRROR).version, 2);
 }
 
 #[test]
-fn two_refs_are_rejected() {
-    let err = error_text(&format!(
-        "[compiled-code.build_deps]\nBH = {{ git = \"{BH}\", tag = \"a\", branch = \"b\" }}\n"
-    ));
-    assert!(err.contains("pick one ref"), "{err}");
-}
+fn a_locked_install_accepts_the_pinned_commit_of_the_declared_source() {
+    let repo = format!("git+https://github.com/eddelbuettel/bh#{}", &SHA[..40]);
+    let lock = lock_with(&repo);
+    let mut deps = git_dep(bh());
+    // the lock holds BH in the build group, so declare it as a runtime dep
+    // of a lock written for it
+    let runtime = {
+        let mut pinned = BTreeMap::new();
+        pinned.insert(
+            "BH".to_string(),
+            PinnedPackage {
+                version: Version::parse("1.87.0-1").unwrap(),
+                repo: repo.clone(),
+                groups: vec![],
+            },
+        );
+        build_grouped(&pinned, None)
+    };
+    let plan = resolve_locked(&Some(deps.clone()), &None, &runtime).unwrap();
+    assert_eq!(plan.packages["BH"].repo, repo);
 
-#[test]
-fn a_misspelled_key_is_rejected() {
-    assert!(load(&format!("[dependencies]\nBH = {{ git = \"{BH}\", brach = \"main\" }}\n")).is_err());
-}
+    // the build group is not installed by a runtime install, and is not a hit
+    assert!(resolve_locked(&Some(deps.clone()), &None, &lock).is_err());
 
-#[test]
-fn a_table_with_neither_version_nor_git_is_rejected() {
-    assert!(load("[dependencies]\nBH = { tag = \"1.0\" }\n").is_err());
+    // another branch than the one locked is a stale lock
+    deps.insert(
+        "BH".to_string(),
+        PackageDep::Git(PackageGitSpec { branch: Some("devel".into()), ..bh() }),
+    );
+    let err = resolve_locked(&Some(deps), &None, &runtime).unwrap_err().to_string();
+    assert!(err.contains("repo changed"), "{err}");
 }

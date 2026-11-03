@@ -48,9 +48,9 @@ fn module_entries_round_trip_through_the_file() {
 
 #[test]
 fn a_lock_from_a_newer_format_asks_for_an_upgrade() {
-    let error = lockfile::parse("version = 5\n[[future]]\nx = 1\n", "baler.lock").unwrap_err();
+    let error = lockfile::parse("version = 4\n[[future]]\nx = 1\n", "baler.lock").unwrap_err();
     let text = error.to_string();
-    assert!(text.contains("version 5") && text.contains("update baler"), "{text}");
+    assert!(text.contains("version 4") && text.contains("update baler"), "{text}");
 }
 
 #[test]
