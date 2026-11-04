@@ -59,7 +59,7 @@ Inline-table fields:
 
 Runtime dependencies, both R packages and other baler modules, live in the same top-level table (a sibling of `[project]`, not nested under it):
 
-- A bare key is an R package, resolved off CRAN (or a custom `repo`). This is the equivalent of `Imports` in an R package's `DESCRIPTION`.
+- A bare key is an R package, resolved off CRAN, a custom `repo`, or a GitHub repository (`git`). This is the equivalent of `Imports` in an R package's `DESCRIPTION`.
 - A nested `[dependencies.baler]` table holds other baler modules this module depends on.
 
 ``` toml
@@ -67,6 +67,8 @@ Runtime dependencies, both R packages and other baler modules, live in the same 
 dplyr = "*"
 ggplot2 = ">=3.4.0"
 fable = { version = "*", repo = "https://tidyverts.r-universe.dev/" }
+BH = { git = "https://github.com/eddelbuettel/bh" }
+tinyplot = { git = "https://github.com/grantmcdermott/tinyplot.git", tag = "v0.7.0" }
 
 [dependencies.baler]
 other_module = { git = "https://github.com/<user>/<repo>", tag = "v1.2.0" }
@@ -79,7 +81,8 @@ Every package is installed from exactly one repository:
 
 -   A package listed in `baler.toml` comes from the `repo` set for it, or the default CRAN mirror when none is set. If it isn't in that repository, that is an error naming the repository.
 -   A package you didn't list, that something you listed needs, comes from the first repository that has it: the default CRAN, then every `repo` named in `baler.toml` (including by modules you depend on), in alphabetical order. A private repository can't take over a CRAN package name this way. To use its copy, list the package with a `repo`.
--   Two entries that each name a different `repo` for the same package are an error. An entry that names no `repo` doesn't clash with one that does.
+-   A package with `git` comes from that GitHub repository and nowhere else. It is never searched for another package's dependency, so a package you didn't list can't end up coming from it.
+-   Two entries that each name a different `repo` (or `git`) for the same package are an error. An entry that names no `repo` doesn't clash with one that does.
 
 ::: {.callout-note title="Technical Notes"}
 Because module deps and package deps share one table, told apart by whether an entry sits under the reserved `baler` key rather than by any `type`/`mode` field, an R package literally named `baler` cannot be declared as a bare key here.
@@ -102,6 +105,44 @@ Version requirements are written as strings. Several, separated by commas, must 
 R packages compare versions the way R does, so `4.0-3` and `4.0.3` are the same version, `1.2.3.9000` is newer than `1.2.3`, and `1.0` is below `1.0.0`. A tag such as `1.2.3-beta` and a wildcard such as `1.*` are not accepted for R packages (use `^1`). A requirement that can't be read stops `baler lock` and `baler install` with an error that names the package.
 
 A module dependency's `version` is checked against the module's own semver `version` and uses semver syntax, so `"=1.2.3"` is the exact pin there and `"==1.2.3"` isn't accepted.
+
+### R packages from GitHub {#github-packages}
+
+An R package that isn't on CRAN, or that you want at a specific commit, can come straight from a GitHub repository. Write it as a table with `git`, in `[dependencies]`, in `[extras]`, or under `build_deps` in `[compiled-code]`:
+
+``` toml
+[dependencies]
+BH = { git = "https://github.com/eddelbuettel/bh" }
+tinyplot = { git = "https://github.com/grantmcdermott/tinyplot.git", tag = "v0.7.0" }
+# cpp11 = { git = "https://github.com/r-lib/cpp11", branch = "main", version = ">=0.5" }
+
+[dependencies.cpp11]
+git = "https://github.com/r-lib/cpp11"
+branch = "main"
+version = ">=0.5"
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `git` | yes | A `https://github.com/<owner>/<repo>` URL. Only `github.com` is supported. |
+| `version` | no | Constraint string, defaults to `"*"`. It is checked against the `Version` in the package's own `DESCRIPTION`, at the commit that gets installed. |
+| `branch`, `tag`, `rev` | no | At most one of these. Without any, the default branch is used. |
+
+`repo` can't be combined with `git`, since a package comes from one place. Unknown keys (a typo such as `tga`) fail when `baler.toml` loads, the same as for module dependencies.
+
+What `{baler}` does with such a package:
+
+1.  `baler lock` reads the `DESCRIPTION` at the commit the branch, tag or default branch points at, then pins that commit in [`baler.lock`](baler-lock.qmd#github-packages). The package's own dependencies are resolved from CRAN, as usual.
+2.  `baler install --install-deps` downloads that exact commit and installs it with `R CMD INSTALL`. A branch that moved on since the lock was written doesn't change what is installed. `baler lock --update <pkg>` is how you move it.
+3.  The installed package records where it came from (`RemoteType`, `RemoteRepo`, `RemoteUsername`, `RemoteRef` and `RemoteSha` in its `DESCRIPTION`), and an install is skipped only when both the version and the commit are already there.
+
+A few things to know:
+
+-   The package has to be at the top of the repository (its `DESCRIPTION` is read from the root). A package in a subdirectory isn't supported yet.
+-   The key in `baler.toml` has to be the package's own name, the `Package` field of its `DESCRIPTION`.
+-   `Remotes:` in that `DESCRIPTION` isn't read. If the package needs another GitHub-only package, declare that one yourself with `git`. Its other dependencies come from CRAN.
+-   GitHub limits anonymous API requests to 60 an hour, and private repositories need a token. Set `GITHUB_TOKEN` (or `GH_TOKEN`) and `{baler}` sends it along.
+-   For any other host, such as GitLab, publish the package to a CRAN-like repository (Posit Package Manager, R-universe, your own) and use `repo`.
 
 ### Module dependencies: `git` and `url`
 
@@ -231,29 +272,25 @@ path = "cpp/"                 # single directory, relative to the module's sourc
 # path = ["cpp/", "extra/"]   # or an array, for multiple directories
 
 build_deps = { Rcpp = "*" }   # installed before compilation; not a runtime dependency
-binary = true                 # `baler bundle` compiles and ships the binary
-keep_source = false           # only with binary = true: also ship native source
+binary = true                 # `baler bundle` also compiles and ships the binary
 ```
 
 | Field | Type | Required | Notes |
 |-----------------|-----------------|---------------------|-----------------|
 | `path` | string or array of strings | no | Directory, or directories, containing native sources + `Makevars`. Relative to the module's own source directory (the same base `src` uses), not the project root `baler.toml` lives in. A single location can be written as a plain string; more than one as an array. |
-| `build_deps` | table | no | Map of package name -> version requirement (same syntax as `[dependencies]`). These are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[dependencies]` if the compiled code also needs them loaded at runtime. They are recorded in `baler.lock` under the `build` group. |
-| `binary` | boolean | no | Defaults to `false`. When `true`, `baler bundle` compiles the native code in place first and ships the compiled `.lib/` in the archive, without the native source. See [Bundle settings](#bundle-settings). |
-| `keep_source` | boolean | no | Defaults to `false`. Only valid together with `binary = true`. Also ships the native source next to the compiled binary. |
+| `build_deps` | table | no | Map of package name -> version requirement, or a table with `repo` or `git`, the same forms `[dependencies]` takes (see [R packages from GitHub](#github-packages)). These are resolved and installed **before** `R CMD SHLIB` runs. They do **not** become runtime dependencies; list them again under `[dependencies]` if the compiled code also needs them loaded at runtime. They are recorded in `baler.lock` under the `build` group. |
+| `binary` | boolean | no | Defaults to `false`. When `true`, `baler bundle` compiles the native code in place first and ships the compiled binary for this platform in the archive, next to the native source. See [Bundle settings](#bundle-settings). |
 
 ### Bundle settings {#bundle-settings}
 
-The `binary` and `keep_source` options describe what the module ships, so they live with the module instead of being retyped on every run. *Note: Its predecessor, `{carrier}`, it only flags through `--binary` and `--keep-source`, but the flags no longer exist, and passing one is now a command-line error.* The following table summarizes what each combination of those options produces:
+A bundle always ships the module's native source. `binary` decides whether it also ships compiled binaries, so it lives with the module instead of being retyped on every run. *Note: Its predecessor, `{carrier}`, only had flags for this (`--binary` and `--keep-source`). Those flags no longer exist, and passing one is now a command-line error.* The following table summarizes what each value produces:
 
-| `binary` | `keep_source` | The result of the archive |
-|---|---|---|
-| `false` (default) | `false` (default) | R source and native code source, no compiled binary. Compiled code is built on install. |
-| `true` | `false` | Compiled `.lib/` binary, native source left out. |
-| `true` | `true` | Compiled `.lib/` binary and native source. |
-| `false` | `true` | Rejected when `baler.toml` loads: `keep_source` needs `binary = true`. |
+| `binary` | The result of the archive |
+|---|---|
+| `false` (default) | R source and native source, no compiled binary. Compiled code is built on install. |
+| `true` | R source and native source, plus the binary compiled on the machine that ran `baler bundle`. |
 
-If `binary = true` but the module has no native code, `baler bundle` prints a warning and bundles without a binary. A binary bundle only works reliably on the platform and R version it was built for, see [Binary bundles](native-code.qmd#binary-bundles).
+On install, a binary is used only when it fits the machine, and otherwise the shipped source is built there. The installed module keeps the compiled artifact and drops the native source. If `binary = true` but the module has no native code, `baler bundle` prints a warning and bundles without a binary. See [Binary bundles](native-code.qmd#binary-bundles) for how binaries are stored and chosen, and for bundling on more than one platform.
 
 ### Resolution rules
 

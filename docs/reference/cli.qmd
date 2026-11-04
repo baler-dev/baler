@@ -129,23 +129,41 @@ Similar to `pkgbuild::build()` (or `devtools::build()`) and an analogue for `R C
 ``` bash
 # If `<path>` isn't supplied
 # Then `.` argument is passed by default
-baler bundle [<path>] [--locked]
+baler bundle [<path>] [--locked] [--merge <archive>...]
 ```
 
 | Argument | Description |
 |---|---|
 | `<path>` | The project's root directory, wherever `baler.toml` lives. Defaults to `.`. |
 | `--locked` | Fail instead of warning when `baler.lock` is missing, unreadable, or doesn't match `baler.toml`. Like `cargo publish --locked`. The lock ships inside the bundle, so a stale one breaks installs of it. Without the flag, `bundle` only warns. A module dependency that declares a source must also be pinned in a lock that holds modules. |
+| `--merge <archive>...` | Also bring in the binaries of bundles of the same module that were made on other platforms (see [Bundling for more than one platform](#bundle-platforms)). Needs `binary = true` under `[compiled-code]`. If a path is given, put it before the flag: `baler bundle . --merge a.tar.gz b.tar.gz`. |
+
+What goes into the archive is decided by `[compiled-code]` in `baler.toml`, not by flags:
+
+-   The native source is always in the archive, so a machine that can't use the shipped binary builds it on install.
+-   When `binary = true` is declared under `[compiled-code]`, `{baler}` also compiles the native code in the module first and ships the binary built for the machine that ran `baler bundle`. The platform it was built for is recorded next to it, and install checks that against the machine (see [Binary bundles](native-code.qmd#binary-bundles)).
 
 ::: {.callout-note title="Legacy of {carrier}" collapse="true"}
-It is decided that the `--binary` or `--keep-source` are now dropped. Now, what the archive contains is decided by `[compiled-code]` in `baler.toml` through the following:
-
--  When `binary = true` is declared under the `[compiled-code]` from `baler.toml`, `{baler}` will compile any native code in the module first, and include the compiled artifact in the archive. Without it, only source is bundled, and compiled code has to be built again on install.
-
--  When `keep_source = true` is declared under the `[compiled-code]` from `baler.toml`, the native source code will be kept on the archives. This is only valid together with `binary = true`. 
-
-The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you set as `name` under `[project]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed. A bundle built with `binary = true` only works reliably on the exact platform and R version it was built for. There's currently no automatic check that warns you, or falls back to compiling, when installing one on a mismatched machine, even if `keep_source = true` was set at bundle time.
+The `--binary` and `--keep-source` flags of `{carrier}` are gone, and passing one is now a command-line error. There is no `keep_source` setting either, because the native source is always shipped.
 :::
+
+The resulting archive is named `<name>_<version>.tar.gz` (`<name>` is what you set as `name` under `[project]` in `baler.toml`), and written to whatever directory you ran the command from. The execution fails if the source directory is empty, or if `baler.toml` is missing or can't be parsed.
+
+### Bundling for more than one platform {#bundle-platforms}
+
+A binary only runs on the platform and R version it was built for, and the archive stores each one in its own `.lib/<platform>/` folder. To make one archive that has a binary for every platform you support, there are two ways:
+
+1.  Run `baler bundle` on each machine, one after another, in a directory that already holds the archive. The archive keeps the binaries of the other platforms and adds the one built here. This only works while the module's files are the same. If they changed, `{baler}` stops and tells you to delete the archive and bundle again, since the old binaries may not belong to the new source.
+
+2.  Bundle on each machine separately, collect the archives in one place, and merge them:
+
+    ``` bash
+    baler bundle . --merge linux_pkg.tar.gz windows_pkg.tar.gz
+    ```
+
+    The bundle is compiled for the current platform as usual, and the binaries of the listed archives are added. Each one has to come from the same files as the project, and two archives can't both hold a binary for the same platform. Like a normal bundle, the result is written to `<name>_<version>.tar.gz` in the current directory and replaces an archive already there, so list that archive too if you want to keep what it holds.
+
+The summary printed at the end names every platform the bundle now holds a binary for.
 
 ## Module installation
 
@@ -170,13 +188,15 @@ Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to insta
 | `--url <tarball>` | Installs directly from an already-bundled archive URL, such as a GitHub Release asset from `baler bundle`. Must end in `.tar.gz`, checked up front. |
 | `--repo <url>` | Looks up `<name>` in a module registry at `<url>`. Registries aren't built yet, so this currently just fails with a clear "not implemented" error. Add `--version <constraint>` once registries exist. |
 
-The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether CRAN-style R packages (they are linked from CRAN by default) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
+The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether R packages (from CRAN by default, from another CRAN-like repository with `repo`, or from GitHub with `git`) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
 
 Modules are installed from the source their entry declares under `[dependencies.baler]`, at the commit `baler.lock` pins when it has one for that source. A module that is already installed is left alone. Before installing one, `{baler}` checks that the source is the module the entry names and that the version it declares satisfies the entry's constraint, and stops with an error if either is wrong.
 
 `--extras` also installs the R packages (and `{box}` modules) the module declares under `[extras]`, such as test frameworks or development tooling. It only works together with `--install-deps`, since extras are R packages installed from CRAN, and passing it alone is an error. If the module declares nothing under `[extras]`, `{baler}` says so and installs nothing extra. When the module has a `baler.lock`, the extras are installed at the versions pinned there, transitive packages included, and a missing or outdated extras pin is an error telling you to run `baler lock`. Without a lock, `[extras]` is resolved together with the regular dependencies, and a package declared in both with different version constraints is an error. Without `--extras`, extras-only pins are never installed.
 
 `baler install` never writes `baler.lock`. If the lock doesn't match `baler.toml`, the install fails and points you to `baler lock`. On the other hand, with no lock at all, it resolves fresh.
+
+R packages declared with `git` are fetched from GitHub's API as well. They send `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, so set it in CI to stay clear of the same rate limit and to reach private repositories. See [R packages from GitHub](baler-toml.qmd#github-packages).
 
 Installing via `--git` obviously needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `--git` sources in a short window, for example in a CI pipeline, you would run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
 
@@ -196,7 +216,7 @@ baler lock [<path>] [--update [<pkg>...]] [--with-rver] [--check] [--remove]
 |---|---|
 | `<path>` | The project's root directory. Defaults to `.`. |
 | `--update` | Ignore the existing pins and re-resolve every dependency from scratch, module pins included. Use this when you want to pick up newer versions. |
-| `--update <pkg>...` | Re-resolve only the named packages or modules (e.g. `--update purrr cli rcalc`) and keep every other pin. A name that isn't in the lock is an error. |
+| `--update <pkg>...` | Re-resolve only the named packages or modules (e.g. `--update purrr cli rcalc`) and keep every other pin. A package from GitHub moves to the newest commit of its branch. A name that isn't in the lock is an error. |
 | `--with-rver` | Also record the R version you currently have on your system inside `baler.lock`. This is informational only, it's never enforced or checked against on install. Only allowed when the lock is being created, or together with `--update`. |
 | `--check` | Never write anything. Exit with an error if `baler.lock` is missing or doesn't match `baler.toml`. Meant for CI. Can't be combined with `--update`, `--with-rver` or `--remove`. |
 | `--remove` | Delete `baler.lock` instead of writing one. Safe to run any time, if there's no lockfile, `{baler}` just resolves dependencies fresh each time, same as a project that never had one. |
