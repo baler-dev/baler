@@ -365,9 +365,13 @@
       ]
     },
     "PackageDep": {
+      "description": "An R package entry. A bare string is a version constraint, looked up on CRAN. A table with `version` and `repo` names another CRAN-like repository. A table with `git` names a GitHub repository, see `PackageGitSpec`.\n\nUntagged, so the variants are tried in order, and `Git` has to stay ahead of `Extended`. `Extended` ignores keys it does not know, so `{ version = \">=1.0\", git = \"...\" }` would match it and the `git` key would be dropped without a word.",
       "anyOf": [
         {
           "type": "string"
+        },
+        {
+          "$ref": "#/definitions/PackageGitSpec"
         },
         {
           "type": "object",
@@ -387,6 +391,52 @@
           }
         }
       ]
+    },
+    "PackageGitSpec": {
+      "description": "The table form of an R package that comes from GitHub, written with the same keys a module dependency takes. Unknown keys are rejected rather than silently dropped, so a misspelled `tag` fails loudly. Which keys may combine is checked by `PackageGitSpec::check`.",
+      "type": "object",
+      "required": [
+        "git"
+      ],
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "A github.com repository URL.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Never valid next to `git`. It is accepted here only so that `check` can say a package comes from one place, instead of the entry failing to match any shape.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rev": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "Optional, defaults to `\"*\"`. Meant to be checked against the package's own DESCRIPTION.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "TestConfig": {
       "type": "object",
