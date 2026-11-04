@@ -67,21 +67,20 @@ sm$square(5)
 path = "cpp/"
 # path can also be an array: path = ["cpp/", "extra/src"]
 build_deps = { Rcpp = "*" }
-binary = false        # If true, `baler bundle` then compiles and ships the binary
-keep_source = false   # If true (but requires `binary = true` to be set), the bundle also ship native source
+binary = false        # If true, `baler bundle` also compiles and ships a binary
 ```
 
 -   `path` is where this module's native source lives, relative to the module's own resolved source directory (the same base `[module].src` uses), not the project root where `baler.toml` lives. It accepts either a single string, for one native-code location, or an array, for a module with more than one (e.g. `path = ["cpp1", "cpp2"]`). A configuration here, either a single location or a multiple locations, are just two shapes of the same source (`src`) field, not two separate keys.
 
     When `path` isn't set, `{baler}` scans the module's whole source tree and treats every qualifying directory as its own native dir (see below). Also, when `src/` is named, the name of the compiled artifact comes from the name of the module. 
 
--   `build_deps` configures external dependencies, most commonly R packages, needed only to *compile* (e.g. `{Rcpp}`, `{cpp11}`, whatever `Makevars` needs via `system.file()`). If the compiled code also needs external packages loaded at runtime, list them in `build_deps`.
+-   `build_deps` configures external dependencies, most commonly R packages, needed only to *compile* (e.g. `{Rcpp}`, `{cpp11}`, whatever `Makevars` needs via `system.file()`). They can come from CRAN, from another CRAN-like repository (`repo`), or from GitHub (`git`), the same forms `[dependencies]` takes. If the compiled code also needs those packages loaded at runtime, list them under `[dependencies]` too. See [Sharing native code between modules](#sharing-native-code).
 
     ::: {.callout-tip collapse="true" title="History"}
     Historically, under `{carrier}` version 0.2.1, `build_deps` are folded into the ordinary package-resolution plan. Previously they are only installed if they also appear under `[package_deps]`.
     :::
 
--   `binary` and `keep_source` are booleans, both `false` by default, that control what `baler bundle` ships. `keep_source = true` requires `binary = true`. See [Binary bundles](#binary-bundles).
+-   `binary` is a boolean, `false` by default, that controls whether `baler bundle` ships a compiled binary next to the native source, which is always shipped. See [Binary bundles](#binary-bundles).
 
 ## Directory conventions {#directory-conventions}
 
@@ -149,26 +148,37 @@ If you run `baler init <module-name>` without `--native`, then the generation te
 
 ### Binary bundles {#binary-bundles}
 
-Set `binary = true` under `[compiled-code]` and `baler bundle` runs the compile step first. Then it forces the normally-hidden `.lib/` directory into the archive and leaves the native source out. Add `keep_source = true` to ship the native source as well. If the module has no native code, `baler bundle` warns and bundles without a binary.
-
-The manifest records platform, R version, and source hash for each artifact, but nothing on the install side reads those back. A bundle built with `binary = true` and installed on a machine it wasn't built for unpacks its `.lib/` binary as-is and hands it straight to `dyn.load()` at runtime, with no compatibility check in between and no fallback. Even with `keep_source = true`, nothing currently detects a mismatch and recompiles from the kept source automatically.
-
-Until that exists, only distribute binary bundles to machines matching what they were built for.
-
-This is different from how baler handles R package binaries from CRAN, where a downloaded binary's actual architecture is read out of its compiled header and checked before it's trusted. That check exists for CRAN dependencies specifically; it doesn't extend to a module's own compiled artifacts yet.
+`baler bundle` always ships the module's native source. Set `binary = true` under `[compiled-code]` and it also runs the compile step first, then forces the normally-hidden `.lib/` directory into the archive. If the module has no native code, `baler bundle` warns and bundles without a binary.
 
 ``` toml
 [compiled-code]
-binary = true                # will ship .lib/, dropping native sources
+binary = true                # ships the native source and a binary for this platform
 ```
+
+Each binary is stored in a folder named after the platform it was built for, `.lib/<platform>/`, where the platform is the target triple and the R version, for example `x86_64-unknown-linux-gnu_r4.4`. Next to every artifact is an `.abi.json` sidecar that records the target triple, the R `major.minor`, and a hash of the native source it was built from. A bundle can hold the folders of several platforms, see [Bundling for more than one platform](cli.qmd#bundle-platforms).
+
+On `baler install`, `{baler}` compares each sidecar with the machine, and there are three cases:
+
+1.  The binary fits: same target triple, same R `major.minor`, and the same source hash as the source that shipped next to it. The files of that platform's folder are moved up into `.lib/`, the other folders are deleted, and no compiler is needed.
+2.  It doesn't fit, or the bundle has no binary: the module is built on that machine from the source that shipped, the way R builds a source package. A failed build fails the install and shows what the compiler said.
+3.  It doesn't fit and there is no source, which only a bundle from an older `{baler}` can be: the install fails with a message that names every platform the bundle holds and the one of this machine, instead of leaving a binary that can't load.
+
+Once the native directory is built, or its shipped binary is in use, its source is deleted. An installed module keeps the compiled artifact and not the source it came from. A binary with no sidecar has no recorded platform, so it can't be checked and is left alone.
+
+`--install-deps` only decides whether `build_deps` are installed before such a build. Building itself doesn't need it.
+
+This is the same idea as how `{baler}` handles R package binaries from CRAN, where the architecture of a downloaded binary is read from its header and checked before it is trusted. Now a module's own compiled artifacts get a check too, through the sidecar.
+
+### Sharing native code between modules {#sharing-native-code}
+
+Because the native source is deleted after install, a module can't point its `Makevars` at the headers of another installed module. When native code or headers have to be shared, put them in an R package and make that package a build dependency, as `{Rcpp}`, `{cpp11}` and `{BH}` already do:
 
 ``` toml
 [compiled-code]
-binary = true
-keep_source = true           # will ship both
+build_deps = { BH = { git = "https://github.com/eddelbuettel/bh" } }
 ```
 
-Either way, run `baler bundle .`. The `--binary` and `--keep-source` flags that earlier versions took were removed in favour of these keys.
+A header-only package keeps its headers in `inst/include`, which ends up at `system.file("include", package = "BH")` once it is installed, and that is the path `Makevars` points `-I` at. Since the package is a normal `build_deps` entry, `baler lock` pins it (the exact version, or for GitHub the exact commit) in the `build` group of [`baler.lock`](baler-lock.qmd), so everyone who builds the module compiles against the same headers. If the compiled code also loads the package at runtime, list it under `[dependencies]` too.
 
 ## Build cache {#build-cache}
 

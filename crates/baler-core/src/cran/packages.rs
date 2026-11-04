@@ -91,6 +91,10 @@ impl std::fmt::Display for RVersion {
 pub struct PackageRecord {
     pub version: RVersion,
     pub deps: Vec<(String, String)>,
+    /// Where this exact release comes from when that is not simply the
+    /// repository whose index listed it: a GitHub package names its source
+    /// id here, commit included. `None` for a CRAN-like repository.
+    pub source: Option<String>,
 }
 
 /// Shared client for every request this module makes. A bare
@@ -323,7 +327,7 @@ fn flush(map: &mut HashMap<String, PackageRecord>, pending: Pending) {
     }
     match RVersion::parse(&version) {
         Ok(parsed) => {
-            map.insert(name, PackageRecord { version: parsed, deps: pending.deps });
+            map.insert(name, PackageRecord { version: parsed, deps: pending.deps, source: None });
         }
         Err(error) => eprintln!("  [warn] skipping '{name}' in the package index: {error:#}"),
     }

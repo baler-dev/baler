@@ -14,7 +14,8 @@ mod tool;
 pub use author::Author;
 pub use compiled_code::{CompiledCode, NativePath};
 pub use dependencies::{
-    Dependencies, ModuleDep, ModuleDepSpec, ModuleSource, PackageDep, DEFAULT_CRAN_MIRROR,
+    Dependencies, ModuleDep, ModuleDepSpec, ModuleSource, PackageDep, PackageGitSpec,
+    DEFAULT_CRAN_MIRROR,
 };
 pub use extras::{Extras, ExternalToolDep};
 pub use project::ModuleMeta;
@@ -77,10 +78,10 @@ impl BalerToml {
             .with_context(|| format!("Invalid `version` in {}", toml_path.display()))?;
         parsed.validate_module_deps()
             .with_context(|| format!("Invalid dependency in {}", toml_path.display()))?;
+        parsed.validate_package_deps()
+            .with_context(|| format!("Invalid dependency in {}", toml_path.display()))?;
         parsed.validate_external_tools()
             .with_context(|| format!("Invalid external tool in {}", toml_path.display()))?;
-        parsed.validate_compiled_code()
-            .with_context(|| format!("Invalid [compiled-code] in {}", toml_path.display()))?;
         Ok(parsed)
     }
 
@@ -95,6 +96,23 @@ impl BalerToml {
         for (name, dep) in tables.into_iter().flatten().flatten() {
             dep.source()
                 .with_context(|| format!("Module dependency '{name}'"))?;
+        }
+        Ok(())
+    }
+
+    /// Fails early on an R package dependency whose keys contradict each
+    /// other (`git` together with `repo`, two refs), in `[dependencies]`,
+    /// `[extras]` and `[compiled-code].build_deps`, the same way
+    /// `validate_module_deps` does for modules.
+    fn validate_package_deps(&self) -> Result<()> {
+        let tables = [
+            Some(&self.dependencies.packages),
+            self.extras.as_ref().map(|e| &e.packages),
+            self.compiled_code.as_ref().and_then(|c| c.build_deps.as_ref()),
+        ];
+        for (name, dep) in tables.into_iter().flatten().flatten() {
+            dep.check()
+                .with_context(|| format!("R package dependency '{name}'"))?;
         }
         Ok(())
     }
@@ -124,18 +142,6 @@ impl BalerToml {
                         );
                     }
                 }
-            }
-        }
-        Ok(())
-    }
-
-    /// `keep_source` ships native source next to a compiled binary, so
-    /// it means nothing without `binary = true`. Caught here, when the
-    /// manifest loads, instead of when `baler bundle` starts.
-    fn validate_compiled_code(&self) -> Result<()> {
-        if let Some(cc) = &self.compiled_code {
-            if cc.keep_source && !cc.binary {
-                bail!("`keep_source` only applies together with `binary = true`.");
             }
         }
         Ok(())

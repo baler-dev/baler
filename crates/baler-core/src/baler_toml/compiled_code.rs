@@ -43,23 +43,26 @@ impl NativePath {
 /// `resolve_native_dirs()` scans the module's whole source tree for
 /// compiled-code dirs instead of assuming one is where it must live.
 ///
-/// `binary` and `keep_source` replaced the `--binary` and
-/// `--keep-source` flags of `baler bundle`. They describe what a
-/// module ships, which belongs to the module and not to whoever
-/// happens to run the command.
+/// `binary` replaced the `--binary` flag of `baler bundle`. It
+/// describes what a module ships, which belongs to the module and not
+/// to whoever happens to run the command.
+///
+/// A bundle always ships the native source, whatever `binary` is set
+/// to, so it can be installed on any platform. `binary` only adds
+/// compiled binaries as a shortcut. An installed module keeps the
+/// compiled artifact and not the source, as an installed R or Python
+/// package does.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CompiledCode {
     pub path: Option<NativePath>,
     pub build_deps: Option<BTreeMap<String, PackageDep>>,
     /// `baler bundle` compiles the native code in place and ships the
-    /// tagged binary. Native source is stripped from the archive
-    /// unless `keep_source` is also set.
+    /// binary for the platform it ran on, under `.lib/<platform>/`,
+    /// next to the native source. Install uses the binary that fits the
+    /// machine and builds from the source otherwise. Without it,
+    /// nothing is compiled when bundling and install builds from the
+    /// shipped source.
     #[serde(default)]
     pub binary: bool,
-    /// Only valid together with `binary = true`. Also ships native
-    /// source next to the binary, so install can fall back to
-    /// compiling when the binary's tag doesn't match the machine.
-    #[serde(default)]
-    pub keep_source: bool,
 }

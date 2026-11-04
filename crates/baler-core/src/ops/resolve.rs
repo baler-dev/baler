@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use semver::Version;
 
 use crate::baler_toml::{BalerToml, ModuleDep, PackageDep, DEFAULT_CRAN_MIRROR};
+use crate::cran::client::git::same_source;
 use crate::lockfile::{BalerLock, LockGroup};
 use crate::version::VersionSpec;
 use crate::paths::{resolve_install_dir, resolve_r_lib_dir};
@@ -40,7 +41,7 @@ pub fn resolve(
         pkg_specs.entry(name.clone()).or_default().push(spec);
         // Last writer wins for repo
         // Fine since duplicate deps are unusual
-        pkg_repos.insert(name.clone(), dep.repo().to_owned());
+        pkg_repos.insert(name.clone(), dep.repo_id());
     }
 
     for (name, dep) in module_deps.as_ref().unwrap_or(&BTreeMap::new()) {
@@ -96,12 +97,12 @@ fn lock_problems(
             continue;
         };
 
-        if dep.repo() != locked.repo {
+        if !same_source(&dep.repo_id(), &locked.repo) {
             problems.push(format!(
                 "'{name}' repo changed in baler.toml ({} -> {}) but baler.lock \
                  still pins the old one",
                 locked.repo,
-                dep.repo()
+                dep.repo_id()
             ));
             continue;
         }
@@ -289,14 +290,15 @@ pub fn resolve_with_extras(
     let mut packages = package_deps.clone().unwrap_or_default();
     for (name, dep) in extra_packages {
         match packages.get(name) {
-            Some(runtime) if runtime.version() == dep.version() && runtime.repo() == dep.repo() => {}
+            Some(runtime)
+                if runtime.version() == dep.version() && runtime.repo_id() == dep.repo_id() => {}
             Some(runtime) => bail!(
                 "'{name}' is in both [dependencies] ('{}' from {}) and [extras] ('{}' from {}). \
                  Make them match.",
                 runtime.version(),
-                runtime.repo(),
+                runtime.repo_id(),
                 dep.version(),
-                dep.repo()
+                dep.repo_id()
             ),
             None => {
                 packages.insert(name.clone(), dep.clone());

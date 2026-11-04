@@ -55,6 +55,95 @@ fn write_abi_sidecar(artifact_path: &Path, target_triple: &str, r_version: &str,
         .with_context(|| format!("Failed to write ABI sidecar {}", path.display()))
 }
 
+/// What an artifact's `.abi.json` sidecar records. See `write_abi_sidecar`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbiInfo {
+    pub target_triple: String,
+    pub r_version: String,
+    pub source_hash: String,
+}
+
+impl AbiInfo {
+    /// Same `R.version$platform` and same R `major.minor`. Both are
+    /// recorded by `build` in exactly the form `host_abi` returns, so
+    /// plain equality is the right test: a binary built for R 4.3 must
+    /// not be loaded by R 4.5.
+    pub fn is_compatible(&self, target_triple: &str, r_version: &str) -> bool {
+        self.target_triple == target_triple && self.r_version == r_version
+    }
+
+    /// Parses what `write_abi_sidecar` writes, one `"key": "value"` pair
+    /// per line. Done by hand because the format is fixed and tiny, and
+    /// it avoids a JSON dependency for three strings. `origin` names the
+    /// file in error messages.
+    pub fn parse(text: &str, origin: &str) -> Result<AbiInfo> {
+        let mut target_triple = None;
+        let mut r_version = None;
+        let mut source_hash = None;
+        for line in text.lines() {
+            let line = line.trim().trim_end_matches(',');
+            let Some((key, value)) = line.split_once(':') else { continue };
+            let value = value.trim().trim_matches('"').to_owned();
+            match key.trim().trim_matches('"') {
+                "target_triple" => target_triple = Some(value),
+                "r_version" => r_version = Some(value),
+                "source_hash" => source_hash = Some(value),
+                _ => {}
+            }
+        }
+        match (target_triple, r_version, source_hash) {
+            (Some(target_triple), Some(r_version), Some(source_hash)) => Ok(AbiInfo {
+                target_triple,
+                r_version,
+                source_hash,
+            }),
+            _ => bail!("{origin} is missing target_triple, r_version or source_hash"),
+        }
+    }
+}
+
+/// Every artifact in `lib_dir` that has a sidecar, as `(artifact_path,
+/// info)` sorted by path. A sidecar whose artifact is gone is ignored,
+/// and so is an artifact with no sidecar: its platform is unknown, so
+/// there is nothing to compare. A missing `lib_dir` gives an empty list.
+pub fn read_abi_sidecars(lib_dir: &Path) -> Result<Vec<(PathBuf, AbiInfo)>> {
+    if !lib_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(lib_dir)
+        .with_context(|| format!("Failed to read {}", lib_dir.display()))?
+    {
+        let path = entry
+            .with_context(|| format!("Failed to read an entry of {}", lib_dir.display()))?
+            .path();
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(artifact_name) = file_name.strip_suffix(".abi.json") else { continue };
+        let artifact_path = lib_dir.join(artifact_name);
+        if !artifact_path.is_file() {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+        let info = AbiInfo::parse(&text, &path.display().to_string())?;
+        found.push((artifact_path, info));
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(found)
+}
+
+/// `R.version$platform` and R `major.minor` of the R that will load the
+/// binary. This is the one place both values are computed: `build`
+/// records them in the sidecar and `install` compares against them, so
+/// the two can never drift into different formats.
+pub fn host_abi() -> Result<(String, String)> {
+    let target_triple = run_rscript_capture("cat(R.version$platform)")?;
+    let r_version = run_rscript_capture(
+        "cat(paste(R.version$major, strsplit(R.version$minor, '.', fixed = TRUE)[[1]][1], sep = '.'))",
+    )?;
+    Ok((target_triple, r_version))
+}
+
 /// Compile the sources under `native_dir` via `R CMD SHLIB`, mirroring
 /// the same conventions worked out by hand earlier:
 ///   - output named `<module_name><dynlib_ext>` (not derived from the
@@ -95,10 +184,7 @@ pub fn build(module_dir: &Path, native_dir: &Path, module_name: &str, cache_key_
     check_cpp_fortran_mix_experimental(native_dir)?;
 
     let ext = run_rscript_capture("cat(.Platform$dynlib.ext)")?;
-    let target_triple = run_rscript_capture("cat(R.version$platform)")?;
-    let r_version = run_rscript_capture(
-        "cat(paste(R.version$major, strsplit(R.version$minor, '.', fixed = TRUE)[[1]][1], sep = '.'))",
-    )?;
+    let (target_triple, r_version) = host_abi()?;
     let hash = source_hash(native_dir)?;
 
     let lib_name = format!("{module_name}{ext}");

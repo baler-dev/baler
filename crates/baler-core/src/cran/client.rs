@@ -1,4 +1,5 @@
 mod download;
+pub mod git;
 mod graph;
 
 use std::collections::{BTreeMap, HashMap};
@@ -87,7 +88,11 @@ pub fn install_packages(
                 Ok(installed_version) => {
                     // Compare versions the way R does. Comparing the text would
                     // reinstall a package whose lock spelled 0.3-1 as 0.3.1.
-                    if installed_version.ver() == resolved.version.ver() {
+                    // The same version from another source (CRAN's BH next to
+                    // the GitHub one, or another commit) is not the same package.
+                    if installed_version.ver() == resolved.version.ver()
+                        && git::installed_origin_matches(&desc_path, &resolved.repo)
+                    {
                         println!(" [ok] {} {} (already satisfied)", pkg, installed_version);
                         continue;
                     }
@@ -101,7 +106,12 @@ pub fn install_packages(
             println!(" [installing] {} {}...", pkg, resolved.version);
         }
 
-        match download_and_unpack(pkg, resolved.version.as_str(), &resolved.repo, lib_path) {
+        let installed = if git::is_git_id(&resolved.repo) {
+            git::install(pkg, &resolved.repo, lib_path)
+        } else {
+            download_and_unpack(pkg, resolved.version.as_str(), &resolved.repo, lib_path)
+        };
+        match installed {
             Ok(()) => {
                 println!(" [done] {} {}", pkg, resolved.version);
             }
