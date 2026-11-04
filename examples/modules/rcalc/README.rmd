@@ -4,46 +4,54 @@ output: github_document
 
 # Demo module: Calculus in R
 
-This is a demo `{box}`-`{baler}` module that uses native compiled codes which contains functions involving calculus. 
+This is a sibling `box-bale` module of another demo called `{convert}`, which this module involves compiled codes which contains small set of functions involving calculus. 
 
 ## Requirements
 
+If you wanna try out this package, you only gonna need the following requirements: 
+
+-  R (>= 4.1.0)
+-  Rtools toolchain (since it requires compilation)
 -  `{baler}` binary (see [installation](https://baler-dev.github.io/baler/installation.html) for details)
--  Rtools toolchain 
 -  `{box}` R package (see [installation](https://baler-dev.github.io/baler/installation.html) for more details)
 
 ## Installation
 
+The installation is long and verbose (if you consider the number of flags to pass), but it's no-brainer. 
+
 ``` bash
-baler install gh:baler-dev/baler/tree/main/examples/modules/rcalc --install-deps
+baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/rcalc --install-deps
+# or
+# baler install --git https://github.com/baler-dev/baler --branch main --module-dir examples/modules/rcalc --install-deps
 ```
 
 ## Usage
 
-To load the module, use `box::use()`, then you can load the module in few (to several) ways:
+To load the installed `box-bale` module, don't use `library()` (or any of its derived functions like `require()`, not even `::`, and other 3rd party packages like `{import}`), you must only use `box::use()`, then you can load/attach the module in few (to several) ways:
 
 ```{r}
 box::use(
     rcalc, 
     rcalc/spline,            # or rcalc[spline]
     rcalc[quad, brentq],  
+    # rc = rcalc if you wanna put an alias
 )
 ```
 
-1. First example: Find the root of the function $x^2 - 4$ using Brent's method:
+1.  First example: Let's find the root of the function $x^2 - 4$ using Brent's method:
 
-    ```{r}
+    ```{r, comment="#>"}
     rcalc$brentq(\(x) x^2 - 4, 0, 5)
     ```
 
-    Also since you qualify `brentq()`, you can directly use the function:
+    Bonus: Also since you qualify `brentq()`, you can directly use its import instead:
 
-    ```{r}
+    ```{r, comment="#>"}
     brentq(\(x) x^2 - 4, 0, 5)
     ```
 
 2.  Find the integral of $f(x) = x^2$ from 0 to 5
 
-    ```{r}
+    ```{r, comment="#>"}
     rcalc$quad(\(x) x^2, 0, 5)
     ```
