@@ -5,11 +5,11 @@
 [![Release](https://img.shields.io/github/v/release/baler-dev/baler)](https://github.com/baler-dev/baler/releases)
 [![License](https://img.shields.io/github/license/baler-dev/baler)](https://github.com/baler-dev/baler/blob/main/LICENSE.md)
 
-A module manager for [{box}](https://klmr.me/box/) modules.
+Let's give [{box}](https://klmr.me/box/) modules an opportunity to be a package!
 
-`{baler}`, formerly [`{carrier}`](https://github.com/joshuamarie/carrier), is another package manager for R, built in Rust, exclusive for `{box}` modules — call them `box-bale` modules for now. The tasks it handles involve bundling and installation. The entire purpose of `{baler}` is to make the packaging for `{box}` modules possible and to be easily distributed. The interface of `{baler}` is similar to that Python's `pip` or `conda`, or Rust's `{cargo}` itself. Visit the following docs:
+`{baler}`, formerly [`{carrier}`](https://github.com/joshuamarie/carrier), is another package manager for R, built in Rust, exclusive for `{box}` modules. There's no formal name for this type of package (since you cannot call it an *R package*), so call them `box-bale` modules for now. The tasks it handles involve bundling and installation. The entire purpose of `{baler}` is to make the packaging for `{box}` modules possible and to be easily distributed. The interface of `{baler}` is similar to that Python's `pip` or `conda`, or Rust's `{cargo}` itself. Visit the following website for more details:
 
--  [The official docs](https://klmr.me/box/)
+-  [The official documentation](https://klmr.me/box/)
 -  [The book](https://modules-in-r.joshuamarie.com/)
 
 To get an explanation of how `{box}` modules work. 
