@@ -7,7 +7,7 @@
 
 Let's give [{box}](https://klmr.me/box/) modules an opportunity to be a package!
 
-`{baler}`, formerly [`{carrier}`](https://github.com/joshuamarie/carrier), is another package manager for R, built in Rust, exclusive for `{box}` modules. There's no formal name for this type of package (since you cannot call it an *R package*), so call them `box-bale` modules for now. The tasks it handles involve bundling and installation. The entire purpose of `{baler}` is to make the packaging for `{box}` modules possible and to be easily distributed. The interface of `{baler}` is similar to that Python's `pip` or `conda`, or Rust's `{cargo}` itself. Visit the following website for more details:
+`{baler}`, formerly [{carrier}](https://github.com/joshuamarie/carrier), is another package manager for R, built in Rust, exclusive for `{box}` modules. There's no formal name for this type of package (since you cannot call it an *R package* — it is already reserved for CRAN-style packages), so call them `box-bale` modules for now. The tasks it handles involve bundling and installation. The entire purpose of `{baler}` is to make the packaging for `{box}` modules possible and to be easily distributed. The interface of `{baler}` is similar to that Python's `pip` or `conda`, or Rust's `{cargo}` itself. Visit the following website for more details:
 
 -  [The official documentation](https://klmr.me/box/)
 -  [The book](https://modules-in-r.joshuamarie.com/)
@@ -110,7 +110,7 @@ And the structure can go deeper than this. If you know the structure of Python p
     baler install --git https://github.com/username/repo
     ```
 
-    *Note: Running `baler install <module>`, where `<module>` is just a bare name, no prefixes or whatsoever, is valid but reserved for installation of packages from a registry or a remote repository. `{baler}` is still at its early stage, and I would like to hear words from you, feedback is very welcome. Also, there are plenty of ways to install a module from a GitHub repo, so please read the [docs](https://baler-dev.github.io/baler/reference/cli.html#module-installation) to know more. *
+    *Note: Running `baler install <module>`, where `<module>` is just a bare name, no prefixes or whatsoever, is valid but reserved for installation of packages from a registry or a remote repository. `{baler}` is still at its early stage, and I would like to hear words from you, feedback is very welcome. Also, there are plenty of ways to install a module from a GitHub repo, so please read the [docs](https://baler-dev.github.io/baler/reference/cli.html#module-installation) to know more.*
 
 4.  Remove the installed module
 
@@ -118,11 +118,15 @@ And the structure can go deeper than this. If you know the structure of Python p
     baler remove <name-of-the-module>
     ```
 
+    *Flag `--force` if you want to skip the prompt*
+
 5.  Optional: Pin those R package versions so later installs reproduce them:
 
     ``` bash
     baler lock .
     ```
+
+    Like `baler bundle`, no need to pass especially `.`.
 
 ## Using installed modules
 
