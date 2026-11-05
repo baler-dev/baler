@@ -33,13 +33,49 @@ jobs:
           sed "s/__VERSION__/${GITHUB_REF_NAME}/" scripts/install.ps1 > baler-installer.ps1
           chmod +x baler-installer.sh
 
+      - name: "Write the release notes"
+        run: |
+          sed 's/\r$//' CHANGELOG.md > changelog.tmp
+          if ! grep -qxF "# ${GITHUB_REF_NAME}" changelog.tmp; then
+              echo "CHANGELOG.md has no '# ${GITHUB_REF_NAME}' heading, add one before tagging"
+              exit 1
+          fi
+          anchor=$(printf '%s' "${GITHUB_REF_NAME}" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')
+          cat > release-body.md <<'EOF'
+          See what changed in this release in the [changelog](https://github.com/__REPO__/blob/__TAG__/CHANGELOG.md#__ANCHOR__).
+
+          ## Installation
+
+          Linux / macOS:
+
+          ``` bash
+          curl -LsSf https://github.com/__REPO__/releases/download/__TAG__/baler-installer.sh | bash
+          ```
+
+          Windows:
+
+          ``` powershell
+          powershell -ExecutionPolicy Bypass -c "irm https://github.com/__REPO__/releases/download/__TAG__/baler-installer.ps1 | iex"
+          ```
+
+          Or download the archive for your platform below and put `baler` on your `PATH`. Each archive comes with a `.sha256` file. Check the install with `baler --version`.
+
+          `{baler}` modules are loaded through a patched `{box}` for now:
+
+          ``` r
+          pak::pak("joshuamarie/box@feature/baler-support")
+          ```
+          EOF
+          sed -i -e "s|__REPO__|${GITHUB_REPOSITORY}|g" -e "s|__TAG__|${GITHUB_REF_NAME}|g" -e "s|__ANCHOR__|${anchor}|g" release-body.md
+
       - name: "Publish release"
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release-body.md
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip
             artifacts/*.sha256
             baler-installer.sh
             baler-installer.ps1
+            
