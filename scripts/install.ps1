@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 
+$Repo = "baler-dev/baler"
 $DefaultVersion = "__VERSION__"
 
 $InstallDir = "$env:USERPROFILE\.local\bin"
@@ -11,17 +12,19 @@ $arch = if ([System.Environment]::Is64BitOperatingSystem) { "x86_64" } else {
 }
 $target = "$arch-pc-windows-msvc"
 
-$version = $env:CARRIER_VERSION
-if (-not $version -and $DefaultVersion -ne "__VERSION__") {
+# A release renders DefaultVersion to its tag (v0.1.0). Anything else,
+# such as the untouched placeholder, means "no pinned version".
+$version = $env:BALER_VERSION
+if (-not $version -and $DefaultVersion -match '^v\d') {
     $version = $DefaultVersion
 }
 
 if ($version) {
     Write-Host "Fetching release $version..."
-    $apiUrl = "https://api.github.com/repos/joshuamarie/baler/releases/tags/$version"
+    $apiUrl = "https://api.github.com/repos/$Repo/releases/tags/$version"
 } else {
     Write-Host "Fetching latest release..."
-    $apiUrl = "https://api.github.com/repos/joshuamarie/baler/releases/latest"
+    $apiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 }
 
 Write-Host "Fetching download URL for $target..."

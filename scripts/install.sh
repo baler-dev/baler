@@ -1,12 +1,17 @@
 #!/bin/bash
 set -e
 
+REPO="baler-dev/baler"
 DEFAULT_VERSION="__VERSION__"
 
 mkdir -p ~/.local/bin && cd ~/.local/bin
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
+case "$arch" in
+  arm64) arch="aarch64" ;;
+  amd64) arch="x86_64" ;;
+esac
 
 case "$os" in
   darwin) os_pattern="apple-darwin"; ext="tar.gz" ;;
@@ -23,26 +28,31 @@ case "$os" in
   *) echo "Unsupported OS: $os" >&2; exit 1 ;;
 esac
 
-version="${CARRIER_VERSION:-}"
-if [ -z "$version" ] && [ "$DEFAULT_VERSION" != "__VERSION__" ]; then
-    version="$DEFAULT_VERSION"
-fi
+# A release renders DEFAULT_VERSION to its tag (v0.1.0). Anything else,
+# such as the untouched placeholder, means "no pinned version".
+version="${BALER_VERSION:-}"
+case "$DEFAULT_VERSION" in
+  v[0-9]*) [ -n "$version" ] || version="$DEFAULT_VERSION" ;;
+esac
 
 if [ -n "$version" ]; then
     echo "Fetching release $version..."
-    api_url="https://api.github.com/repos/joshuamarie/baler/releases/tags/$version"
+    api_url="https://api.github.com/repos/$REPO/releases/tags/$version"
 else
     echo "Fetching latest release..."
-    api_url="https://api.github.com/repos/joshuamarie/baler/releases/latest"
+    api_url="https://api.github.com/repos/$REPO/releases/latest"
 fi
 
 echo "Fetching download URL for $arch-$os_pattern..."
-github_response=$(curl -s "$api_url")
-asset_url=$(echo "$github_response" | grep -o "https://github.com/joshuamarie/baler/releases/download/[^\"]*$arch-$os_pattern.$ext\"" | head -n 1)
+github_response=$(curl -fsSL "$api_url") || {
+    echo "Error: could not read $api_url" >&2
+    exit 1
+}
+asset_url=$(echo "$github_response" | grep -o "https://github.com/$REPO/releases/download/[^\"]*$arch-$os_pattern.$ext\"" | head -n 1)
 asset_url="${asset_url%\"}"
 
 if [ -z "$asset_url" ]; then
-    echo "Error: no release asset found for $arch-$os_pattern." >&2
+    echo "Error: no release asset found for $arch-$os_pattern in $REPO ${version:-(latest)}." >&2
     exit 1
 fi
 
