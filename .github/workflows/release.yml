@@ -29,8 +29,8 @@ jobs:
 
       - name: "Render installer scripts"
         run: |
-          sed "s/__VERSION__/${GITHUB_REF_NAME}/" scripts/install.sh > baler-installer.sh
-          sed "s/__VERSION__/${GITHUB_REF_NAME}/" scripts/install.ps1 > baler-installer.ps1
+          sed "/^DEFAULT_VERSION=/s/__VERSION__/${GITHUB_REF_NAME}/" scripts/install.sh > baler-installer.sh
+          sed "/^[$]DefaultVersion = /s/__VERSION__/${GITHUB_REF_NAME}/" scripts/install.ps1 > baler-installer.ps1
           chmod +x baler-installer.sh
 
       - name: "Write the release notes"
@@ -78,4 +78,3 @@ jobs:
             artifacts/*.sha256
             baler-installer.sh
             baler-installer.ps1
-            
