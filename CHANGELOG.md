@@ -2,6 +2,14 @@
 
 # Development version
 
+## Build
+
+-  The arm64 macOS release build now runs on `macos-15`. GitHub retired the `macos-14` runner image on November 2, 2026, so that job was cancelled with "configuration 'macos-14-arm64-us-default' is not supported".
+
+## Documentation
+
+-  Brought the docs back in line with the code: the architecture page (crate layout, bundle contents, the `BALER_*` environment variables), the install commands in the guide (`--path`, `--git`), the installer page (checksum verification and version pinning), the `[dependencies]` and `[dependencies.baler]` table names, FORTRAN's status on the native-code page, and links that pointed at `.md` pages that do not exist. The `baler lock` description on the home page now names `--with-rver`.
+
 # v0.1.0
 
 -  This is the migrated version of `{carrier}`, now named `{baler}`. There's no formal name for this packages so name the manufactured packages as `box-bale` modules, not "R packages".
