@@ -6,7 +6,7 @@ description: "Article for developers"
 
 *`{baler}` internals explanations. An article for developers.*
 
-This article covers how `{baler}` resolves dependencies internally, following two paths: `cran::client::resolve_all` and the solver behind it for R package dependencies, and `ops::module_graph::resolve_transitive` for `baler`-installed module dependencies. Specifically: what runs when `baler install --install-deps` resolves and installs R packages, and what runs when a module's `module_deps` gets walked transitively.
+This article covers how `{baler}` resolves dependencies internally, following two paths: `cran::client::resolve_all` and the solver behind it for R package dependencies, and `ops::module_graph::resolve_transitive` for `baler`-installed module dependencies. Specifically: what runs when `baler install --install-deps` resolves and installs R packages, and what runs when a module's `[dependencies.baler]` table gets walked transitively.
 
 ## Fetching indexes
 
@@ -21,7 +21,7 @@ All requested packages are solved together, as one graph, by a PubGrub-based sol
 - A choice that leads to a conflict is undone and the next candidate version is tried, instead of the run failing on the first fit.
 - Each candidate version is judged by its own dependencies, not by the newest release's.
 
-How the solver picks versions and explains a conflict is in [The dependency solver](solver.md). What matters here:
+How the solver picks versions and explains a conflict is in [The dependency solver](solver.qmd). What matters here:
 
 1.  Base and recommended R packages are never looked up.
 2.  A package listed in `baler.toml` that is missing from its index is an error naming the repository.
@@ -44,7 +44,7 @@ For each package, the solver takes the first version that satisfies every constr
 
 The archived versions come from `fetch_archive_versions`, which scrapes CRAN's `Archive/<pkg>/` HTML directory listing (a plain substring scan for `href="..."`, not a full HTML parser). When the solver steps back to an archived release, `fetch_archive_deps` downloads that release's tarball and reads the `DESCRIPTION` inside it, because the index only describes the newest release.
 
-Versions compare the way R compares them (`Ver` in `ver.rs`), so `1.2.3.9000` is above `1.2.3` and `4.0-3` equals `4.0.3`. The constraint syntax is in [Version constraints](../reference/version-constraints.md).
+Versions compare the way R compares them (`Ver` in `ver.rs`), so `1.2.3.9000` is above `1.2.3` and `4.0-3` equals `4.0.3`. The constraint syntax is in [Version constraints](../reference/version-constraints.qmd).
 
 ## Install order and installation
 
@@ -82,7 +82,7 @@ Both the `.zip` and `.tar.gz` binary-extraction paths sanitize every entry path 
 *This is for developers under development*
 :::
 
-`{baler}`-installed modules (under `[dependencies.baler]` in `baler.toml`) resolve through a completely separate path from R packages: `resolve_transitive` in `ops::module_graph`. It shares no code with the CRAN resolution above. No repo grouping, no binary/source install step, no CRAN index. A module dependency gets fetched as a whole `baler.toml` from its declared `git` or `url` source (see the [baler.toml reference](../reference/baler-toml.md#dependencies)), not resolved against a package index.
+`{baler}`-installed modules (under `[dependencies.baler]` in `baler.toml`) resolve through a completely separate path from R packages: `resolve_transitive` in `ops::module_graph`. It shares no code with the CRAN resolution above. No repo grouping, no binary/source install step, no CRAN index. A module dependency gets fetched as a whole `baler.toml` from its declared `git` or `url` source (see the [baler.toml reference](../reference/baler-toml.qmd#dependencies)), not resolved against a package index.
 
 ### Why this walk is DFS, not BFS
 
@@ -93,13 +93,13 @@ The graph is walked depth-first on purpose, keeping an explicit ancestor path: t
 1.  If the module name is already fully resolved, from an earlier branch of the walk, a diamond, its resolved version and source get checked for consistency against the current dependent's constraint instead of being fetched again. A mismatched source or an incompatible version constraint fails loudly, and will name both requesters.
 2.  If you have a module name that is already on the current ancestor path, that's a real cycle. The walk fails with the full chain (e.g. `a -> b -> a`) instead of looping forever.
 3.  A module dependency declared with neither `git` nor `url` (a bare string, or a table with only `version`) fails at this step, since there's no default module registry to fall back to (unlike package deps, which default to CRAN). A table that combines contradictory keys, both `git` and `url`, or `branch`/`tag`/`rev`/`module_dir` without `git`, never reaches this walk at all: it fails when `baler.toml` is loaded, before resolution starts.
-4.  Otherwise, the dependency's `baler.toml` gets fetched from its declared source. Its declared `module.version` is checked against the requesting constraint, its own `package_deps` fold into the same package-resolution set used everywhere else, and its own `module_deps` get recursed into.
+4.  Otherwise, the dependency's `baler.toml` gets fetched from its declared source. Its declared `version` under `[project]` is checked against the requesting constraint, its own R package entries under `[dependencies]` fold into the same package-resolution set used everywhere else, and its own `[dependencies.baler]` entries get recursed into.
 
 ### What fetches a module
 
 `ModuleFetcher` is a small trait: `fn fetch(&self, source: &ModuleSource) -> Result<BalerToml>`. `resolve_transitive()` only knows how to walk the graph, not how to fetch a `baler.toml`. `ModuleSource` is either a `git` source (a github.com URL, plus an optional ref and `module_dir`) or a `url` source (a direct link to an already-bundled `.tar.gz`).
 
-The production implementation, `GitHubFetcher`, handles both. A `git` source builds the same GitHub tarball URL `baler install --git` uses, downloads and extracts it, then reads `baler.toml` from the resolved `module_dir`. A `url` source downloads the tarball directly and reads its `baler.toml` without extracting anything else. Both require the `network` feature, same as `baler install`'s own `--git`/`--url` handling (see [CLI Commands](cli.md#baler-install)).
+The production implementation, `GitHubFetcher`, handles both. A `git` source builds the same GitHub tarball URL `baler install --git` uses, downloads and extracts it, then reads `baler.toml` from the resolved `module_dir`. A `url` source downloads the tarball directly and reads its `baler.toml` without extracting anything else. Both require the `network` feature, same as `baler install`'s own `--git`/`--url` handling (see [CLI Commands](../reference/cli.qmd#module-installation)).
 
 ::: {.callout-note title="Technical Notes"}
 A module dependency has exactly one candidate version, the one its source declares, so there is nothing for the solver to choose between. The module walk checks each module (source, version, cycles) and hands the R package constraints it collects to the solver.
