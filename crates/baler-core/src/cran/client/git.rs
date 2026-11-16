@@ -257,6 +257,34 @@ fn token() -> Option<String> {
         .filter(|token| !token.is_empty())
 }
 
+/// Whether `url` is a request to GitHub's API over HTTPS, the only place
+/// a token is ever sent. The host has to be exactly `api.github.com`, so a
+/// look-alike such as `api.github.com.example.org`, a URL that only
+/// mentions it in its path or user info, and a plain `http` URL all fail.
+pub fn is_github_api_url(url: &str) -> bool {
+    match reqwest::Url::parse(url) {
+        Ok(parsed) => {
+            parsed.scheme() == "https"
+                && parsed.host_str() == Some("api.github.com")
+                && parsed.username().is_empty()
+                && parsed.password().is_none()
+        }
+        Err(_) => false,
+    }
+}
+
+/// The token to send with a request for `url`: `GITHUB_TOKEN` or
+/// `GH_TOKEN` when `url` is GitHub's API, and nothing for any other URL.
+/// Module downloads share one function with `--url`, which takes any
+/// address, so the host is checked here instead of trusting the caller.
+pub fn token_for(url: &str) -> Option<String> {
+    if is_github_api_url(url) {
+        token()
+    } else {
+        None
+    }
+}
+
 fn get(url: &str, accept: Option<&str>) -> Result<reqwest::blocking::Response> {
     let mut request = client()?.get(url);
     if let Some(accept) = accept {
