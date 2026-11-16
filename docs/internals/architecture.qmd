@@ -6,55 +6,66 @@ description: "Articles only suitable for developers"
 
 ## Workspace layout
 
-`{baler}` is a CLI tool built in Rust and it is used to make `{box}` modules to be more manageable. What does the `crates/` workspace looks like? 
+`{baler}` is a CLI tool built in Rust and it is used to make `{box}` modules to be more manageable. What does the `crates/` workspace looks like?
 
 ```
 crates/
-├── baler-cli/        # bin + lib crate: clap CLI, thin command wrappers
+├── baler-cli/              # bin + lib crate: clap CLI, thin command wrappers
 │   └── src/
-│       ├── lib.rs           # Cli struct, clap subcommands, run()
-│       ├── bin/
-│       │   ├── baler.rs   # fn main() { baler_cli::run(); }
-│       │   └── crr.rs       # same entry point, second binary name
-│       └── commands/        # one file per subcommand, delegates to baler-core::ops
-├── baler-core/        # lib crate: all real logic, reusable outside the CLI
+│       ├── lib.rs                 # Cli struct, clap subcommands, run()
+│       ├── bin/baler.rs           # fn main() { baler_cli::run(); }
+│       └── commands/              # one file per subcommand, delegates to baler-core::ops
+├── baler-core/             # lib crate: all real logic, reusable outside the CLI
 │   └── src/
-│       ├── baler_toml.rs   # baler.toml schema + parsing
-│       ├── manifest.rs       # manifest.json embedded in bundled archives
-│       ├── lockfile.rs       # baler.lock schema, read/write
-│       ├── version.rs        # semver-based VersionSpec
-│       ├── paths.rs          # install-dir / R-lib-dir resolution
-│       ├── formats/          # tar.gz archive read/write
-│       ├── cran/              # CRAN package fetch, resolve, install
+│       ├── baler_toml/            # baler.toml schema + parsing, one file per table
+│       ├── lockfile.rs            # baler.lock schema, read/write
+│       ├── version.rs             # semver-based version requirements (module versions)
+│       ├── ver.rs                 # R-native package versions and requirements
+│       ├── resolver.rs            # PubGrub-based dependency solver
+│       ├── paths.rs               # install-dir / R-lib-dir resolution
+│       ├── formats/               # tar.gz archive read/write
+│       ├── cran/                  # R package fetch, resolve, install
 │       │   ├── packages.rs        # PACKAGES.gz fetch + parse
+│       │   ├── universe.rs        # the CRAN side of the solver: repositories and Archive/ lookups
 │       │   ├── client.rs          # dependency resolution + install orchestration
+│       │   ├── client/            # graph.rs (resolution), download.rs (source installs), git.rs (GitHub packages)
 │       │   └── binary_install.rs  # binary-archive extraction
-│       └── ops/                # one module per CLI command's actual logic
-│           ├── init.rs, bundle.rs, compile.rs, install.rs
-│           └── lock.rs, remove.rs, resolve.rs, module_graph.rs
-└── baler-native/      # lib crate: compiled-code scaffolding and build
+│       └── ops/                   # one module per CLI command's actual logic
+│           ├── init.rs, bundle.rs, compile.rs, lock.rs, remove.rs
+│           ├── resolve.rs, module_graph.rs, external_tools.rs
+│           └── install.rs         # with install/: archive.rs, github.rs, native.rs
+└── native-code-handler/    # the `baler-native` package: compiled-code scaffolding and build
     └── src/
         ├── detect.rs      # locates native-code dirs inside a module's source tree
         ├── scaffold.rs    # writes example native code for `baler init --native`
-        ├── toolchain.rs   # R CMD SHLIB invocation, target/arch detection
+        ├── toolchain.rs   # R CMD SHLIB invocation, target/arch detection, .abi.json sidecars
         ├── cache.rs       # build cache, keyed by source hash, platform, and R version
         ├── lang.rs        # NativeLang / Backend enums
         └── templates/     # per-language scaffold templates (c, cpp, fortran, R glue)
 ```
 
-`baler-cli` owns argument parsing and process exit codes. `baler-core` owns everything that could plausibly be reused by something other than the CLI, and the `network` feature flag lives on this crate. `baler-native` owns everything to do with locating, scaffolding, and building a module's compiled code, independent of both the CLI and the packaging logic in `baler-core`.
+`baler-cli` owns argument parsing and process exit codes. `baler-core` owns everything that could plausibly be reused by something other than the CLI, and the `network` feature flag lives on this crate. `baler-native` (the package in the `native-code-handler/` directory) owns everything to do with locating, scaffolding, and building a module's compiled code, independent of both the CLI and the packaging logic in `baler-core`.
 
-## What goes into `manifest.json`
+## What goes into a bundle
 
-Every bundled archive (a `.tar.gz`) embeds a `manifest.json` built from `baler.toml` by `ops::bundle::build_manifest`:
+`baler bundle` writes a `<name>_<version>.tar.gz` that contains a single top-level directory, `<name>_<version>/`:
 
-- `name`, `version`, `description`, `authors`, `license`, `r_version`: copied straight from `[module]`.
-- `dependencies.packages`: flattened from `[package_deps]`. A dependency's `repo` is omitted entirely when it's the default CRAN mirror, and included otherwise.
-- `dependencies.modules`: flattened from `[module_deps]`.
-- `files`: every file under the resolved source directory, except hidden (dot-prefixed) files and directories, which are never bundled. A native code directory is also excluded here when `--binary` bundling strips source in favor of the compiled artifact.
-- `bundled_at`: not independently verified against `manifest.rs` yet. Send that file if you want this line confirmed rather than just carried over from the previous version of this doc.
+```
+tstk_0.1.0/
+├── tstk/              # the module's source directory (the one with __init__.r)
+│   ├── __init__.r
+│   └── ...
+├── baler.toml
+└── baler.lock         # only if the project has one
+```
 
-`baler install` reads this manifest back out of `.tar.gz` archives instead of re-parsing `baler.toml`, so the archive is self-describing.
+`baler.toml` and `baler.lock` are shipped as they are, not as a generated copy of them, much like a Python sdist ships its own `pyproject.toml`. `baler install` reads `baler.toml` back out of the archive, so the archive is self-describing without a second metadata file. Earlier versions embedded a generated `manifest.json` here, but it duplicated `baler.toml` and has been removed.
+
+Which files are included:
+
+- Every file under the module's source directory, except hidden (dot-prefixed) files and directories, which are never bundled.
+- The one exception is `.lib/`, which is dot-prefixed but is forced into the archive when `binary = true` is set under `[compiled-code]`. Binaries are stored per platform as `.lib/<platform>/`, each artifact with an `.abi.json` sidecar. See [Binary bundles](../reference/native-code.qmd#binary-bundles) for what install does with them.
+- The native source, always. `binary` only decides whether compiled binaries ship along with it.
 
 ## Path resolution
 
@@ -64,19 +75,21 @@ Two directories matter at runtime, and both follow an environment-variable-first
 
 ### Module install directory
 
-Under `paths::resolve_install_dir()`: 
+Under `paths::resolve_install_dir()`:
 
-1. `CARRIER_LIB`, if set and non-empty.
+1. `BALER_LIB`, if set and non-empty.
 2. `~/.baler/modules`.
 
 ### R user library directory
 
-Under `paths::resolve_r_lib_dir()`: 
+Under `paths::resolve_r_lib_dir()`:
 
-1. `CARRIER_R_LIB`, if set and non-empty. The explicit override, meant for renv/rv-style project-local libraries.
+1. `BALER_R_LIB`, if set and non-empty. The explicit override, meant for renv/rv-style project-local libraries.
 2. `R_LIBS_USER`, if set and non-empty. R's own variable.
 3. A subprocess fallback: `Rscript -e "cat(.libPaths()[1])"`.
 
-The third step is a real subprocess call. Invoking `baler install --install-deps` without `R`/`Rscript` on `PATH`, and without either environment variable set, fails there with a message pointing at `CARRIER_R_LIB`.
+The third step is a real subprocess call. Invoking `baler install --install-deps` without `R`/`Rscript` on `PATH`, and without either environment variable set, fails there with an error asking whether R is installed and on `PATH`. If `Rscript` runs but reports no library path, the error points at `BALER_R_LIB` instead.
 
-::: 
+:::
+
+The build cache has its own override, `BALER_CACHE_DIR`, described under [Build cache](../reference/native-code.qmd#build-cache).

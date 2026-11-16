@@ -14,13 +14,15 @@ Pre-built binaries for Linux, macOS, and Windows are published on the [Releases]
     curl -sSL https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.sh | bash
     ```
 
-    2.  Windows:
-    
+2.  Windows:
+
     ``` bash
     powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.ps1 | iex"
     ```
 
-To pin a specific version, use that version's asset URL instead of the `latest` one the scripts above resolve to:
+Both scripts download the archive for your platform from the latest release, and also the `.sha256` file published next to it. The archive is unpacked and installed only when its SHA-256 hash matches that file. On a mismatch, a missing checksum file or a malformed one, nothing is installed, and an existing `baler` stays as it was.
+
+To pin a specific version, use that version's installer, which is published with every release and already knows its own tag:
 
 ``` bash
 curl -LsSf https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-installer.sh | bash
@@ -30,6 +32,8 @@ curl -LsSf https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-ins
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-installer.ps1 | iex"
 ```
 
+On Linux and macOS, setting `BALER_VERSION` (for example `BALER_VERSION=v0.1.0`) pins the version when you run the script from `main`.
+
 ## Building from source
 
 `{baler}` is a CLI tool built in Rust, so it requires the stable Rust toolchain (`rustc`, `cargo`). Once you managed to add the Rust toolchain, install `{baler}` from scratch via following command: 
@@ -38,7 +42,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/baler-dev/baler/re
 cargo install --git https://github.com/baler-dev/baler
 ```
 
-`{baler}`'s GitHub-install path (`baler install gh:user/repo`) is compiled behind the `network` feature on `baler-core`. If you're building from source and plan to install modules directly from GitHub, confirm that feature is enabled for the binary you build, otherwise `baler install gh:...` will fail with an explicit "requires the 'network' feature" error rather than silently doing nothing.
+The `baler` binary is built with the `network` feature of `baler-core` already on, so `--git` and `--url` installs work out of the box. The feature only matters if you use `baler-core` as a library: without it, those two install paths fail with an explicit "requires the 'network' feature" error rather than silently doing nothing.
 
 ### Verifying the install
 

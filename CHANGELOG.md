@@ -10,9 +10,13 @@
 
 -  `baler install --git` now sends `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, so private repositories work and CI is not held to GitHub's rate limit for anonymous requests. The token goes only to `api.github.com` over HTTPS, never to a host given with `--url`. When GitHub answers 404, 403 or 429 and no token is set, the error now says so and names the variable.
 
+## Build
+
+-  The arm64 macOS release build now runs on `macos-15`. GitHub retired the `macos-14` runner image on November 2, 2026, so that job was cancelled with "configuration 'macos-14-arm64-us-default' is not supported".
+
 ## Documentation
 
--  Brought the docs back in line with the code: the architecture page (crate layout, bundle contents, the `BALER_*` environment variables), the install commands in the guide (`--path`, `--git`), the `[dependencies]` and `[dependencies.baler]` table names, `compile` in the command list, and links that pointed at `.md` pages that do not exist. The `baler lock` description on the home page now names `--with-rver`.
+-  Brought the docs back in line with the code: the architecture page (crate layout, bundle contents, the `BALER_*` environment variables), the install commands in the guide (`--path`, `--git`), the installer page (checksum verification and version pinning), the `[dependencies]` and `[dependencies.baler]` table names, FORTRAN's status on the native-code page, and links that pointed at `.md` pages that do not exist. The `baler lock` description on the home page now names `--with-rver`.
 
 # v0.1.0
 

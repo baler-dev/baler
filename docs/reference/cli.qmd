@@ -198,7 +198,7 @@ Modules are installed from the source their entry declares under `[dependencies.
 
 R packages declared with `git` are fetched from GitHub's API as well. They send `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, so set it in CI to stay clear of the same rate limit and to reach private repositories. See [R packages from GitHub](baler-toml.qmd#github-packages).
 
-Installing via `--git` obviously needs internet access to reach GitHub, and those requests aren't authenticated. If you're installing several `--git` sources in a short window, for example in a CI pipeline, you would run into GitHub's rate limit. Right now that shows up as a generic HTTP error rather than a message that clearly says "rate limited," so if an install fails for no obvious reason, that's worth checking.
+Installing via `--git` needs internet access to reach GitHub. Requests to GitHub's API send `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, and only to `api.github.com` over HTTPS, never to a host given with `--url`. Set the token in CI to stay clear of GitHub's rate limit for anonymous requests and to reach private repositories. When GitHub answers 404, 403 or 429 and no token is set, the error says so and names the variable to set.
 
 ## Lock and lockfile
 
@@ -222,7 +222,7 @@ baler lock [<path>] [--update [<pkg>...]] [--with-rver] [--check] [--remove]
 | `--remove` | Delete `baler.lock` instead of writing one. Safe to run any time, if there's no lockfile, `{baler}` just resolves dependencies fresh each time, same as a project that never had one. |
 
 ::: callout-note
-The positional form isn't a fourth way to point at something — it always collapses to one of the three rows above (a sniffed local path, `gh:user/repo`, or a bare name for `--repo`). Note that `gh:user/repo` can't take `--branch`, `--tag`, `--rev`, or `--module-dir`; those need the explicit `--git <url>` flag instead.
+A bare positional argument is a registry name and is never treated as a path or a URL, so it needs `--repo <url>`. Without `--repo`, `{baler}` stops with an error that lists `--path`, `--git` and `--url` instead. `--branch`, `--tag`, `--rev` and `--module-dir` only apply to `--git`.
 
 :::
 
