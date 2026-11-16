@@ -26,7 +26,7 @@ baler init rmod
 
 This creates `rmod-proj/` (the default directory name is `<name>-proj`). If you don't want the `-proj` prefix, then override it with `--dir-name`. 
 
-The generated `baler.toml` starts out mostly skeletal — some were pre-filled, and you can edit them once you started making a package. Fill the empty parameters or modify the pre-filled values, e.g. `description`, `authors`, `license`, and any `[package_deps]` or `[module_deps]` your module needs. See the [baler.toml reference](reference/baler-toml.qmd) for the full schema.
+The generated `baler.toml` starts out mostly skeletal — some were pre-filled, and you can edit them once you started making a package. Fill the empty parameters or modify the pre-filled values, e.g. `description`, `authors`, `license`, and any entries under `[dependencies]` or `[dependencies.baler]` your module needs. See the [baler.toml reference](reference/baler-toml.qmd) for the full schema.
 
 The source directory (`rmod/`) is named after the module by default. If you'd rather use a different directory name, set `src` in `baler.toml` (see [Module Structure](reference/module-structure.qmd)).
 
@@ -70,19 +70,19 @@ This is your typical package installation step. There are few ways to install th
 1.  If this module is from a tarball local archive:
 
     ``` bash
-    baler install ./rmod_0.1.0.tar.gz
+    baler install --path ./rmod_0.1.0.tar.gz
     ```
 
 2.  Directly from a module directory (baler bundles it to a temp file first, then installs that):
 
     ``` bash
-    baler install .
+    baler install --path .
     ```
 
 3.  From a GitHub repo, optionally pointing at a subpath:
 
     ``` bash
-    baler install gh:username/path/to/rmod-proj
+    baler install --git https://github.com/username/rmod-proj --module-dir path/to/rmod
     ```
 
 Installing prints where the module landed and the dependency plan baler worked out from `[dependencies]` / `[dependencies.baler]`:
@@ -99,16 +99,16 @@ Dependencies:
 By default, R package dependencies are only *planned*, not installed. To install the main package dependencies, pass `--install-deps` to actually fetch and install them from CRAN (the default repo):
 
 ``` bash
-baler install ./rmod_0.1.0.tar.gz --install-deps
+baler install --path ./rmod_0.1.0.tar.gz --install-deps
 ```
 
 ::: callout-note
-Installation of `{box}` module packages from the local or GitHub requires you to provide the prefixes like `.`, `./`, `../` and suffixes like `/`. You are not allowed to install the module with just a bare name — it is reserved for modules under remote repositories (this would be the "CRAN" for modules once it is made). 
+Say where a module comes from with `--path`, `--git` or `--url`. A bare name such as `baler install rmod` is reserved for modules in a registry and needs `--repo <url>`, since there is no default registry yet (this would be the "CRAN" for modules once it is made).
 :::
 
 ## 5. Lock dependencies (optional)
 
-Resolving `[package_deps]` against CRAN can settle on a different version each time you install — a new release published upstream, a different mirror, and so on. To pin what baler resolved so a later install reproduces it exactly, write a lock file:
+Resolving `[dependencies]` against CRAN can settle on a different version each time you install — a new release published upstream, a different mirror, and so on. To pin what baler resolved so a later install reproduces it exactly, write a lock file:
 
 ``` bash
 baler lock .
