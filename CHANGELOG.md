@@ -2,6 +2,18 @@
 
 # Development version
 
+## Security
+
+-  The installers (`install.sh` and `install.ps1`) now verify the SHA-256 hash of the downloaded archive against the `.sha256` file published with each release. A mismatch, or a missing or malformed checksum file, stops the install before anything is unpacked, and an existing `baler` is left as it was. The Linux and macOS installer also downloads and checks everything in a temporary directory first, instead of unpacking into the current directory.
+
+## Fixes
+
+-  `baler install --git` now sends `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, so private repositories work and CI is not held to GitHub's rate limit for anonymous requests. The token goes only to `api.github.com` over HTTPS, never to a host given with `--url`. When GitHub answers 404, 403 or 429 and no token is set, the error now says so and names the variable.
+
+## Documentation
+
+-  Brought the docs back in line with the code: the architecture page (crate layout, bundle contents, the `BALER_*` environment variables), the install commands in the guide (`--path`, `--git`), the `[dependencies]` and `[dependencies.baler]` table names, `compile` in the command list, and links that pointed at `.md` pages that do not exist. The `baler lock` description on the home page now names `--with-rver`.
+
 # v0.1.0
 
 -  This is the migrated version of `{carrier}`, now named `{baler}`. There's no formal name for this packages so name the manufactured packages as `box-bale` modules, not "R packages".
