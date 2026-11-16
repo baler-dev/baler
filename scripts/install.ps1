@@ -40,6 +40,34 @@ $tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Nam
 
 Write-Host "Downloading baler from $($asset.browser_download_url)..."
 Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$tmp\baler.zip"
+
+# Every release publishes a .sha256 file next to each archive, in the
+# format `sha256sum` writes: the hash, then the file name. Nothing is
+# unpacked or installed unless the archive matches it.
+$checksumAsset = $release.assets | Where-Object { $_.name -eq "$($asset.name).sha256" } | Select-Object -First 1
+if (-not $checksumAsset) {
+    Remove-Item -Recurse -Force $tmp
+    Write-Error "No checksum file found for $($asset.name), so the download cannot be verified. Nothing was installed."
+    exit 1
+}
+
+Invoke-WebRequest -Uri $checksumAsset.browser_download_url -OutFile "$tmp\baler.zip.sha256"
+$checksumText = (Get-Content -Raw -Path "$tmp\baler.zip.sha256").Trim()
+$expectedHash = ($checksumText -split '\s+')[0].ToLowerInvariant()
+if ($expectedHash -notmatch '^[0-9a-f]{64}$') {
+    Remove-Item -Recurse -Force $tmp
+    Write-Error "The checksum file for $($asset.name) is not valid. Nothing was installed."
+    exit 1
+}
+
+$actualHash = (Get-FileHash -Algorithm SHA256 -Path "$tmp\baler.zip").Hash.ToLowerInvariant()
+if ($actualHash -ne $expectedHash) {
+    Remove-Item -Recurse -Force $tmp
+    Write-Error "Checksum mismatch for $($asset.name). Expected $expectedHash but got $actualHash. Nothing was installed."
+    exit 1
+}
+Write-Host "Checksum verified."
+
 Expand-Archive -Path "$tmp\baler.zip" -DestinationPath $tmp -Force
 
 Move-Item -Path "$tmp\baler.exe" -Destination "$InstallDir\baler.exe" -Force

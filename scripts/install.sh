@@ -4,7 +4,14 @@ set -e
 REPO="baler-dev/baler"
 DEFAULT_VERSION="__VERSION__"
 
-mkdir -p ~/.local/bin && cd ~/.local/bin
+bin_dir="$HOME/.local/bin"
+mkdir -p "$bin_dir"
+
+# Everything is downloaded and checked here first, and nothing reaches
+# bin_dir unless the checksum matches. The directory is removed on exit,
+# whether the install worked or not.
+work_dir=$(mktemp -d)
+trap 'rm -rf "$work_dir"' EXIT
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
@@ -56,18 +63,67 @@ if [ -z "$asset_url" ]; then
     exit 1
 fi
 
+archive_file="$work_dir/baler.$ext"
+checksum_file="$work_dir/baler.$ext.sha256"
+
 echo "Downloading baler from $asset_url"
-if [ "$ext" = "zip" ]; then
-    curl -L -o baler_latest.zip "$asset_url"
-    unzip -o baler_latest.zip -d .
-    rm baler_latest.zip
-    mv baler.exe baler 2>/dev/null || true
-else
-    curl -L -o baler_latest.tar.gz "$asset_url"
-    tar -xzf baler_latest.tar.gz --strip-components=1
-    rm baler_latest.tar.gz
+curl -fSL -o "$archive_file" "$asset_url" || {
+    echo "Error: could not download $asset_url" >&2
+    exit 1
+}
+
+# Every release publishes a .sha256 file next to each archive, in the
+# format `sha256sum` writes: the hash, then the file name.
+curl -fsSL -o "$checksum_file" "$asset_url.sha256" || {
+    echo "Error: could not download $asset_url.sha256, so the download cannot be verified. Nothing was installed." >&2
+    exit 1
+}
+expected_hash=$(awk '{ print tolower($1); exit }' "$checksum_file")
+case "$expected_hash" in
+    *[!0-9a-f]*|"")
+        echo "Error: the checksum file for $asset_url is not valid. Nothing was installed." >&2
+        exit 1
+        ;;
+esac
+if [ "${#expected_hash}" -ne 64 ]; then
+    echo "Error: the checksum file for $asset_url is not valid. Nothing was installed." >&2
+    exit 1
 fi
-chmod +x baler* 2>/dev/null || true
+
+if command -v sha256sum >/dev/null 2>&1; then
+    actual_hash=$(sha256sum "$archive_file" | awk '{ print tolower($1) }')
+elif command -v shasum >/dev/null 2>&1; then
+    actual_hash=$(shasum -a 256 "$archive_file" | awk '{ print tolower($1) }')
+else
+    echo "Error: neither 'sha256sum' nor 'shasum' was found, so the download cannot be verified. Nothing was installed." >&2
+    exit 1
+fi
+
+if [ "$actual_hash" != "$expected_hash" ]; then
+    echo "Error: checksum mismatch for $asset_url" >&2
+    echo "  expected: $expected_hash" >&2
+    echo "  actual:   $actual_hash" >&2
+    echo "Nothing was installed." >&2
+    exit 1
+fi
+echo "Checksum verified."
+
+if [ "$ext" = "zip" ]; then
+    unzip -o "$archive_file" -d "$work_dir/unpacked" >/dev/null
+    unpacked_binary="$work_dir/unpacked/baler.exe"
+else
+    mkdir -p "$work_dir/unpacked"
+    tar -xzf "$archive_file" -C "$work_dir/unpacked" --strip-components=1
+    unpacked_binary="$work_dir/unpacked/baler"
+fi
+
+if [ ! -f "$unpacked_binary" ]; then
+    echo "Error: the archive does not contain the baler binary. Nothing was installed." >&2
+    exit 1
+fi
+
+mv -f "$unpacked_binary" "$bin_dir/baler"
+chmod +x "$bin_dir/baler" 2>/dev/null || true
 echo "baler installed to ~/.local/bin"
 
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
