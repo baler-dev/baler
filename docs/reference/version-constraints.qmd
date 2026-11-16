@@ -60,7 +60,7 @@ When the invalid constraint comes from another package's own metadata, the messa
 
 ## Several modules asking for the same package
 
-Constraints from all modules, and from your own `baler.toml`, are combined. `cli >=3.0` from one module and `cli <4` from another means `>=3.0, <4`. If nothing satisfies the combination, the error names each package that asked and what it asked for. See [the solver](../internals/solver.md).
+Constraints from all modules, and from your own `baler.toml`, are combined. `cli >=3.0` from one module and `cli <4` from another means `>=3.0, <4`. If nothing satisfies the combination, the error names each package that asked and what it asked for. See [the solver](../internals/solver.qmd).
 
 Two dependents may not ask for the same package from different repositories.
 That is an error, and the fix is to make them agree on one `repo`.
