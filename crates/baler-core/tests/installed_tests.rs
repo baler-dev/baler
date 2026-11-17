@@ -1,3 +1,4 @@
+use baler_core::formats::tar;
 use baler_core::installed;
 use baler_core::ops::{list, show};
 use std::path::{Path, PathBuf};
@@ -346,4 +347,116 @@ fn show_notices_compiled_code() {
     let text = show::render(&installed::find(dir.path(), "fast").unwrap());
 
     assert_eq!(value_of(&text, "Native code"), "need compilation");
+}
+
+// ---- license and README through a bundle ----
+
+fn project_with_source(root: &Path, name: &str, license: &str, extra_toml: &str) -> PathBuf {
+    std::fs::write(
+        root.join("baler.toml"),
+        format!("{}{extra_toml}", module_toml(name, "0.1.0", license)),
+    )
+    .unwrap();
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("__init__.R"), "box::use()\n").unwrap();
+    src
+}
+
+fn bundle_and_unpack(root: &Path, src: &Path, name: &str) -> (PathBuf, tempfile::TempDir) {
+    let archive_dir = tempfile::tempdir().unwrap();
+    let archive = archive_dir.path().join(format!("{name}_0.1.0.tar.gz"));
+    tar::bundle(src, root, &archive, name, "0.1.0", &[], &[]).unwrap();
+    let install = tempfile::tempdir().unwrap();
+    tar::unpack(&archive, install.path(), name, "0.1.0").unwrap();
+    (install.path().join(format!("{name}-0.1.0.dist-info")), install)
+}
+
+#[test]
+fn a_bundle_carries_the_license_and_readme_into_the_dist_info_folder() {
+    let project = tempfile::tempdir().unwrap();
+    let src = project_with_source(project.path(), "mymod", "MIT", "");
+    std::fs::write(project.path().join("LICENSE"), "MIT License text").unwrap();
+    std::fs::write(project.path().join("README.md"), "# mymod").unwrap();
+
+    let (dist_info, install) = bundle_and_unpack(project.path(), &src, "mymod");
+
+    assert_eq!(std::fs::read_to_string(dist_info.join("LICENSE")).unwrap(), "MIT License text");
+    assert_eq!(std::fs::read_to_string(dist_info.join("README.md")).unwrap(), "# mymod");
+    assert!(dist_info.join("baler.toml").is_file());
+    // They are metadata, so neither lands among the module's own files
+    // nor loose in the install directory where modules share one root.
+    assert!(!install.path().join("LICENSE").exists());
+    assert!(!install.path().join("README.md").exists());
+    assert!(!install.path().join("mymod").join("LICENSE").exists());
+}
+
+#[test]
+fn several_license_files_are_all_kept_whatever_their_case() {
+    let project = tempfile::tempdir().unwrap();
+    let src = project_with_source(project.path(), "mymod", "MIT OR Apache-2.0", "");
+    std::fs::write(project.path().join("License-MIT.txt"), "not a license name").unwrap();
+    std::fs::write(project.path().join("LICENSE.md"), "markdown license").unwrap();
+    std::fs::write(project.path().join("copying"), "copying text").unwrap();
+
+    let (dist_info, _install) = bundle_and_unpack(project.path(), &src, "mymod");
+
+    assert!(dist_info.join("LICENSE.md").is_file());
+    assert!(dist_info.join("copying").is_file());
+    assert!(!dist_info.join("License-MIT.txt").exists(), "only the known names count");
+}
+
+#[test]
+fn a_bundle_without_license_or_readme_still_installs_as_before() {
+    let project = tempfile::tempdir().unwrap();
+    let src = project_with_source(project.path(), "mymod", "MIT", "");
+
+    let (dist_info, _install) = bundle_and_unpack(project.path(), &src, "mymod");
+
+    let kept: Vec<String> = std::fs::read_dir(&dist_info)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(kept, ["baler.toml"]);
+}
+
+#[test]
+fn a_declared_readme_is_stored_as_readme_wherever_it_was_kept() {
+    let project = tempfile::tempdir().unwrap();
+    let src = project_with_source(project.path(), "mymod", "MIT", "");
+    let toml = std::fs::read_to_string(project.path().join("baler.toml")).unwrap();
+    std::fs::write(
+        project.path().join("baler.toml"),
+        toml.replace("license = \"MIT\"", "license = \"MIT\"\nreadme = \"docs/intro.md\""),
+    )
+    .unwrap();
+    std::fs::create_dir_all(project.path().join("docs")).unwrap();
+    std::fs::write(project.path().join("docs").join("intro.md"), "# intro").unwrap();
+    // Not the declared one, so it must not win over it.
+    std::fs::write(project.path().join("README.md"), "# not this one").unwrap();
+
+    let (dist_info, _install) = bundle_and_unpack(project.path(), &src, "mymod");
+
+    assert_eq!(std::fs::read_to_string(dist_info.join("README.md")).unwrap(), "# intro");
+}
+
+#[test]
+fn a_module_directory_called_license_stays_a_module_directory() {
+    let project = tempfile::tempdir().unwrap();
+    let src = project_with_source(project.path(), "license", "MIT", "");
+    // A file named like a license inside the module is module content.
+    std::fs::write(src.join("LICENSE"), "shipped inside the module").unwrap();
+    std::fs::write(project.path().join("LICENSE"), "the project's license").unwrap();
+
+    let (dist_info, install) = bundle_and_unpack(project.path(), &src, "license");
+
+    assert!(install.path().join("license").is_dir(), "the module directory");
+    assert_eq!(
+        std::fs::read_to_string(install.path().join("license").join("LICENSE")).unwrap(),
+        "shipped inside the module"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dist_info.join("LICENSE")).unwrap(),
+        "the project's license"
+    );
 }
