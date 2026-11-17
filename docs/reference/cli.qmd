@@ -252,16 +252,16 @@ With nothing installed it says so and names the install directory. Modules that 
 rmod 0.2.0
 A short description
 
-License:       MIT
-License file:  LICENSE
-README:        README.md
-Authors:       Jane Doe, John Smith <john@example.com>
-R:             >=4.0.0
-Repository:    https://github.com/user/rmod
-Location:      ~/.baler/modules/rmod
-Metadata:      ~/.baler/modules/rmod-0.2.0.dist-info
-Locked:        yes
-Compiled code: no
+License:      MIT
+License file: LICENSE
+README:       README.md
+Authors:      Jane Doe, John Smith <john@example.com>
+R:            >=4.0.0
+Repository:   https://github.com/user/rmod
+Location:     ~/.baler/modules/rmod
+Metadata:     ~/.baler/modules/rmod-0.2.0.dist-info
+Locked:       yes
+Native code:  no
 
 R packages:
   dplyr (*)
@@ -270,7 +270,7 @@ baler modules:
   other (>=1.0.0)
 ```
 
-`License file` and `README` name the files kept in the `Metadata` folder, and say `none` for a module installed by `{baler}` 0.1.0, which kept neither. `Locked` is whether the module came with a `baler.lock`. `Compiled code` is whether compiled code was installed with it. The module name has to be a plain name, as `baler list` shows it.
+`License file` and `README` name the files kept in the `Metadata` folder, and say `none` for a module installed by `{baler}` 0.1.0, which kept neither. `Locked` is whether the module came with a `baler.lock`. `Native code` is whether compiled native code was installed with it. The module name has to be a plain name, as `baler list` shows it.
 
 ## Uninstall a module
 
