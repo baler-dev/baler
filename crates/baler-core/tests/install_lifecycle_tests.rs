@@ -116,12 +116,9 @@ fn install_from_dir_then_remove_round_trip() {
     remove::run("roundtripmod", true).unwrap();
     assert!(!module_dir.exists());
 
-    // NOTE: ops::remove::run only removes the module directory, it does
-    // not clean up the `<name>-<version>.dist-info` directory the way
-    // install does before a reinstall. Asserting the *actual* behavior
-    // here so a future change to remove.rs is caught either way; if this
-    // turns out to be unintended, the fix belongs in remove.rs, not here.
-    assert!(dist_info.join("baler.toml").is_file());
+    // remove deletes the metadata folder too, so a later `baler list`
+    // does not see a module that is gone.
+    assert!(!dist_info.exists());
 }
 
 #[test]
