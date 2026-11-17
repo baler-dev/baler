@@ -110,7 +110,7 @@ fn list_and_show_follow_a_module_from_install_to_removal() {
 
     let shown = stdout_of(&baler(lib.path()).args(["show", "rmod"]).assert().success());
     assert!(shown.starts_with("rmod 0.1.0\n"), "{shown}");
-    assert!(shown.contains("License:       MIT"), "{shown}");
+    assert!(shown.contains("License:      MIT"), "{shown}");
 
     baler(lib.path()).args(["remove", "rmod", "--force"]).assert().success();
 
