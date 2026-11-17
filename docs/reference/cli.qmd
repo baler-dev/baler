@@ -261,7 +261,7 @@ Repository:   https://github.com/user/rmod
 Location:     ~/.baler/modules/rmod
 Metadata:     ~/.baler/modules/rmod-0.2.0.dist-info
 Locked:       yes
-Native code:  no
+Native code:  none
 
 R packages:
   dplyr (*)
@@ -270,7 +270,7 @@ baler modules:
   other (>=1.0.0)
 ```
 
-`License file` and `README` name the files kept in the `Metadata` folder, and say `none` for a module installed by `{baler}` 0.1.0, which kept neither. `Locked` is whether the module came with a `baler.lock`. `Native code` is whether compiled native code was installed with it. The module name has to be a plain name, as `baler list` shows it.
+`License file` and `README` name the files kept in the `Metadata` folder, and say `none` for a module installed by `{baler}` 0.1.0, which kept neither. `Locked` is whether the module came with a `baler.lock`. `Native code` says `need compilation` when compiled native code was installed with the module, and `none` when it has none. The module name has to be a plain name, as `baler list` shows it.
 
 ## Uninstall a module
 
