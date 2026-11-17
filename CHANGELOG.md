@@ -2,6 +2,20 @@
 
 # Development version
 
+## What's new
+
+-  `baler list` shows the modules installed in the install directory (name, version, license, R requirement), and `baler show <name>` shows everything one module declared, where its files are, and which license file and README were kept. 
+
+    -   These new commands will read the `.dist-info` folder that `baler install` writes, so a directory not installed by `{baler}` is not listed.
+
+## Fixes
+
+-  `baler remove` now deletes every `.dist-info` folder of the module. Before, it left that folder behind, and an upgrade left the old version's folder, so stale metadata piled up in the install directory. Removing a name also cleans up leftovers from earlier versions when the module itself is already gone.
+
+-  `baler remove` refuses names that are not one plain name, such as `.`, `..` or anything with a `/`. Before, `baler remove . --force` pointed at the install directory itself and deleted every module.
+
+-  Pre-release versions (`0.3.0-dev`) and hyphenated module names (`foo-bar`) are now read correctly from `.dist-info` folder names.
+
 # v0.1.1
 
 ## Security
