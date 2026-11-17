@@ -2,6 +2,8 @@
 
 # Development version
 
+# v0.1.1
+
 ## Security
 
 -  The installers (`install.sh` and `install.ps1`) now verify the SHA-256 hash of the downloaded archive against the `.sha256` file published with each release. A mismatch, or a missing or malformed checksum file, stops the install before anything is unpacked, and an existing `baler` is left as it was. The Linux and macOS installer also downloads and checks everything in a temporary directory first, instead of unpacking into the current directory.
