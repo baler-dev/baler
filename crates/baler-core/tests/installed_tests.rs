@@ -316,7 +316,7 @@ fn show_prints_what_the_module_declared() {
     assert_eq!(value_of(&text, "R"), ">=4.0.0");
     assert_eq!(value_of(&text, "Keywords"), "one, two");
     assert_eq!(value_of(&text, "Locked"), "yes");
-    assert_eq!(value_of(&text, "Need compilation (native code)"), "no");
+    assert_eq!(value_of(&text, "Native code"), "none");
     assert!(value_of(&text, "Location").ends_with("rmod"), "{text}");
     assert!(value_of(&text, "Metadata").ends_with("rmod-0.2.0.dist-info"), "{text}");
     assert!(text.contains("R packages:\n  cli (>=3.0.0)\n  dplyr (*)\n"), "{text}");
@@ -345,5 +345,5 @@ fn show_notices_compiled_code() {
 
     let text = show::render(&installed::find(dir.path(), "fast").unwrap());
 
-    assert_eq!(value_of(&text, "Native code"), "yes");
+    assert_eq!(value_of(&text, "Native code"), "need compilation");
 }

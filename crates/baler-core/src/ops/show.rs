@@ -39,7 +39,8 @@ pub fn render(module: &InstalledModule) -> String {
     rows.push(("Location", module.module_dir.display().to_string()));
     rows.push(("Metadata", module.dist_info.display().to_string()));
     rows.push(("Locked", yes_no(module.lock_file().is_some())));
-    rows.push(("Need compilation (native code)", yes_no(module.has_compiled_code())));
+    let native = if module.has_compiled_code() { "need compilation" } else { "none" };
+    rows.push(("Native code", native.to_owned()));
 
     let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0) + 1;
     for (label, value) in &rows {
