@@ -22,9 +22,9 @@ This block defines the authorship of the module, and this block is always requir
 | `version` | string | yes | Semver (`MAJOR.MINOR.PATCH`), optionally with a pre-release tag. Use one to mark a development version, for example `0.3.0-dev` or `0.3.0-dev.1`, which sorts before `0.3.0`. A requirement is checked as if the tag were absent, so `0.3.0-dev` satisfies `>=0.3.0`. Parsed when the file loads; a malformed version fails there, not later inside whoever depends on this module. Dependency ranges (`^`, `>=`, etc.) in another module's `[dependencies.baler]` entry resolve against it. |
 | `description` | string | yes | May be empty. |
 | `authors` | array | yes | See [Authors](#authors) below. |
-| `license` | string | yes | SPDX identifier or free-form text. |
+| `license` | string | yes | An [SPDX](https://spdx.org/licenses/) identifier or expression, such as `MIT`, `GPL-3.0-or-later` or `MIT OR Apache-2.0`. `baler init` writes `Unknown` until you set one. `baler bundle` warns when it is `Unknown` or not valid SPDX, and when there is no license file at the project root. See [The license and the README](cli.qmd#bundle-license). |
 | `r_version` | string | yes | Minimum R version (e.g. `">=4.0.0"`). See note below. |
-| `readme` | string | no | Path to a README file. |
+| `readme` | string | no | Path to a README file, inside the project and without `..`. Shipped in the bundle and kept with the installed module. Without it, a file named `README` at the project root is used. |
 | `repository` | string | no | |
 | `keywords` | array of strings | no | Defaults to empty. |
 | `src` | string | no | Path to the source directory, relative to the project root. Defaults to a directory named exactly `name`. The chosen directory *must* contain `__init__.r` or `__init__.R`. |
