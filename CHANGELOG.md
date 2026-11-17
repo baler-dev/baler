@@ -2,6 +2,14 @@
 
 # Development version
 
+## Security
+
+-  The installers (`install.sh` and `install.ps1`) now verify the SHA-256 hash of the downloaded archive against the `.sha256` file published with each release. A mismatch, or a missing or malformed checksum file, stops the install before anything is unpacked, and an existing `baler` is left as it was. The Linux and macOS installer also downloads and checks everything in a temporary directory first, instead of unpacking into the current directory.
+
+## Fixes
+
+-  `baler install --git` now sends `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, so private repositories work and CI is not held to GitHub's rate limit for anonymous requests. The token goes only to `api.github.com` over HTTPS, never to a host given with `--url`. When GitHub answers 404, 403 or 429 and no token is set, the error now says so and names the variable.
+
 ## Build
 
 -  The arm64 macOS release build now runs on `macos-15`. GitHub retired the `macos-14` runner image on November 2, 2026, so that job was cancelled with "configuration 'macos-14-arm64-us-default' is not supported".

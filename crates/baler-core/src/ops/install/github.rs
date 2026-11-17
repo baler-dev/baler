@@ -228,14 +228,37 @@ impl ModuleFetcher for GitHubFetcher {
 
 #[cfg(feature = "network")]
 fn download_file(url: &str, dest: &PathBuf) -> Result<()> {
-    let response = reqwest::blocking::Client::new()
+    let mut request = reqwest::blocking::Client::new()
         .get(url)
-        .header("User-Agent", "baler")
+        .header("User-Agent", "baler");
+    // Only GitHub's API gets the token, never an arbitrary `--url` host.
+    let has_token = match crate::cran::client::git::token_for(url) {
+        Some(token) => {
+            request = request.bearer_auth(token);
+            true
+        }
+        None => false,
+    };
+    let response = request
         .send()
         .with_context(|| format!("HTTP request failed: {url}"))?;
 
-    if !response.status().is_success() {
-        bail!("HTTP {} from {}", response.status(), url);
+    let status = response.status();
+    if !status.is_success() {
+        if crate::cran::client::git::is_github_api_url(url) {
+            match status.as_u16() {
+                404 if !has_token => bail!(
+                    "{url} was not found. Check the repository and the ref, and set \
+                     GITHUB_TOKEN (or GH_TOKEN) if the repository is private."
+                ),
+                403 | 429 if !has_token => bail!(
+                    "GitHub refused {url} (HTTP {status}), most likely its rate limit for \
+                     anonymous requests. Set GITHUB_TOKEN (or GH_TOKEN) to raise it."
+                ),
+                _ => {}
+            }
+        }
+        bail!("HTTP {} from {}", status, url);
     }
 
     let bytes = response.bytes().context("Failed to read response bytes")?;
