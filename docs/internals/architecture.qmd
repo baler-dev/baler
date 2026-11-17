@@ -24,6 +24,7 @@ crates/
 │       ├── resolver.rs            # PubGrub-based dependency solver
 │       ├── paths.rs               # install-dir / R-lib-dir resolution
 │       ├── installed.rs           # reads the install dir back: .dist-info folders, list, find
+│       ├── license.rs             # SPDX check of `license`, warnings for bundle
 │       ├── project_files.rs       # finds a project's license files and README
 │       ├── formats/               # tar.gz archive read/write
 │       ├── cran/                  # R package fetch, resolve, install
@@ -59,15 +60,18 @@ tstk_0.1.0/
 │   ├── __init__.r
 │   └── ...
 ├── baler.toml
-└── baler.lock         # only if the project has one
+├── baler.lock         # only if the project has one
+├── LICENSE            # every license file the project has
+└── README.md          # the README, if the project has one
 ```
 
-`baler.toml` and `baler.lock` are shipped as they are, not as a generated copy of them, much like a Python sdist ships its own `pyproject.toml`. `baler install` reads `baler.toml` back out of the archive, so the archive is self-describing without a second metadata file. Earlier versions embedded a generated `manifest.json` here, but it duplicated `baler.toml` and has been removed.
+`baler.toml`, `baler.lock`, the license files and the README are shipped as they are, not as a generated copy of them, much like a Python sdist ships its own `pyproject.toml`. `baler install` reads `baler.toml` back out of the archive, so the archive is self-describing without a second metadata file. Earlier versions embedded a generated `manifest.json` here, but it duplicated `baler.toml` and has been removed.
 
 Which files are included:
 
 - Every file under the module's source directory, except hidden (dot-prefixed) files and directories, which are never bundled.
 - The one exception is `.lib/`, which is dot-prefixed but is forced into the archive when `binary = true` is set under `[compiled-code]`. Binaries are stored per platform as `.lib/<platform>/`, each artifact with an `.abi.json` sidecar. See [Binary bundles](../reference/native-code.qmd#binary-bundles) for what install does with them.
+- The license files and the README from the project root. The README is stored as `README` plus its ending, wherever the project kept it.
 - The native source, always. `binary` only decides whether compiled binaries ship along with it.
 
 ## Path resolution
