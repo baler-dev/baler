@@ -126,7 +126,7 @@ Once a lock exists, later installs use it automatically: any package the lock pi
 
 ## 6. Use it from R
 
-Remember: This is not your traditional CRAN-style packages, so you cannot simply attach it through `library()` or `::`, instead use `box::use()`, just like the `import` keyword from Python. 
+Remember: This is not your traditional CRAN-style packages, so you cannot simply attach it through `library()` or `::`. The packages are bundled from `{box}` modules, so instead use `box::use()`, just like how you import packages with `import` keyword from Python. 
 
 ``` r
 box::use(rmod)
