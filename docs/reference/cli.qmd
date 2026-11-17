@@ -2,7 +2,7 @@
 title: "CLI Commands"
 ---
 
-This page documents the six `{baler}` subcommands: what each one does, when you'd reach for it, and what its flags actually change. It's written for people using `{baler}` to manage `{box}` modules, not for people working on `{baler}`'s own source.
+This page documents the eight `{baler}` subcommands: what each one does, when you'd reach for it, and what its flags actually change. It's written for people using `{baler}` to manage `{box}` modules, not for people working on `{baler}`'s own source.
 
 Every subcommand exits non-zero and prints `error: ...` to stderr on failure, so you can rely on that in scripts or CI without parsing output.
 
@@ -226,6 +226,52 @@ A bare positional argument is a registry name and is never treated as a path or 
 
 :::
 
+## List and show installed modules {#list-and-show}
+
+`baler list` and `baler show` read what `{baler}` kept when it installed each module: the `baler.toml` in its `.dist-info` folder next to the module. They only read, so they are safe to run anywhere.
+
+``` bash
+baler list
+baler show <name>
+```
+
+`baler list` prints one line for each installed module, sorted by name:
+
+``` text
+NAME  VERSION  LICENSE  R
+rmod  0.2.0    MIT      >=4.0.0
+```
+
+With nothing installed it says so and names the install directory. Modules that are in the directory but were not installed by `{baler}` have no record, so they are not listed. A module whose record cannot be read is reported on stderr, and the others are still listed.
+
+### Show one module {#show}
+
+`baler show <name>` prints what that module declared and where its files are:
+
+``` text
+rmod 0.2.0
+A short description
+
+License:       MIT
+License file:  LICENSE
+README:        README.md
+Authors:       Jane Doe, John Smith <john@example.com>
+R:             >=4.0.0
+Repository:    https://github.com/user/rmod
+Location:      ~/.baler/modules/rmod
+Metadata:      ~/.baler/modules/rmod-0.2.0.dist-info
+Locked:        yes
+Compiled code: no
+
+R packages:
+  dplyr (*)
+
+baler modules:
+  other (>=1.0.0)
+```
+
+`License file` and `README` name the files kept in the `Metadata` folder, and say `none` for a module installed by `{baler}` 0.1.0, which kept neither. `Locked` is whether the module came with a `baler.lock`. `Compiled code` is whether compiled code was installed with it. The module name has to be a plain name, as `baler list` shows it.
+
 ## Uninstall a module
 
 The bundle part gives you an archive, under `.tar.gz` format, of `{box}`-`{baler}` module. Then we have the "installation" part that archives the module and placed on the path where `~/.baler/modules` lived. `{baler}` also has an option to uninstall a previously installed module, through `baler remove`. Here's the following anatomy: 
@@ -238,5 +284,9 @@ baler remove <name> [--force]
 |---|---|
 | `<name>` | The name of an installed module to remove. |
 | `--force` | Skip the `[y/N]` confirmation prompt and remove it immediately. |
+
+`baler remove` deletes the module's directory and every `.dist-info` folder `{baler}` kept for it, whatever the version. `{baler}` 0.1.0 left that folder behind, and an upgrade left the old version's one too. Removing the name now cleans those up as well, even when the module itself is already gone.
+
+The name has to be one plain name. `.`, `..` and anything with a `/` in it are refused, so a typo such as `baler remove .` cannot point at the install directory and delete every module.
 
 Fails if no module with that name is currently installed, there's nothing to accidentally remove twice.
