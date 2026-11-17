@@ -19,6 +19,9 @@ pub struct InPlaceOptions<'a> {
     pub src: Option<&'a str>,
     pub native: Option<NativeLang>,
     pub backend: Option<Backend>,
+    /// An SPDX license expression for `license` in baler.toml. Checked
+    /// before anything is written.
+    pub license: Option<&'a str>,
 }
 
 /// Initializes `project_root`, which already exists, like `uv init` or
@@ -52,6 +55,9 @@ pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
             anyhow!("Could not work out a module name. Pass `--name <name>`.")
         })?,
     };
+    if let Some(license) = opts.license {
+        super::check_license_flag(license)?;
+    }
     let src = opts.src.map(|raw| explicit_src(project_root, raw)).transpose()?;
     let fresh = is_fresh(project_root)?;
 
@@ -100,7 +106,10 @@ pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
     let manifest = BalerToml::default_template_with(
         &name,
         opts.native.map(|lang| (lang, opts.backend)),
-        TemplateDefaults { src: (module_rel != name).then_some(module_rel.as_str()) },
+        TemplateDefaults {
+            src: (module_rel != name).then_some(module_rel.as_str()),
+            license: opts.license,
+        },
     );
     fs::write(project_root.join("baler.toml"), manifest).context("Failed to write baler.toml")?;
     files.insert(0, "baler.toml".to_string());

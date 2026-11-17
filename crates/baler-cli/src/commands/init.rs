@@ -13,6 +13,7 @@ pub struct InitArgs {
     pub src: Option<String>,
     pub native: Option<String>,
     pub backend: Option<String>,
+    pub license: Option<String>,
 }
 
 pub fn run(args: InitArgs) -> Result<()> {
@@ -21,7 +22,13 @@ pub fn run(args: InitArgs) -> Result<()> {
 
     match args.name {
         Some(name) => {
-            baler_core::ops::init::run(&name, args.dir_name.as_deref(), native, backend)
+            baler_core::ops::init::run_with_license(
+                &name,
+                args.dir_name.as_deref(),
+                native,
+                backend,
+                args.license.as_deref(),
+            )
         }
         None => {
             let project_root =
@@ -33,6 +40,7 @@ pub fn run(args: InitArgs) -> Result<()> {
                     src: args.src.as_deref(),
                     native,
                     backend,
+                    license: args.license.as_deref(),
                 },
             )
         }

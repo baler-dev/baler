@@ -57,6 +57,11 @@ enum Commands {
         /// Binding library for --native (cpp: rcpp (default) or cpp11)
         #[arg(long)]
         backend: Option<String>,
+
+        /// SPDX license expression for baler.toml, such as MIT,
+        /// Apache-2.0 or GPL-3.0-or-later. Defaults to Unknown.
+        #[arg(long)]
+        license: Option<String>,
     },
 
     /// Bundle a module into <name>_<version>.tar.gz. Native source always
@@ -235,8 +240,8 @@ pub fn run() {
     let cli = Cli::parse();
 
     let result: Result<()> = match cli.command {
-        Commands::Init { name, dir_name, module_name, src, native, backend } => {
-            commands::init::run(InitArgs { name, dir_name, module_name, src, native, backend })
+        Commands::Init { name, dir_name, module_name, src, native, backend, license } => {
+            commands::init::run(InitArgs { name, dir_name, module_name, src, native, backend, license })
         }
         Commands::Compile { path, clean, rebuild } => {
             commands::compile::run(CompileArgs { path, clean, rebuild })
