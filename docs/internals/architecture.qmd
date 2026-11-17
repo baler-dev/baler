@@ -23,6 +23,8 @@ crates/
 │       ├── ver.rs                 # R-native package versions and requirements
 │       ├── resolver.rs            # PubGrub-based dependency solver
 │       ├── paths.rs               # install-dir / R-lib-dir resolution
+│       ├── installed.rs           # reads the install dir back: .dist-info folders, list, find
+│       ├── project_files.rs       # finds a project's license files and README
 │       ├── formats/               # tar.gz archive read/write
 │       ├── cran/                  # R package fetch, resolve, install
 │       │   ├── packages.rs        # PACKAGES.gz fetch + parse
@@ -33,6 +35,7 @@ crates/
 │       └── ops/                   # one module per CLI command's actual logic
 │           ├── init.rs, bundle.rs, compile.rs, lock.rs, remove.rs
 │           ├── resolve.rs, module_graph.rs, external_tools.rs
+│           ├── list.rs, show.rs   # text of `baler list` and `baler show`
 │           └── install.rs         # with install/: archive.rs, github.rs, native.rs
 └── native-code-handler/    # the `baler-native` package: compiled-code scaffolding and build
     └── src/
