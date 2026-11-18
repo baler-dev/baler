@@ -88,8 +88,84 @@ fn a_missing_license_file_is_its_own_warning() {
 }
 
 #[test]
-fn both_problems_are_reported_when_both_apply() {
-    assert_eq!(warnings("Unknown", &ProjectFiles::default()).len(), 2);
+fn an_unset_license_with_no_file_is_one_message_that_says_nothing_is_declared() {
+    for license in ["Unknown", "unknown", "", "  "] {
+        let found = warnings(license, &ProjectFiles::default());
+        assert_eq!(found.len(), 1, "{license:?}: {found:?}");
+        assert!(found[0].contains("No license is declared"), "{}", found[0]);
+        assert!(found[0].contains("\"MIT\""), "{}", found[0]);
+    }
+}
+
+#[test]
+fn an_empty_license_is_called_empty_and_not_shown_as_two_quotes() {
+    let found = warnings("", &ProjectFiles::default());
+    assert!(found[0].contains("is empty"), "{}", found[0]);
+}
+
+#[test]
+fn an_unset_license_with_a_file_names_the_file_and_asks_for_the_identifier() {
+    let files = ProjectFiles {
+        licenses: vec![PathBuf::from("/project/COPYING")],
+        ..ProjectFiles::default()
+    };
+    let found = warnings("Unknown", &files);
+    assert_eq!(found.len(), 1);
+    assert!(found[0].contains("Found COPYING"), "{}", found[0]);
+    assert!(found[0].contains("Set it to the SPDX identifier"), "{}", found[0]);
+    assert!(!found[0].contains("No license is declared"), "{}", found[0]);
+}
+
+#[test]
+fn a_deprecated_gpl_identifier_names_the_two_replacements() {
+    let found = warnings("GPL-3.0", &with_license_file());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("deprecated"), "{}", found[0]);
+    assert!(found[0].contains("\"GPL-3.0-only\""), "{}", found[0]);
+    assert!(found[0].contains("\"GPL-3.0-or-later\""), "{}", found[0]);
+    assert!(!found[0].contains("not a valid SPDX expression"), "{}", found[0]);
+}
+
+#[test]
+fn a_deprecated_identifier_outside_the_gpl_family_points_at_the_list() {
+    let found = warnings("eCos-2.0", &with_license_file());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("Replace `eCos-2.0`"), "{}", found[0]);
+    assert!(found[0].contains("https://spdx.org/licenses/"), "{}", found[0]);
+    assert!(!found[0].contains("-only"), "{}", found[0]);
+}
+
+#[test]
+fn every_deprecated_identifier_in_an_expression_is_named_once() {
+    let found = warnings("GPL-2.0 OR LGPL-2.1", &with_license_file());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("Replace `GPL-2.0`"), "{}", found[0]);
+    assert!(found[0].contains("Replace `LGPL-2.1`"), "{}", found[0]);
+}
+
+#[test]
+fn a_lowercase_license_is_invalid_and_not_called_deprecated() {
+    let found = warnings("mit", &with_license_file());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("not a valid SPDX expression"), "{}", found[0]);
+    assert!(!found[0].contains("deprecated"), "{}", found[0]);
+}
+
+#[test]
+fn a_custom_license_ref_with_a_file_is_silent_and_without_one_asks_for_the_text() {
+    assert!(warnings("LicenseRef-Proprietary", &with_license_file()).is_empty());
+
+    let found = warnings("LicenseRef-Proprietary", &ProjectFiles::default());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("No license file"), "{}", found[0]);
+}
+
+#[test]
+fn an_invalid_license_and_a_missing_file_are_both_reported() {
+    let found = warnings("GPL (>= 3)", &ProjectFiles::default());
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(found[0].contains("not a valid SPDX expression"), "{}", found[0]);
+    assert!(found[1].contains("No license file"), "{}", found[1]);
 }
 
 // ---- finding the files ----
