@@ -317,3 +317,28 @@ fn bundle_warns_about_a_declared_readme_that_does_not_exist() {
 
     assert!(stderr_of(&assert).contains("docs/gone.md"), "{}", stderr_of(&assert));
 }
+
+#[test]
+fn init_license_changes_the_license_of_an_existing_project() {
+    let lib = Scratch::new("init-set-lib");
+    let work = Scratch::new("init-set-work");
+    let project = new_project(&work, lib.path(), None);
+    let before = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert!(before.contains("license = \"Unknown\""), "{before}");
+
+    baler(lib.path())
+        .current_dir(&project)
+        .args(["init", "--license", "MIT"])
+        .assert()
+        .success();
+
+    let after = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert_eq!(after, before.replace("\"Unknown\"", "\"MIT\""));
+
+    baler(lib.path())
+        .current_dir(&project)
+        .args(["init", "--license", "mit"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read_to_string(project.join("baler.toml")).unwrap(), after);
+}
