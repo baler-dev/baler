@@ -324,3 +324,124 @@ fn a_failed_run_leaves_the_directory_ready_for_another_attempt() {
     p.init().expect("a retry without --native should work");
     assert!(p.exists("mymod/__init__.r"), "and it should scaffold, the project being empty again");
 }
+
+const MANIFEST: &str = "\
+[project]
+name = \"mymod\"    # the name
+version = \"0.1.0\"
+license = \"Unknown\"    # pick one
+r_version = \">=4.0.0\"
+
+[dependencies]
+dplyr = \"*\"
+";
+
+fn set_license(p: &Project, license: &str) -> anyhow::Result<()> {
+    p.init_with(InPlaceOptions { license: Some(license), ..Default::default() })
+}
+
+#[test]
+fn init_license_sets_the_license_in_an_existing_baler_toml() {
+    let p = Project::new("mymod");
+    p.write("baler.toml", MANIFEST);
+
+    set_license(&p, "MIT").unwrap();
+
+    assert_eq!(p.read("baler.toml"), MANIFEST.replace("\"Unknown\"", "\"MIT\""));
+    assert_eq!(p.files(), set(&["baler.toml"]));
+}
+
+#[test]
+fn init_license_keeps_crlf_line_endings() {
+    let p = Project::new("mymod");
+    p.write("baler.toml", &MANIFEST.replace('\n', "\r\n"));
+
+    set_license(&p, "Apache-2.0").unwrap();
+
+    let text = p.read("baler.toml");
+    assert_eq!(text, MANIFEST.replace("\"Unknown\"", "\"Apache-2.0\"").replace('\n', "\r\n"));
+}
+
+#[test]
+fn init_license_adds_the_line_when_there_is_none() {
+    let p = Project::new("mymod");
+    p.write("baler.toml", "[project]\nname = \"mymod\"\nversion = \"0.1.0\"\nr_version = \">=4.0.0\"\n");
+
+    set_license(&p, "MIT").unwrap();
+
+    assert_eq!(
+        p.read("baler.toml"),
+        "[project]\nname = \"mymod\"\nversion = \"0.1.0\"\nlicense = \"MIT\"\nr_version = \">=4.0.0\"\n"
+    );
+}
+
+#[test]
+fn init_license_leaves_the_same_license_alone() {
+    let p = Project::new("mymod");
+    let text = MANIFEST.replace("\"Unknown\"", "\"MIT\"");
+    p.write("baler.toml", &text);
+
+    set_license(&p, "MIT").unwrap();
+
+    assert_eq!(p.read("baler.toml"), text);
+}
+
+#[test]
+fn init_license_only_touches_the_project_table() {
+    let p = Project::new("mymod");
+    let text = format!("[tool.other]\nlicense = \"keep\"\n\n{MANIFEST}");
+    p.write("baler.toml", &text);
+
+    set_license(&p, "MIT").unwrap();
+
+    assert_eq!(p.read("baler.toml"), text.replace("\"Unknown\"", "\"MIT\""));
+}
+
+#[test]
+fn init_license_refuses_a_license_that_is_not_spdx_and_changes_nothing() {
+    let p = Project::new("mymod");
+    p.write("baler.toml", MANIFEST);
+
+    for bad in ["mit", "Foo-1.0", "GPL (>= 3)", "GPL-3.0"] {
+        let err = error_text(set_license(&p, bad));
+        assert!(err.contains("not a valid SPDX expression"), "{bad}: {err}");
+        assert_eq!(p.read("baler.toml"), MANIFEST, "{bad}");
+    }
+}
+
+#[test]
+fn init_license_with_other_options_still_refuses_an_existing_baler_toml() {
+    let p = Project::new("mymod");
+    p.write("baler.toml", MANIFEST);
+
+    let err = error_text(p.init_with(InPlaceOptions {
+        name: Some("other"),
+        license: Some("MIT"),
+        ..Default::default()
+    }));
+
+    assert!(err.contains("already exists"), "{err}");
+    assert_eq!(p.read("baler.toml"), MANIFEST);
+}
+
+#[test]
+fn init_license_leaves_a_license_it_cannot_edit_safely_alone() {
+    let p = Project::new("mymod");
+    let text = MANIFEST.replace("\"Unknown\"", "{ text = \"x\" }");
+    p.write("baler.toml", &text);
+
+    let err = error_text(set_license(&p, "MIT"));
+
+    assert!(err.contains("by hand"), "{err}");
+    assert_eq!(p.read("baler.toml"), text);
+}
+
+#[test]
+fn init_license_needs_a_project_table() {
+    let p = Project::new("mymod");
+    p.write("baler.toml", "[dependencies]\ndplyr = \"*\"\n");
+
+    let err = error_text(set_license(&p, "MIT"));
+
+    assert!(err.contains("no [project] table"), "{err}");
+}
