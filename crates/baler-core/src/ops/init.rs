@@ -10,6 +10,7 @@ use crate::baler_toml::{BalerToml, TemplateDefaults};
 mod in_place;
 mod naming;
 mod project_dir;
+mod set_license;
 
 pub use in_place::{run_in_place, InPlaceOptions};
 

@@ -7,6 +7,7 @@ use baler_native::{Backend, NativeLang};
 
 use super::naming::project_dir_name;
 use super::project_dir::{explicit_src, is_fresh};
+use super::set_license::{set_license, Change};
 use crate::baler_toml::{BalerToml, TemplateDefaults};
 
 #[derive(Clone, Copy, Default)]
@@ -42,9 +43,30 @@ pub fn run_in_place(project_root: &Path, opts: &InPlaceOptions) -> Result<()> {
     if !project_root.is_dir() {
         bail!("'{}' is not a directory.", project_root.display());
     }
-    if project_root.join("baler.toml").exists() {
+    let manifest = project_root.join("baler.toml");
+    if manifest.exists() {
+        let license_only = opts.name.is_none()
+            && opts.src.is_none()
+            && opts.native.is_none()
+            && opts.backend.is_none();
+        if let (Some(license), true) = (opts.license, license_only) {
+            super::check_license_flag(license)?;
+            match set_license(&manifest, license)? {
+                Change::Unchanged => {
+                    println!("`license` in baler.toml is already \"{license}\", nothing to change.");
+                }
+                Change::Set { old: Some(old) } => {
+                    println!("Set `license` to \"{license}\" in baler.toml (was \"{old}\").");
+                }
+                Change::Set { old: None } => {
+                    println!("Added `license = \"{license}\"` to baler.toml.");
+                }
+            }
+            return Ok(());
+        }
         bail!(
-            "baler.toml already exists in '{}', so there is nothing to initialize.",
+            "baler.toml already exists in '{}', so there is nothing to initialize. \
+             `baler init --license <id>` on its own changes the license in it.",
             project_root.display()
         );
     }
