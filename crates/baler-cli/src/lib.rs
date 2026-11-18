@@ -10,6 +10,7 @@ use commands::{
     install::InstallArgs,
     lock::LockArgs,
     remove::RemoveArgs,
+    show::ShowArgs,
 };
 
 #[derive(Parser)]
@@ -208,6 +209,17 @@ enum Commands {
         remove: bool,
     },
 
+    /// List the modules installed by baler: name, version, license and
+    /// the R version each asks for.
+    List,
+
+    /// Show what one installed module declared: description, license,
+    /// authors, dependencies, and where its files and metadata are.
+    Show {
+        /// Name of the installed module, as `baler list` shows it
+        name: String,
+    },
+
     /// Remove an installed module
     Remove {
         /// Name of the module to remove
@@ -240,6 +252,8 @@ pub fn run() {
         Commands::Lock { path, update, with_rver, check, remove } => {
             commands::lock::run(LockArgs { path, update, with_rver, remove, check })
         }
+        Commands::List => commands::list::run(),
+        Commands::Show { name } => commands::show::run(ShowArgs { name }),
         Commands::Remove { name, force } => {
             commands::remove::exec(RemoveArgs { name, force })
         }

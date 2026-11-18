@@ -50,11 +50,10 @@ pub(super) fn install_from_tar(tar_path: &PathBuf, install_deps: bool, lock: Opt
             .with_context(|| format!("Failed to remove existing: {}", module_path.display()))?;
     }
 
-    // Also clean up old dist-info if present
-    let dist_info = install_dir.join(format!("{}-{}.dist-info", name, version));
-    if dist_info.exists() {
-        std::fs::remove_dir_all(&dist_info)?;
-    }
+    // Drop the dist-info of every earlier version too, not only this
+    // one's. An upgrade would otherwise leave the old version's folder
+    // next to the new one, and `baler list` could not tell them apart.
+    crate::installed::remove_dist_infos(&install_dir, &name)?;
 
     tar::unpack(tar_path, &install_dir, &name, &version)
         .with_context(|| format!("Failed to unpack {}", tar_path.display()))?;
