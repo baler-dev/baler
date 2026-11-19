@@ -1,5 +1,5 @@
-//! Integration tests for `baler list`, `baler show`, and the `.dist-info`
-//! handling they depend on. Each one runs the real
+//! Integration tests for `baler list`, `baler show`, the license checks,
+//! and the `.dist-info` handling they depend on. Each one runs the real
 //! `baler` binary with its own `BALER_LIB`, so nothing is shared.
 
 use assert_cmd::Command;
@@ -46,17 +46,13 @@ fn stderr_of(assert: &assert_cmd::assert::Assert) -> String {
 
 /// Scaffolds `rmod` with `baler init` and returns the project directory.
 fn new_project(workdir: &Scratch, lib: &Path, license: Option<&str>) -> PathBuf {
-    baler(lib).current_dir(workdir.path()).args(["init", "rmod"]).assert().success();
-    let project = workdir.path().join("rmod-proj");
+    let mut cmd = baler(lib);
+    cmd.current_dir(workdir.path()).args(["init", "rmod"]);
     if let Some(license) = license {
-        let toml = std::fs::read_to_string(project.join("baler.toml")).unwrap();
-        std::fs::write(
-            project.join("baler.toml"),
-            toml.replace("license = \"Unknown\"", &format!("license = \"{license}\"")),
-        )
-        .unwrap();
+        cmd.args(["--license", license]);
     }
-    project
+    cmd.assert().success();
+    workdir.path().join("rmod-proj")
 }
 
 fn set_version(project: &Path, version: &str) {
@@ -102,6 +98,7 @@ fn list_and_show_follow_a_module_from_install_to_removal() {
     let lib = Scratch::new("round-trip-lib");
     let work = Scratch::new("round-trip-work");
     let project = new_project(&work, lib.path(), Some("MIT"));
+    std::fs::write(project.join("LICENSE"), "MIT License\n").unwrap();
     bundle_and_install(&project, lib.path(), "0.1.0");
 
     let listed = stdout_of(&baler(lib.path()).arg("list").assert().success());
@@ -110,7 +107,13 @@ fn list_and_show_follow_a_module_from_install_to_removal() {
 
     let shown = stdout_of(&baler(lib.path()).args(["show", "rmod"]).assert().success());
     assert!(shown.starts_with("rmod 0.1.0\n"), "{shown}");
-    assert!(shown.contains("License:       MIT"), "{shown}");
+    assert!(shown.contains("License file: LICENSE"), "{shown}");
+    assert!(shown.contains("README:       README.md"), "{shown}");
+
+    // The files really are in the dist-info folder, with their content.
+    let dist_info = lib.path().join("rmod-0.1.0.dist-info");
+    assert_eq!(std::fs::read_to_string(dist_info.join("LICENSE")).unwrap(), "MIT License\n");
+    assert!(dist_info.join("README.md").is_file());
 
     baler(lib.path()).args(["remove", "rmod", "--force"]).assert().success();
 
@@ -191,4 +194,151 @@ fn remove_refuses_a_name_that_would_delete_more_than_one_module() {
     }
 
     assert_eq!(entries(lib.path()), ["rmod", "rmod-0.1.0.dist-info"], "nothing may be deleted");
+}
+
+// ---- the license ----
+
+#[test]
+fn init_writes_the_license_it_was_given() {
+    let lib = Scratch::new("init-license-lib");
+    let work = Scratch::new("init-license-work");
+
+    let project = new_project(&work, lib.path(), Some("GPL-3.0-or-later"));
+
+    let toml = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert!(toml.contains("license = \"GPL-3.0-or-later\""), "{toml}");
+}
+
+#[test]
+fn init_in_place_writes_the_license_it_was_given() {
+    let lib = Scratch::new("inplace-license-lib");
+    let work = Scratch::new("inplace-license-work");
+
+    baler(lib.path())
+        .current_dir(work.path())
+        .args(["init", "--name", "rmod", "--license", "Apache-2.0"])
+        .assert()
+        .success();
+
+    let toml = std::fs::read_to_string(work.path().join("baler.toml")).unwrap();
+    assert!(toml.contains("license = \"Apache-2.0\""), "{toml}");
+}
+
+#[test]
+fn init_without_a_license_keeps_the_unknown_placeholder() {
+    let lib = Scratch::new("init-default-lib");
+    let work = Scratch::new("init-default-work");
+
+    let project = new_project(&work, lib.path(), None);
+
+    let toml = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert!(toml.contains("license = \"Unknown\""), "{toml}");
+}
+
+#[test]
+fn init_refuses_a_license_that_is_not_spdx_and_writes_nothing() {
+    let lib = Scratch::new("init-bad-lib");
+    let work = Scratch::new("init-bad-work");
+
+    let assert = baler(lib.path())
+        .current_dir(work.path())
+        .args(["init", "rmod", "--license", "GPL (>= 3)"])
+        .assert()
+        .failure();
+
+    assert!(stderr_of(&assert).contains("not a valid SPDX expression"));
+    assert_eq!(entries(work.path()), Vec::<String>::new());
+
+    baler(lib.path())
+        .current_dir(work.path())
+        .args(["init", "--name", "rmod", "--license", "mit"])
+        .assert()
+        .failure();
+    assert_eq!(entries(work.path()), Vec::<String>::new());
+}
+
+#[test]
+fn bundle_warns_when_there_is_no_license_file_but_still_bundles() {
+    let lib = Scratch::new("warn-file-lib");
+    let work = Scratch::new("warn-file-work");
+    let project = new_project(&work, lib.path(), Some("MIT"));
+
+    let assert = baler(lib.path()).current_dir(&project).args(["bundle", "."]).assert().success();
+
+    let err = stderr_of(&assert);
+    assert!(err.contains("warning: No license file"), "{err}");
+    assert!(!err.contains("SPDX"), "the field is fine, so only the file is flagged:\n{err}");
+    assert!(project.join("rmod_0.1.0.tar.gz").is_file());
+}
+
+#[test]
+fn bundle_is_quiet_about_the_license_when_field_and_file_are_both_fine() {
+    let lib = Scratch::new("quiet-lib");
+    let work = Scratch::new("quiet-work");
+    let project = new_project(&work, lib.path(), Some("MIT"));
+    std::fs::write(project.join("LICENSE"), "MIT License\n").unwrap();
+
+    let assert = baler(lib.path()).current_dir(&project).args(["bundle", "."]).assert().success();
+
+    let err = stderr_of(&assert);
+    assert!(!err.to_lowercase().contains("license"), "{err}");
+}
+
+#[test]
+fn bundle_warns_about_the_unknown_placeholder_and_an_invalid_license() {
+    let lib = Scratch::new("warn-field-lib");
+    let work = Scratch::new("warn-field-work");
+    let project = new_project(&work, lib.path(), None);
+    std::fs::write(project.join("LICENSE"), "text\n").unwrap();
+
+    let unknown = baler(lib.path()).current_dir(&project).args(["bundle", "."]).assert().success();
+    assert!(stderr_of(&unknown).contains("is \"Unknown\""), "{}", stderr_of(&unknown));
+
+    let toml = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    std::fs::write(project.join("baler.toml"), toml.replace("\"Unknown\"", "\"GPL (>= 3)\"")).unwrap();
+    let invalid = baler(lib.path()).current_dir(&project).args(["bundle", "."]).assert().success();
+    assert!(stderr_of(&invalid).contains("not a valid SPDX expression"), "{}", stderr_of(&invalid));
+}
+
+#[test]
+fn bundle_warns_about_a_declared_readme_that_does_not_exist() {
+    let lib = Scratch::new("warn-readme-lib");
+    let work = Scratch::new("warn-readme-work");
+    let project = new_project(&work, lib.path(), Some("MIT"));
+    std::fs::write(project.join("LICENSE"), "text\n").unwrap();
+    let toml = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    std::fs::write(
+        project.join("baler.toml"),
+        toml.replace("# readme = \"README.md\"", "readme = \"docs/gone.md\""),
+    )
+    .unwrap();
+
+    let assert = baler(lib.path()).current_dir(&project).args(["bundle", "."]).assert().success();
+
+    assert!(stderr_of(&assert).contains("docs/gone.md"), "{}", stderr_of(&assert));
+}
+
+#[test]
+fn init_license_changes_the_license_of_an_existing_project() {
+    let lib = Scratch::new("init-set-lib");
+    let work = Scratch::new("init-set-work");
+    let project = new_project(&work, lib.path(), None);
+    let before = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert!(before.contains("license = \"Unknown\""), "{before}");
+
+    baler(lib.path())
+        .current_dir(&project)
+        .args(["init", "--license", "MIT"])
+        .assert()
+        .success();
+
+    let after = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert_eq!(after, before.replace("\"Unknown\"", "\"MIT\""));
+
+    baler(lib.path())
+        .current_dir(&project)
+        .args(["init", "--license", "mit"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read_to_string(project.join("baler.toml")).unwrap(), after);
 }

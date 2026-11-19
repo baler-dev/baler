@@ -56,6 +56,17 @@ fn bundle_project(path: &str, locked: bool, merge: &[String]) -> Result<()> {
     let src_path = toml.resolve_src_dir(&project_root)?;
     let meta = &toml.project;
 
+    // The license and README ship in the bundle when the project has
+    // them. A missing or odd license is only a warning, so a project
+    // that predates this check still bundles.
+    let shipped = crate::project_files::find_project_files(&project_root, meta.readme.as_deref());
+    for problem in &shipped.problems {
+        eprintln!("warning: {problem}");
+    }
+    for warning in crate::license::warnings(&meta.license, &shipped) {
+        eprintln!("warning: {warning}");
+    }
+
     let binary = toml.compiled_code.as_ref().is_some_and(|c| c.binary);
 
     // Checked before compiling, so a mistake does not cost a build.

@@ -8,6 +8,14 @@
 
     -   These new commands will read the `.dist-info` folder that `baler install` writes, so a directory not installed by `{baler}` is not listed.
 
+-  `baler init --license <id>` writes the license into `baler.toml` instead of the `Unknown` placeholder. The value has to be a valid SPDX identifier or expression, and an invalid one fails before anything is written.
+
+-  `baler bundle` now ships the project's license files (`LICENSE`, `LICENCE` and `COPYING`, with or without `.md` or `.txt`) and its README, and `baler install` keeps them in the module's `.dist-info` folder.
+
+    -   The README is the file `readme` points at, or else a `README` at the project root.
+
+    -   It also warns, but never fails, when `license` is empty or `Unknown`, when it is not valid SPDX, when there is no license file at the project root, or when `readme` names a file that is missing or outside the project.
+
 ## Fixes
 
 -  `baler remove` now deletes every `.dist-info` folder of the module. Before, it left that folder behind, and an upgrade left the old version's folder, so stale metadata piled up in the install directory. Removing a name also cleans up leftovers from earlier versions when the module itself is already gone.
@@ -15,6 +23,10 @@
 -  `baler remove` refuses names that are not one plain name, such as `.`, `..` or anything with a `/`. Before, `baler remove . --force` pointed at the install directory itself and deleted every module.
 
 -  Pre-release versions (`0.3.0-dev`) and hyphenated module names (`foo-bar`) are now read correctly from `.dist-info` folder names.
+
+## Compatibility
+
+-  A bundle made by this version holds the license files and README at its top level. `{baler}` 0.1.x does not know them and unpacks them loose into the install directory, so install such bundles with this version or later.
 
 # v0.1.1
 

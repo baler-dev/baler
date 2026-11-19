@@ -5,11 +5,12 @@ use std::path::PathBuf;
 
 use baler_native::{Backend, NativeLang};
 
-use crate::baler_toml::BalerToml;
+use crate::baler_toml::{BalerToml, TemplateDefaults};
 
 mod in_place;
 mod naming;
 mod project_dir;
+mod set_license;
 
 pub use in_place::{run_in_place, InPlaceOptions};
 
@@ -22,6 +23,33 @@ pub fn run(
     native: Option<NativeLang>,
     backend: Option<Backend>,
 ) -> Result<()> {
+    run_with_license(name, dir_name, native, backend, None)
+}
+
+/// Rejects a `--license` that is not an SPDX expression, with the reason
+/// and where the list is. It fails rather than warns, since the person
+/// typed it just now and can fix it just as fast.
+fn check_license_flag(license: &str) -> Result<()> {
+    crate::license::validate_spdx(license).map_err(|reason| {
+        anyhow::anyhow!(
+            "`--license {license}` is not a valid SPDX expression ({reason}). \
+             Use an identifier from https://spdx.org/licenses/, such as MIT, \
+             Apache-2.0 or GPL-3.0-or-later."
+        )
+    })
+}
+
+/// `run`, with `license` written into `baler.toml` in place of `Unknown`.
+pub fn run_with_license(
+    name: &str,
+    dir_name: Option<&str>,
+    native: Option<NativeLang>,
+    backend: Option<Backend>,
+    license: Option<&str>,
+) -> Result<()> {
+    if let Some(license) = license {
+        check_license_flag(license)?;
+    }
     let default_dir = format!("{}-proj", name);
     let project_dir_name = dir_name.unwrap_or(&default_dir);
     let project_root = PathBuf::from(project_dir_name);
@@ -35,7 +63,11 @@ pub fn run(
 
     fs::write(
         project_root.join("baler.toml"),
-        BalerToml::default_template(name, native.map(|lang| (lang, backend))),
+        BalerToml::default_template_with(
+            name,
+            native.map(|lang| (lang, backend)),
+            TemplateDefaults { license, ..TemplateDefaults::default() },
+        ),
     )
     .context("Failed to write baler.toml")?;
 

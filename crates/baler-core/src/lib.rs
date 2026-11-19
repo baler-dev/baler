@@ -2,6 +2,7 @@ pub mod baler_toml;
 pub mod cran;          
 pub mod formats;
 pub mod installed;
+pub mod license;
 pub mod paths;
 pub mod project_files;
 pub mod ops;

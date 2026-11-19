@@ -7,6 +7,8 @@ use anyhow::{bail, Context, Result};
 use flate2::{write::GzEncoder, Compression};
 use tar::Builder;
 
+use crate::project_files;
+
 /// Bundle a module into a `.tar.gz` archive.
 ///
 /// Archive structure:
@@ -17,7 +19,9 @@ use tar::Builder;
 /// │   ├── decomp/
 /// │   └── ...
 /// ├── baler.toml
-/// └── baler.lock        (only if the project has one)
+/// ├── baler.lock        (only if the project has one)
+/// ├── LICENSE           (each license file the project has)
+/// └── README.md         (the README, if the project has one)
 /// ```
 ///
 /// `baler.toml` and `baler.lock` are shipped as-is, the actual source
@@ -336,6 +340,30 @@ fn plan(spec: &BundleSpec, tag: Option<&str>) -> Result<Vec<Planned>> {
         });
     }
 
+    // The license files and the README go at the archive root as well,
+    // for the same reason. Install keeps them in the module's
+    // .dist-info folder. A license keeps its own file name, and the
+    // README is stored as README plus its ending (see
+    // `stored_readme_name`), wherever the author kept it.
+    let declared = project_files::declared_readme(spec.project_root);
+    let found = project_files::find_project_files(spec.project_root, declared.as_deref());
+    for license in found.licenses {
+        if let Some(file_name) = license.file_name().and_then(|n| n.to_str()) {
+            planned.push(Planned {
+                tar_name: format!("{}/{}", top, file_name),
+                disk: license,
+                binary: false,
+            });
+        }
+    }
+    if let Some(readme) = found.readme {
+        planned.push(Planned {
+            tar_name: format!("{}/{}", top, project_files::stored_readme_name(&readme)),
+            disk: readme,
+            binary: false,
+        });
+    }
+
     Ok(planned)
 }
 
@@ -437,6 +465,8 @@ fn same_sources(planned: &[Planned], previous: &BTreeMap<String, Vec<u8>>, top: 
 /// <install_dir>/tstk-0.1.0.dist-info/
 ///     baler.toml
 ///     baler.lock       (only if the archive shipped one)
+///     LICENSE          (each license file the archive shipped)
+///     README.md        (the README, if the archive shipped one)
 /// ```
 pub fn unpack(tar_path: &Path, install_dir: &Path, name: &str, version: &str) -> Result<()> {
     let file = File::open(tar_path)
@@ -462,17 +492,31 @@ pub fn unpack(tar_path: &Path, install_dir: &Path, name: &str, version: &str) ->
             continue;
         }
 
-        // Only the reserved root-level baler.toml/baler.lock go into
-        // .dist-info. Matching by full path (not basename) means a
-        // module file that happens to be named either — however deep
-        // — is never mistaken for it and misrouted. Multiple modules
-        // share one install_dir, so these can't land loose at
-        // install_dir's own root, each module's copy would overwrite
-        // the last one's.
+        // Only the reserved root-level baler.toml/baler.lock, and the
+        // license and README files next to them, go into .dist-info.
+        // Matching by full path (not basename) means a module file that
+        // happens to be named any of those, however deep, is never
+        // mistaken for it and misrouted. The license and README match
+        // only as a regular file directly at the archive root, so a
+        // module directory that is itself called `license` stays a
+        // module directory. Multiple modules share one install_dir, so
+        // these can't land loose at install_dir's own root, each
+        // module's copy would overwrite the last one's.
+        let root_file_name = if stripped.components().count() == 1
+            && entry.header().entry_type().is_file()
+        {
+            stripped.file_name().and_then(|n| n.to_str())
+        } else {
+            None
+        };
         let dest = if stripped == Path::new("baler.toml") {
             dist_info_dir.join("baler.toml")
         } else if stripped == Path::new("baler.lock") {
             dist_info_dir.join("baler.lock")
+        } else if let Some(file_name) = root_file_name.filter(|n| {
+            project_files::is_license_file_name(n) || project_files::is_readme_file_name(n)
+        }) {
+            dist_info_dir.join(file_name)
         } else {
             install_dir.join(&stripped)
         };

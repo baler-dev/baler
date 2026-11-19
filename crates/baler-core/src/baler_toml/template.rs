@@ -9,6 +9,8 @@ pub struct TemplateDefaults<'a> {
     /// A source directory that isn't named after the module. Written as
     /// a real `src = "..."` line instead of the commented-out default.
     pub src: Option<&'a str>,
+    /// An SPDX license expression for `license`, in place of `Unknown`.
+    pub license: Option<&'a str>,
 }
 
 /// Escapes a value for a TOML basic string.
@@ -40,6 +42,7 @@ impl BalerToml {
         // safe inside a TOML string.
         let name = toml_str(name);
         let name = name.as_str();
+        let license = toml_str(defaults.license.unwrap_or(crate::license::UNSET_LICENSE));
         let src_line = match defaults.src {
             Some(dir) => format!(
                 "src = \"{}\"    # path to the source directory containing __init__.R",
@@ -58,7 +61,7 @@ description = ""
 authors = [
     {{ name = "Your Name", email = "you@example.com" }},
 ]
-license = "Unknown"
+license = "{license}"
 r_version = ">=4.0.0"
 repository = ""
 keywords = []
