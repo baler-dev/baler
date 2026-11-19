@@ -1,0 +1,117 @@
+name: "Build box"
+
+# Builds the patched {box} (the fork {baler} modules need) into binary R
+# packages, so nobody has to compile it. A binary package only installs on
+# the R minor version and platform it was built for, so this builds for the
+# current and the previous R release on each platform.
+#
+# Which {box} to build: the inputs below, else the repository variables
+# BOX_REPO and BOX_REF, else the joshuamarie/box fork. The ref is turned into
+# one commit first, so every job builds the same code.
+#
+# Called by release.yml and refresh-box.yml, and runnable on its own from the
+# Actions tab.
+
+on:
+  workflow_call:
+    inputs:
+      box_repo:
+        type: string
+        default: ""
+      box_ref:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      box_repo:
+        description: "The {box} repository (empty: the BOX_REPO variable, else joshuamarie/box)"
+        type: string
+        default: ""
+      box_ref:
+        description: "Branch, tag or commit (empty: the BOX_REF variable, else feature/baler-support)"
+        type: string
+        default: ""
+
+jobs:
+  resolve:
+    name: "Pick the {box} commit"
+    runs-on: ubuntu-24.04
+    outputs:
+      repo: ${{ steps.pick.outputs.repo }}
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Resolve the commit"
+        id: pick
+        env:
+          BOX_REPO: ${{ inputs.box_repo || vars.BOX_REPO }}
+          BOX_REF: ${{ inputs.box_ref || vars.BOX_REF }}
+        run: |
+          bash scripts/resolve-box.sh | tee box-source.txt >> "$GITHUB_OUTPUT"
+
+      - name: "Upload what was built from"
+        uses: actions/upload-artifact@v4
+        with:
+          name: box-source
+          path: box-source.txt
+          if-no-files-found: error
+
+  build:
+    name: "Build box (${{ matrix.this.os }}-${{ matrix.this.arch }}, R ${{ matrix.r.slug }})"
+    needs: resolve
+    runs-on: ${{ matrix.this.runner }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        this:
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+          - os: linux
+            arch: aarch64
+            runner: ubuntu-24.04-arm
+          - os: macos
+            arch: aarch64
+            runner: macos-15
+          - os: macos
+            arch: x86_64
+            runner: macos-15-intel
+          - os: windows
+            arch: x86_64
+            runner: windows-2022
+        r:
+          - spec: release
+            slug: release
+          - spec: oldrel/1
+            slug: oldrel
+
+    steps:
+      - name: "Check out the build script"
+        uses: actions/checkout@v4
+
+      - name: "Check out {box}"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.resolve.outputs.repo }}
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: box-src
+
+      - name: "Set up R"
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.r.spec }}
+          use-public-rspm: true
+
+      - name: "Build and test the binary package"
+        shell: bash
+        run: bash scripts/build-box.sh box-src ${{ matrix.this.os }} ${{ matrix.this.arch }} dist
+
+      - name: "Upload"
+        uses: actions/upload-artifact@v4
+        with:
+          name: box-${{ matrix.this.os }}-${{ matrix.this.arch }}-${{ matrix.r.slug }}
+          path: dist/*
+          if-no-files-found: error

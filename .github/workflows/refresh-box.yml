@@ -1,0 +1,88 @@
+name: "Refresh box"
+
+# Keeps the {box} archives on the latest release in step with the {box}
+# source. The latest release is the one GitHub marks as Latest. Older releases
+# keep the archives they shipped with, and nothing but the box_* files and
+# box-source.txt on the latest release is ever touched.
+#
+# If the {box} source has moved on from the commit the release was built from,
+# all the archives are rebuilt, and they replace the old ones only when every
+# build succeeds. A failed rebuild leaves the release as it was.
+#
+# Only a release that shipped with {box} (it has a box-source.txt) is kept up to
+# date. Old releases are never retrofitted, and a release whose first {box}
+# build failed can be fixed by running this by hand with "force" ticked.
+#
+# The source is the BOX_REPO and BOX_REF repository variables, which default to
+# joshuamarie/box and feature/baler-support.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Also add {box} to a latest release that was made without it"
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [box-updated]
+
+concurrency:
+  group: refresh-box
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: "Is the release out of date?"
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      repo: ${{ steps.plan.outputs.repo }}
+      sha: ${{ steps.plan.outputs.sha }}
+      stale: ${{ steps.plan.outputs.stale }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Compare the release with the {box} source"
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOX_REPO: ${{ vars.BOX_REPO }}
+          BOX_REF: ${{ vars.BOX_REF }}
+          FORCE: ${{ inputs.force }}
+        run: bash scripts/plan-box-refresh.sh
+
+  build:
+    name: "Rebuild box"
+    needs: plan
+    if: ${{ needs.plan.outputs.stale == 'true' }}
+    uses: ./.github/workflows/build-box.yml
+    with:
+      box_repo: ${{ needs.plan.outputs.repo }}
+      box_ref: ${{ needs.plan.outputs.sha }}
+
+  publish:
+    name: "Replace the archives on ${{ needs.plan.outputs.tag }}"
+    needs: [plan, build]
+    if: ${{ needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: box-artifacts
+          pattern: box-*
+          merge-multiple: true
+
+      - name: "Publish"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: bash scripts/publish-box.sh "$TAG" box-artifacts
