@@ -16,7 +16,7 @@ To get an explanation of how `{box}` modules work.
 
 ## Installation
 
-`{baler}` is a Rust package with thin wrapper command line interface (CLI) tool built in Rust. Pre-built binaries for Linux, MacOS, and Windows is available on the [Releases](https://github.com/baler-dev/baler/releases).
+`{baler}` is a Rust package with thin wrapper command line interface (CLI) tool built in Rust. Pre-built binaries for Linux, MacOS, and Windows are available on the [Releases](https://github.com/baler-dev/baler/releases).
 
 You can install `baler` using the Shell installers. 
 
@@ -28,17 +28,17 @@ You can install `baler` using the Shell installers.
 
 2.  On Windows: 
 
-    ``` bash
+    ``` powershell
     powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.ps1 | iex"
     ```
 
-To install the specific version, use that version's URL instead of `latest`: 
+To install a specific version, use the installer published with that release: 
 
 ``` bash
 curl -LsSf https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-installer.sh | bash
 ```
 
-``` bash
+``` powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-installer.ps1 | iex"
 ```
 
@@ -48,13 +48,13 @@ To install the development version of `{baler}` from GitHub, one requires [Rust]
 cargo install --git https://github.com/baler-dev/baler
 ```
 
-Then install the particular primary `{box}` R package to load the `{box}`-`{baler}` modules. In a meantime, kindly install the package from the forked repo, as the patches for `{baler}` support are written down there and hasn't made in its upstream yet, so do the following:
+Then install the patched `{box}` R package to load the `box-bale` modules. The patches for `{baler}` support live in a fork and haven't made it into upstream yet. Releases ship the fork already built for Linux, macOS and Windows (for the current and the previous R version), so no compiler is needed. See the [installation guide](https://baler-dev.github.io/baler/installation.html#the-box-fork) for the steps.
+
+If a release has no file for your platform or R version, compile the fork instead:
 
 ``` r
-# Install the package through GitHub
-# This needs compilation BTW
-# To build the package
 # install.packages('pak')
+# This needs compilation
 pak::pak("joshuamarie/box@feature/baler-support")
 ```
 
