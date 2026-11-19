@@ -2,6 +2,8 @@
 
 # Development version
 
+# v0.2.0
+
 ## What's new
 
 -  `baler list` shows the modules installed in the install directory (name, version, license, R requirement), and `baler show <name>` shows everything one module declared, where its files are, and which license file and README were kept. 
@@ -15,6 +17,8 @@
     -   The README is the file `readme` points at, or else a `README` at the project root.
 
     -   It also warns, but never fails, when `license` is empty or `Unknown`, when it is not valid SPDX, when there is no license file at the project root, or when `readme` names a file that is missing or outside the project.
+
+-  Each release now ships the patched `{box}` already built, for Linux (x86_64 and aarch64), macOS (Apple silicon and Intel) and Windows, for the current and the previous R version, so installing it no longer needs a compiler. The files on the latest release are rebuilt when the fork changes. The installation guide has the steps.
 
 ## Fixes
 
