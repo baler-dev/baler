@@ -18,7 +18,7 @@
 
     -   It also warns, but never fails, when `license` is empty or `Unknown`, when it is not valid SPDX, when there is no license file at the project root, or when `readme` names a file that is missing or outside the project.
 
--  Each release now ships the patched `{box}` already built, for Linux (x86_64 and aarch64), macOS (Apple silicon and Intel) and Windows, for the current and the previous R version, so installing it no longer needs a compiler. The files on the latest release are rebuilt when the fork changes. The installation guide has the steps.
+-  Releases now ship the patched `{box}` already built (if its build fails, the release goes out without it), for Linux (x86_64 and aarch64), macOS (Apple silicon and Intel) and Windows, for the current and the previous R version, so installing it no longer needs a compiler. The files on the latest release are rebuilt when the fork changes. The installation guide has the steps.
 
 ## Fixes
 

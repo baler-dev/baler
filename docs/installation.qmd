@@ -16,7 +16,7 @@ Pre-built binaries for Linux, macOS, and Windows are published on the [Releases]
 
 2.  Windows:
 
-    ``` bash
+    ``` powershell
     powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.ps1 | iex"
     ```
 
@@ -28,7 +28,7 @@ To pin a specific version, use that version's installer, which is published with
 curl -LsSf https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-installer.sh | bash
 ```
 
-``` bash
+``` powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/baler-dev/baler/releases/download/v0.1.0/baler-installer.ps1 | iex"
 ```
 
@@ -56,7 +56,7 @@ baler --version
 
 ### Pre-built, no compiler needed
 
-Every release ships the fork already built, for the current and the previous R version. Pick the file for your platform:
+Releases ship the fork already built, for the current and the previous R version. If the build fails, the release goes out without these files, so if you don't see them, [build it yourself](#building-it-yourself). Pick the file for your platform:
 
 | Platform | The file name ends with |
 |---|---|
@@ -80,7 +80,7 @@ The full name is `box_<version>_R<major.minor>_<platform>`, for example `box_1.2
     R CMD INSTALL box_1.2.3.261119.tar.gz
     ```
 
-The files on the latest release are rebuilt when the fork changes, so they follow it. Older releases keep the files they shipped with.
+The files on the latest release are rebuilt when the fork changes (it is checked every 6 hours), so they follow it. Older releases keep the files they shipped with, and a release that shipped without them stays that way.
 
 ### Building it yourself
 
