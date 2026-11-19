@@ -52,10 +52,43 @@ baler --version
 
 ## The `{box}` fork
 
-You are working with `{box}` modules, and `{baler}` is the "package manufacturer", so it requires `{box}` R package. `{baler}`-installed modules are resolved through `{box}`, although the syntax and path-resolution patches that make `box::use()` aware of `baler`'s install location aren't in upstream `{box}` yet. Until they land, install the patched fork:
+`box-bale` modules are loaded through `{box}`, but the patches that make `box::use()` find `{baler}`'s install location aren't in upstream `{box}` yet. Until they land, use the [patched fork](https://github.com/joshuamarie/box/tree/feature/baler-support).
+
+### Pre-built, no compiler needed
+
+Every release ships the fork already built, for the current and the previous R version. Pick the file for your platform:
+
+| Platform | The file name ends with |
+|---|---|
+| Linux (Intel or AMD) | `_linux-x86_64.tar.gz` |
+| Linux (ARM) | `_linux-aarch64.tar.gz` |
+| macOS (Apple silicon) | `_macos-aarch64.tgz` |
+| macOS (Intel) | `_macos-x86_64.tgz` |
+| Windows | `_windows-x86_64.zip` |
+
+The full name is `box_<version>_R<major.minor>_<platform>`, for example `box_1.2.3.261119_R4.5_linux-x86_64.tar.gz`. It has to match your R version, so check your R version by running `R.version$version.string` in R or run `R --version` and look at the first two numbers (4.5.2 means `R4.5`).
+
+1.  Download the file and its `.sha256` from the [releases page](https://github.com/baler-dev/baler/releases).
+
+2.  Check the download. On Linux run `sha256sum -c <file>.sha256`, on macOS `shasum -a 256 -c <file>.sha256`, and on Windows compare the output of `Get-FileHash <file>` with the `.sha256` file.
+
+3.  Rename it to `box_<version>.<extension>`, such as `box_1.2.3.261119.tar.gz`. R reads the package name and version from the file name, and a longer name makes the install fail on some platforms.
+
+4.  Install it:
+
+    ``` bash
+    R CMD INSTALL box_1.2.3.261119.tar.gz
+    ```
+
+The files on the latest release are rebuilt when the fork changes, so they follow it. Older releases keep the files they shipped with.
+
+### Building it yourself
+
+If there is no file for your platform or R version, for example right after a new R release, compile the fork instead. 
 
 ``` r
 # install.packages('pak')
+# This needs compilation
 pak::pak("joshuamarie/box@feature/baler-support")
 ```
 
