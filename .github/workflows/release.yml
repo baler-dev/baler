@@ -14,9 +14,12 @@ jobs:
     uses: ./.github/workflows/build-mac.yml
   windows:
     uses: ./.github/workflows/build-windows.yml
+  box:
+    uses: ./.github/workflows/build-box.yml
 
   release:
-    needs: [linux, mac, windows]
+    needs: [linux, mac, windows, box]
+    if: ${{ !cancelled() && needs.linux.result == 'success' && needs.mac.result == 'success' && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +28,13 @@ jobs:
         with:
           path: artifacts
           pattern: artifacts-*
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.box.result == 'success' }}
+        with:
+          path: box-artifacts
+          pattern: box-*
           merge-multiple: true
 
       - name: "Render installer scripts"
@@ -78,3 +88,4 @@ jobs:
             artifacts/*.sha256
             baler-installer.sh
             baler-installer.ps1
+            box-artifacts/*
