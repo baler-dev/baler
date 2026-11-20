@@ -18,7 +18,21 @@
 
     -   It also warns, but never fails, when `license` is empty or `Unknown`, when it is not valid SPDX, when there is no license file at the project root, or when `readme` names a file that is missing or outside the project.
 
+### {box} package installation
+
 -  Releases now ship the patched `{box}` already built (if its build fails, the release goes out without it), for Linux (x86_64 and aarch64), macOS (Apple silicon and Intel) and Windows, for the current and the previous R version, so installing it no longer needs a compiler. The files on the latest release are rebuilt when the fork changes. The installation guide has the steps.
+
+-  `baler box install` installs the patched `{box}` that `{baler}` modules are loaded with. It picks the pre-built file on the latest release that matches your R version and platform, checks it against the published SHA-256, and installs it into your R library without a compiler and without running `R CMD INSTALL`.
+
+    -   An upstream `{box}` is never replaced unless `--force` is given, and a `{box}` that is already the current baler build is left alone.
+
+    -   `--tag` takes `{box}` from a given release instead of the latest one.
+
+    -   If the release has no build for your R version, the error lists the R versions it has and prints the command to build the fork from source.
+
+-  `baler box status` shows which `{box}` is installed, whether it has `{baler}` support, and which commit it was built from. It reads files only. `--check` makes it exit with an error unless a `{box}` with `{baler}` support is installed, for CI.
+
+-  `install.sh` and `install.ps1` print a hint about `baler box install` when they finish. Setting `BALER_WITH_BOX=1` runs it for you. A failure there never fails the `{baler}` install.
 
 ## Fixes
 
