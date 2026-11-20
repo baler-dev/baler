@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Also add {box} to a latest release that was made without it"
+        description: "Rebuild even if the release is up to date, and add {box} to a latest release that was made without it"
         type: boolean
         default: false
   repository_dispatch:

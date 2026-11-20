@@ -45,7 +45,7 @@ if [ -z "$built" ] && [ "${FORCE:-}" != "true" ]; then
     exit 0
 fi
 
-if [ "$built" = "$sha" ]; then
+if [ "$built" = "$sha" ] && [ "${FORCE:-}" != "true" ]; then
     stale=false
     echo "$tag already has {box} from $repo@$ref ($sha), nothing to do."
 else
