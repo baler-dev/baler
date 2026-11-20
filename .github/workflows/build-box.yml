@@ -62,6 +62,7 @@ jobs:
     needs: resolve
     runs-on: ${{ matrix.this.runner }}
     timeout-minutes: 30
+    continue-on-error: ${{ matrix.r.slug == 'oldrel2' || matrix.r.slug == 'oldrel3' }}
 
     strategy:
       fail-fast: false
@@ -87,6 +88,10 @@ jobs:
             slug: release
           - spec: oldrel/1
             slug: oldrel
+          - spec: oldrel/2
+            slug: oldrel2
+          - spec: oldrel/3
+            slug: oldrel3
 
     steps:
       - name: "Check out the build script"
