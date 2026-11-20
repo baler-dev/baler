@@ -54,9 +54,45 @@ baler --version
 
 `box-bale` modules are loaded through `{box}`, but the patches that make `box::use()` find `{baler}`'s install location aren't in upstream `{box}` yet. Until they land, use the [patched fork](https://github.com/joshuamarie/box/tree/feature/baler-support).
 
-### Pre-built, no compiler needed
+### With `baler box install` {#baler-box-install}
 
-Releases ship the fork already built, for the current and the previous R version. If the build fails, the release goes out without these files, so if you don't see them, [build it yourself](#building-it-yourself). Pick the file for your platform:
+With R installed, one command does the whole job:
+
+``` bash
+baler box install
+```
+
+It picks the file made for your R version and platform from the latest release, checks it against its published SHA-256, and installs it into your R library. That is the first of `BALER_R_LIB`, `R_LIBS_USER` and R's own first library path, the same one `baler install --install-deps` uses. No compiler is needed, and `R CMD INSTALL` is not run.
+
+-   A `{box}` that is already the baler build and already current is left alone, and `--force` installs it again.
+-   An upstream `{box}` in that library is not replaced unless you pass `--force`, because installing the fork replaces it. To keep both, point `BALER_R_LIB` at another library.
+-   `--tag v0.2.0` takes `{box}` from that release instead of the latest one. Only the latest release has its `{box}` files kept up to date.
+-   If the release has no build for your R version, the error lists the R versions it does have and prints the command to build the fork from source. It never starts a compile on its own.
+-   On Windows, close R sessions that have `{box}` loaded first, since Windows does not let a loaded library be replaced.
+-   Requests to GitHub send `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, which helps on CI where anonymous requests are rate limited.
+
+Check what is installed with:
+
+``` bash
+baler box status
+```
+
+It shows the version, whether it has `{baler}` support, and the commit it was built from, and it reads files only. `baler box status --check` also exits with an error unless a `{box}` with `{baler}` support is installed, which is handy in CI.
+
+To get both with one command, set `BALER_WITH_BOX=1` when you run the install script. A problem with `{box}` is reported but never fails the `{baler}` install.
+
+``` bash
+curl -sSL https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.sh | BALER_WITH_BOX=1 bash
+```
+
+``` powershell
+$env:BALER_WITH_BOX = "1"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/baler-dev/baler/refs/heads/main/scripts/install.ps1 | iex"
+```
+
+### Pre-built, by hand
+
+`baler box install` uses the files below. To do the same steps yourself, or when `baler` is not installed on that machine, take them from the release directly. Releases ship the fork already built, for the current and the previous R version. If the build fails, the release goes out without these files, so if you don't see them, [build it yourself](#building-it-yourself). Pick the file for your platform:
 
 | Platform | The file name ends with |
 |---|---|

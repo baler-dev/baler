@@ -45,7 +45,17 @@ base_url="https://github.com/baler-dev/baler/releases/download/$tag"
 fixtures="$root/fixtures"
 mkdir -p "$fixtures/$linux_name" "$fixtures/windows"
 
-printf '#!/bin/sh\necho "baler fake 9.9.9"\n' > "$fixtures/$linux_name/baler"
+# `baler box ...` records that it ran, and fails when FAKE_BOX_FAIL is set.
+# Anything else answers like a version check.
+cat > "$fixtures/$linux_name/baler" <<'FAKE_BALER'
+#!/bin/sh
+if [ "${1:-}" = "box" ]; then
+    echo "ran: baler $*"
+    [ -z "${FAKE_BOX_FAIL:-}" ]
+    exit
+fi
+echo "baler fake 9.9.9"
+FAKE_BALER
 chmod +x "$fixtures/$linux_name/baler"
 tar -czf "$fixtures/$linux_name.tar.gz" -C "$fixtures" "$linux_name"
 
@@ -276,7 +286,33 @@ else
     fail "a failed archive download fails and installs nothing" "status=$status"
 fi
 
-# 9. The Windows (Git Bash) zip path verifies and installs too.
+# 9. {box}: a hint by default, `baler box install` on request, and a
+# failure there never fails the baler install.
+run_installer
+if [ "$status" -eq 0 ] && echo "$output" | grep -q "Next: run 'baler box install'" && ! echo "$output" | grep -q "ran: baler"; then
+    pass "by default the installer only hints at baler box install"
+else
+    fail "by default the installer only hints at baler box install" "status=$status"
+fi
+
+export BALER_WITH_BOX=1
+run_installer
+if [ "$status" -eq 0 ] && echo "$output" | grep -q "ran: baler box install"; then
+    pass "BALER_WITH_BOX=1 runs baler box install"
+else
+    fail "BALER_WITH_BOX=1 runs baler box install" "status=$status"
+fi
+
+export FAKE_BOX_FAIL=1
+run_installer
+unset BALER_WITH_BOX FAKE_BOX_FAIL
+if [ "$status" -eq 0 ] && [ -x "$(installed_binary)" ] && echo "$output" | grep -q "Could not install {box}"; then
+    pass "a failed box install does not fail the baler install"
+else
+    fail "a failed box install does not fail the baler install" "status=$status"
+fi
+
+# 10. The Windows (Git Bash) zip path verifies and installs too.
 if command -v unzip >/dev/null 2>&1; then
     export FAKE_UNAME_S="MINGW64_NT-10.0" FAKE_UNAME_M="x86_64"
     run_installer

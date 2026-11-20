@@ -200,6 +200,41 @@ R packages declared with `git` are fetched from GitHub's API as well. They send 
 
 Installing via `--git` needs internet access to reach GitHub. Requests to GitHub's API send `GITHUB_TOKEN` (or `GH_TOKEN`) when one is set, and only to `api.github.com` over HTTPS, never to a host given with `--url`. Set the token in CI to stay clear of GitHub's rate limit for anonymous requests and to reach private repositories. When GitHub answers 404, 403 or 429 and no token is set, the error says so and names the variable to set.
 
+## The patched `{box}` {#box}
+
+`{baler}` modules are loaded through a patched `{box}`, and `baler box` installs and inspects it. The pre-built files come from the `{baler}` release (see [the `{box}` fork](../installation.qmd#the-box-fork)), thus you don't have to build the source from scratch.
+
+``` bash
+# Installation doesn't require compilation
+baler box install [--tag <tag>] [--force]
+baler box status [--check]
+```
+
+### Install
+
+`baler box install` asks R for its version and its library path, picks the file on the release that matches, checks it against the `.sha256` file next to it, and installs it. Nothing in the library changes unless the download passes the check.
+
+| Flag | What it does |
+|---|---|
+| `--tag <tag>` | Takes `{box}` from the release with this tag. Without it, the latest release is used, which is the one whose `{box}` files are kept up to date. |
+| `--force` | Replaces a `{box}` that is not the baler build, or a `box` directory that is not an R package, and installs again even when the installed build is already current. |
+
+What else to expect:
+
+i.  Without `--force`, a `{box}` whose `DESCRIPTION` has no `Config/baler/support` field (upstream `{box}`) is never replaced, because installing the fork deletes the old `box` directory first.
+ii.  The commit a build came from is kept in `baler-source.txt` inside the installed `box` directory. When it matches the commit on the release, the command says that `{box}` is already installed and stops.
+iii.  A file that is gone from the release, or a checksum that does not match, is tried once more before failing. The latest release has its `{box}` files replaced every few hours, so a download can land in the middle of that.
+iv.  A missing or malformed `.sha256` file, or a release without `box-source.txt`, fails and installs nothing.
+v.  When no build matches your R version and platform, the error lists the R versions the release has, and gives the command to compile the fork from source instead.
+
+### Status
+
+`baler box status` prints the library, the installed version, the baler support level, and the repository, ref and commit the build came from. It reads files only and makes no network request. With `--check` it exits with an error unless a `{box}` with `{baler}` support is installed.
+
+### Environment
+
+`BALER_R_LIB` and `R_LIBS_USER` choose the library, in that order, as described in [Architecture](../internals/architecture.qmd#path-resolution). `GITHUB_TOKEN` (or `GH_TOKEN`) is sent to `api.github.com` only. `BALER_RELEASE_API` points the release lookup at another API root, such as a mirror, and never changes where the token goes.
+
 ## Lock and lockfile
 
 This is inspired by `uv.lock` and `Cargo.lock`. As long as the dependencies are declared on `baler.toml`, the command you'll use, `baler lock`, will resolve everything a project depends on, both R packages and other modules, and writes the result to `baler.lock` so future installs use the exact same versions instead of re-resolving from scratch. This doesn't install anything itself, it just pins what *would* be installed. Here's the anatomy of `baler lock` command: 

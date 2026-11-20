@@ -11,11 +11,21 @@ jobs:
     box-integration:
         runs-on: ${{ matrix.os }}
         timeout-minutes: 20
+        # TODO: remove after v0.2.0 is published. Until a release has {box} files,
+        # `baler box install` has nothing to download.
+        continue-on-error: ${{ matrix.box-source == 'release' }}
+
+        name: "box integration (${{ matrix.os }}, {box} from ${{ matrix.box-source }})"
 
         strategy:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest, windows-latest]
+                # release: `baler box install`, the path users take, which
+                # downloads the build on the latest release.
+                # source: compile the fork. It tests the fork itself, and
+                # still works when the release has no build for this R.
+                box-source: [release, source]
 
         steps:
             - uses: actions/checkout@v4
@@ -31,13 +41,49 @@ jobs:
             - name: "Set up R"
               uses: r-lib/actions/setup-r@v2
               with:
-                  r-version: "4.5.3"
+                  # Releases ship {box} for the current and the previous R, so
+                  # the release path follows "release". Right after a new R
+                  # version this fails until the {box} files are rebuilt, which
+                  # is the gap users would hit too.
+                  r-version: ${{ matrix.box-source == 'release' && 'release' || '4.5.3' }}
                   use-public-rspm: true
 
-            - name: "Install the patched {box} fork"
+            # An empty library that both R and baler use (baler reads
+            # R_LIBS_USER), so the runner's own library is never touched.
+            - name: "Use a clean R library"
+              shell: bash
+              run: |
+                  lib="$RUNNER_TEMP/baler-rlib"
+                  mkdir -p "$lib"
+                  echo "R_LIBS_USER=$lib" >> "$GITHUB_ENV"
+
+            - name: "Locate baler"
+              shell: bash
+              run: |
+                  if [ "${{ runner.os }}" = "Windows" ]; then
+                      echo "BALER=./target/release/baler.exe" >> "$GITHUB_ENV"
+                  else
+                      echo "BALER=./target/release/baler" >> "$GITHUB_ENV"
+                  fi
+
+            - name: "Install the patched {box} with baler"
+              if: ${{ matrix.box-source == 'release' }}
+              shell: bash
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  "$BALER" box install
+
+            - name: "Install the patched {box} from source"
+              if: ${{ matrix.box-source == 'source' }}
               run: |
                   Rscript -e 'install.packages("pak")'
                   Rscript -e 'pak::pak("joshuamarie/box@feature/baler-support")'
+
+            - name: "Check the patched {box} is in place"
+              shell: bash
+              run: |
+                  "$BALER" box status --check
 
             - name: "Install modules from examples/modules via baler"
               shell: bash

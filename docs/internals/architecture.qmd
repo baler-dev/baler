@@ -15,6 +15,7 @@ crates/
 │       ├── lib.rs                 # Cli struct, clap subcommands, run()
 │       ├── bin/baler.rs           # fn main() { baler_cli::run(); }
 │       └── commands/              # one file per subcommand, delegates to baler-core::ops
+│           └── box_pkg/           # `baler box`, the one command with logic of its own (see below)
 ├── baler-core/             # lib crate: all real logic, reusable outside the CLI
 │   └── src/
 │       ├── baler_toml/            # baler.toml schema + parsing, one file per table
@@ -49,6 +50,22 @@ crates/
 ```
 
 `baler-cli` owns argument parsing and process exit codes. `baler-core` owns everything that could plausibly be reused by something other than the CLI, and the `network` feature flag lives on this crate. `baler-native` (the package in the `native-code-handler/` directory) owns everything to do with locating, scaffolding, and building a module's compiled code, independent of both the CLI and the packaging logic in `baler-core`.
+
+## `baler box`
+
+`baler box install` and `baler box status` are the one command pair whose logic lives in `baler-cli` instead of `baler-core::ops`. Nothing in it is meant for reuse outside the CLI: it only composes public pieces of `baler-core` (`paths::detect_r_platform`, `paths::resolve_r_lib_dir` and `cran::binary_install::install_binary_package`) with a release lookup. If something else ever needs it, moving the module into `baler-core/src/ops/` changes no command line.
+
+```
+commands/box_pkg/
+├── mod.rs           # install and status: the flow, and the guards before anything is replaced
+├── asset.rs         # picks the build for an R version and platform out of a release's file names
+├── description.rs   # reads an installed {box}'s DESCRIPTION and baler-source.txt, no R needed
+└── release.rs       # GitHub release lookup, downloads, SHA-256 check
+```
+
+`asset.rs` and `description.rs` do plain string and file work, so every platform and R version is unit tested without a network or R. `tests/box_tests.rs` runs the real binary against a local server that plays the release API, and a fake `Rscript`, so the whole flow is tested on Unix without leaving the machine.
+
+The installer scripts never contain this logic. They only print a hint, or run `baler box install` when `BALER_WITH_BOX=1`, so there is one implementation of the platform and checksum rules, and it also serves people who installed `baler` with `cargo install`.
 
 ## What goes into a bundle
 

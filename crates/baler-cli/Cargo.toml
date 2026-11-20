@@ -18,6 +18,13 @@ baler-core = { path = "../baler-core", features = ["network"] }
 baler-native = { path = "../native-code-handler" }
 anyhow.workspace = true
 clap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
+flate2.workspace = true
+serde_json.workspace = true
+tar.workspace = true

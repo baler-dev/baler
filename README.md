@@ -48,9 +48,15 @@ To install the development version of `{baler}` from GitHub, one requires [Rust]
 cargo install --git https://github.com/baler-dev/baler
 ```
 
-Then install the patched `{box}` R package to load the `box-bale` modules. The patches for `{baler}` support live in a fork and haven't made it into upstream yet. Releases ship the fork already built for Linux, macOS and Windows (for the current and the previous R version), so no compiler is needed. See the [installation guide](https://baler-dev.github.io/baler/installation.html#the-box-fork) for the steps.
+Then install the patched `{box}` R package to load the `box-bale` modules. The patches for `{baler}` support live in a fork and haven't made it into upstream yet. Releases ship the fork already built for Linux, macOS and Windows (for the current and the previous R version), and `{baler}` installs the one that matches your R version and platform, so no compiler is needed:
 
-If a release has no file for your platform or R version, compile the fork instead:
+``` bash
+baler box install
+```
+
+Check it with `baler box status`. See the [installation guide](https://baler-dev.github.io/baler/installation.html#the-box-fork) for the details.
+
+If a release has no build for your platform or R version, compile the fork instead:
 
 ``` r
 # install.packages('pak')

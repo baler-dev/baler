@@ -138,3 +138,13 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
 else
     echo "~/.local/bin is already in your PATH."
 fi
+
+# baler is installed at this point, so a {box} problem is reported and never
+# turns into a failed install. The binary is called by its full path because
+# PATH only changes for new shells.
+if [ "${BALER_WITH_BOX:-}" = "1" ]; then
+    echo "Installing the patched {box}..."
+    "$bin_dir/baler" box install || echo "Could not install {box}. Run 'baler box install' once R is set up." >&2
+else
+    echo "Next: run 'baler box install' to get the patched {box} that baler modules need."
+fi

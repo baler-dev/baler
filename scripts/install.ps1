@@ -83,3 +83,15 @@ if ($userPath -notlike "*$InstallDir*") {
 } else {
     Write-Host "$InstallDir is already in your PATH."
 }
+
+# baler is installed at this point, so a {box} problem is reported and never
+# turns into a failed install.
+if ($env:BALER_WITH_BOX -eq "1") {
+    Write-Host "Installing the patched {box}..."
+    & "$InstallDir\baler.exe" box install
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Could not install {box}. Run 'baler box install' once R is set up."
+    }
+} else {
+    Write-Host "Next: run 'baler box install' to get the patched {box} that baler modules need."
+}
