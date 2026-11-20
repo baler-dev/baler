@@ -1,3 +1,4 @@
+pub mod box_pkg;
 pub mod bundle;
 pub mod init;
 pub mod install;

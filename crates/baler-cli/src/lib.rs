@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use commands::{
+    box_pkg::{BoxInstallArgs, BoxStatusArgs},
     bundle::BundleArgs,
     compile::CompileArgs,
     init::InitArgs,
@@ -234,6 +235,42 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Install and inspect the patched {box} that baler modules are loaded
+    /// with. It comes pre-built from the baler release, so no compiler is
+    /// needed.
+    #[command(name = "box")]
+    BoxPkg {
+        #[command(subcommand)]
+        command: BoxCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum BoxCommands {
+    /// Install the pre-built {box} that matches this machine's R and platform
+    /// into the R library. It never touches an upstream {box} unless --force
+    /// is given, and does nothing when the installed build is already current.
+    Install {
+        /// Release tag to take {box} from. Defaults to the latest release,
+        /// the one whose {box} files are kept up to date.
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Replace a {box} that is already installed, even an upstream one,
+        /// and install again even if the installed build is current.
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Show which {box} is installed, whether it has baler support, and
+    /// which commit it was built from. Reads files only, no network.
+    Status {
+        /// Exit with an error unless a {box} with baler support is
+        /// installed, for CI and scripts.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 pub fn run() {
@@ -262,6 +299,14 @@ pub fn run() {
         Commands::Remove { name, force } => {
             commands::remove::exec(RemoveArgs { name, force })
         }
+        Commands::BoxPkg { command } => match command {
+            BoxCommands::Install { tag, force } => {
+                commands::box_pkg::install(BoxInstallArgs { tag, force })
+            }
+            BoxCommands::Status { check } => {
+                commands::box_pkg::status(BoxStatusArgs { check })
+            }
+        },
     };
 
     if let Err(e) = result {
