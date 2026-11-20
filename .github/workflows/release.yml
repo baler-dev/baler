@@ -70,7 +70,13 @@ jobs:
 
           Or download the archive for your platform below and put `baler` on your `PATH`. Each archive comes with a `.sha256` file. Check the install with `baler --version`.
 
-          `{baler}` modules are loaded through a patched `{box}` for now:
+          `{baler}` modules are loaded through a patched `{box}` for now. With R installed, `baler` fetches the build made for your R version and platform from this release:
+
+          ``` bash
+          baler box install
+          ```
+
+          If this release has no build for your R version, compile the fork instead:
 
           ``` r
           pak::pak("joshuamarie/box@feature/baler-support")
