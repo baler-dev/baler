@@ -28,7 +28,7 @@ if [ -z "$tag" ]; then
     exit 0
 fi
 
-resolved="$("$(dirname "$0")/resolve-box.sh")"
+resolved="$(bash "$(dirname "$0")/resolve-box.sh")"
 repo="$(printf '%s\n' "$resolved" | sed -n 's/^repo=//p')"
 ref="$(printf '%s\n' "$resolved" | sed -n 's/^ref=//p')"
 sha="$(printf '%s\n' "$resolved" | sed -n 's/^sha=//p')"
