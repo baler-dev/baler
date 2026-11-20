@@ -11,6 +11,9 @@ jobs:
     box-integration:
         runs-on: ${{ matrix.os }}
         timeout-minutes: 20
+        # TODO: remove after v0.2.0 is published. Until a release has {box} files,
+        # `baler box install` has nothing to download.
+        continue-on-error: ${{ matrix.box-source == 'release' }}
 
         name: "box integration (${{ matrix.os }}, {box} from ${{ matrix.box-source }})"
 
