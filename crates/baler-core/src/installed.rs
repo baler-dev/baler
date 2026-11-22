@@ -187,6 +187,13 @@ pub struct Listing {
 /// versions of one module have a folder, which a 0.1.0 upgrade also left
 /// behind, the most recently written one is used.
 pub fn list(install_dir: &Path) -> Result<Listing> {
+    list_where(install_dir, |_| true)
+}
+
+/// Like [`list`], but only the modules whose name `wanted` accepts. A
+/// module it turns down is never read, so a broken record of a module the
+/// caller did not ask about is not reported either.
+pub fn list_where(install_dir: &Path, wanted: impl Fn(&str) -> bool) -> Result<Listing> {
     let mut by_name: BTreeMap<String, Vec<(PathBuf, String)>> = BTreeMap::new();
     for (dir_name, path) in dist_info_dirs(install_dir)? {
         if let Some((name, version)) = parse_dist_info_dir_name(&dir_name) {
@@ -199,6 +206,9 @@ pub fn list(install_dir: &Path) -> Result<Listing> {
 
     let mut listing = Listing::default();
     for (name, candidates) in by_name {
+        if !wanted(&name) {
+            continue;
+        }
         let module_dir = install_dir.join(&name);
         if !module_dir.is_dir() {
             continue;
