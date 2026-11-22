@@ -9,6 +9,7 @@ use commands::{
     compile::CompileArgs,
     init::InitArgs,
     install::InstallArgs,
+    list::ListArgs,
     lock::LockArgs,
     remove::RemoveArgs,
     show::ShowArgs,
@@ -216,8 +217,27 @@ enum Commands {
     },
 
     /// List the modules installed by baler: name, version, license and
-    /// the R version each asks for.
-    List,
+    /// the R version each asks for. Give a PATTERN, --keyword or both to
+    /// list only the modules that match.
+    List {
+        /// Only the modules whose whole name matches this pattern. `*`
+        /// stands for any run of characters and `?` for any one, so
+        /// 'conv*' matches `convert` and '*calc*' matches `rcalc`. Case
+        /// is ignored. Quote it, or the shell may expand the `*` first.
+        pattern: Option<String>,
+
+        /// Only the modules that list this keyword in their baler.toml.
+        /// Give several, separated by commas or by repeating the flag, and
+        /// a module must have all of them: `-k stats,plots` is the same as
+        /// `-k stats -k plots`. Case is ignored.
+        #[arg(short, long, visible_alias = "tag", value_name = "KEYWORD", value_delimiter = ',')]
+        keyword: Vec<String>,
+
+        /// Print only the module names, one for each line, with no table.
+        /// Meant for scripts.
+        #[arg(long)]
+        names_only: bool,
+    },
 
     /// Show what one installed module declared: description, license,
     /// authors, dependencies, and where its files and metadata are.
@@ -294,7 +314,9 @@ pub fn run() {
         Commands::Lock { path, update, with_rver, check, remove } => {
             commands::lock::run(LockArgs { path, update, with_rver, remove, check })
         }
-        Commands::List => commands::list::run(),
+        Commands::List { pattern, keyword, names_only } => {
+            commands::list::run(ListArgs { pattern, keyword, names_only })
+        }
         Commands::Show { name } => commands::show::run(ShowArgs { name }),
         Commands::Remove { name, force } => {
             commands::remove::exec(RemoveArgs { name, force })
