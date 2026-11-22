@@ -18,7 +18,8 @@ pak::pak("joshuamarie/box@feature/baler-module-support")
 Then, install this package via following:
 
 ``` bash
-baler install --git https://github.com/baler-dev/baler --branch examples/modules/convert-proj
+baler install --git https://github.com/baler-dev/baler --module-dir examples/modules/convert-proj
+# baler install --git https://github.com/baler-dev/baler --branch main --module-dir examples/modules/convert-proj
 ```
 
 ## Usage
