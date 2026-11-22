@@ -122,6 +122,144 @@ fn list_and_show_follow_a_module_from_install_to_removal() {
     assert_eq!(entries(lib.path()), Vec::<String>::new(), "remove must leave nothing behind");
 }
 
+/// Scaffolds `rmod`, gives it these keywords, and installs it.
+fn install_with_keywords(lib: &Scratch, work: &Scratch, keywords: &str) {
+    let project = new_project(work, lib.path(), Some("MIT"));
+    let toml = std::fs::read_to_string(project.join("baler.toml")).unwrap();
+    assert!(toml.contains("keywords = []"), "the template changed:\n{toml}");
+    std::fs::write(
+        project.join("baler.toml"),
+        toml.replace("keywords = []", &format!("keywords = {keywords}")),
+    )
+    .unwrap();
+    bundle_and_install(&project, lib.path(), "0.1.0");
+}
+
+#[test]
+fn list_names_only_prints_the_bare_name() {
+    let lib = Scratch::new("names-only-lib");
+    let work = Scratch::new("names-only-work");
+    install_with_keywords(&lib, &work, "[]");
+
+    let assert = baler(lib.path()).args(["list", "--names-only"]).assert().success();
+
+    assert_eq!(stdout_of(&assert), "rmod\n");
+}
+
+#[test]
+fn list_names_only_prints_nothing_for_an_empty_install_directory() {
+    let lib = Scratch::new("names-only-empty");
+
+    let assert = baler(lib.path()).args(["list", "--names-only"]).assert().success();
+
+    assert_eq!(stdout_of(&assert), "");
+}
+
+#[test]
+fn list_takes_a_pattern_on_the_module_name() {
+    let lib = Scratch::new("pattern-lib");
+    let work = Scratch::new("pattern-work");
+    install_with_keywords(&lib, &work, "[]");
+
+    for text in ["rmod", "r*", "*mod", "?mod", "RMOD"] {
+        let assert = baler(lib.path()).args(["list", text, "--names-only"]).assert().success();
+        assert_eq!(stdout_of(&assert), "rmod\n", "pattern '{text}'");
+    }
+
+    let assert = baler(lib.path()).args(["list", "x*"]).assert().success();
+    assert_eq!(stdout_of(&assert), "No installed modules match the pattern 'x*'.\n");
+
+    let assert = baler(lib.path()).args(["list", "r*"]).assert().success();
+    let table = stdout_of(&assert);
+    assert!(table.starts_with("NAME"), "{table}");
+    assert_eq!(table.lines().count(), 2, "{table}");
+}
+
+#[test]
+fn list_takes_a_keyword_and_its_tag_alias() {
+    let lib = Scratch::new("keyword-lib");
+    let work = Scratch::new("keyword-work");
+    install_with_keywords(&lib, &work, "[\"stats\", \"Plots\"]");
+
+    for flag in ["--keyword", "--tag"] {
+        let assert = baler(lib.path()).args(["list", flag, "STATS", "--names-only"]).assert().success();
+        assert_eq!(stdout_of(&assert), "rmod\n", "{flag}");
+    }
+
+    let both = baler(lib.path())
+        .args(["list", "--keyword", "stats", "--keyword", "plots", "--names-only"])
+        .assert()
+        .success();
+    assert_eq!(stdout_of(&both), "rmod\n");
+
+    let one_missing = baler(lib.path())
+        .args(["list", "--keyword", "stats", "--keyword", "nope"])
+        .assert()
+        .success();
+    assert_eq!(
+        stdout_of(&one_missing),
+        "No installed modules match the keyword 'stats' and the keyword 'nope'.\n"
+    );
+}
+
+#[test]
+fn list_takes_keywords_with_a_short_flag_and_commas() {
+    let lib = Scratch::new("short-keyword-lib");
+    let work = Scratch::new("short-keyword-work");
+    install_with_keywords(&lib, &work, "[\"machine-learning\", \"stats\", \"bayesian\"]");
+
+    let cases: [&[&str]; 4] = [
+        &["-k", "machine-learning"],
+        &["-k", "machine-learning,stats,bayesian"],
+        &["-k", "machine-learning", "-k", "stats", "-k", "bayesian"],
+        &["-k", "STATS,Bayesian"],
+    ];
+    for flags in cases {
+        let assert = baler(lib.path()).arg("list").args(flags).arg("--names-only").assert().success();
+        assert_eq!(stdout_of(&assert), "rmod\n", "{flags:?}");
+    }
+
+    // One missing keyword among the commas is enough to leave it out.
+    let assert = baler(lib.path()).args(["list", "-k", "stats,nope", "--names-only"]).assert().success();
+    assert_eq!(stdout_of(&assert), "");
+
+    // A pattern next to -k stays a pattern, whichever comes first.
+    for args in [["list", "r*", "-k", "stats"], ["list", "-k", "stats", "r*"]] {
+        let assert = baler(lib.path()).args(args).assert().success();
+        assert!(stdout_of(&assert).lines().nth(1).unwrap().starts_with("rmod"), "{args:?}");
+    }
+
+    // A trailing comma leaves an empty keyword, which is refused.
+    let assert = baler(lib.path()).args(["list", "-k", "stats,"]).assert().failure();
+    assert!(stderr_of(&assert).contains("--keyword is empty"));
+}
+
+#[test]
+fn plain_list_still_prints_every_module_as_the_same_table() {
+    let lib = Scratch::new("plain-table-lib");
+    let work = Scratch::new("plain-table-work");
+    install_with_keywords(&lib, &work, "[\"stats\"]");
+
+    let assert = baler(lib.path()).arg("list").assert().success();
+
+    let table = stdout_of(&assert);
+    let lines: Vec<&str> = table.lines().collect();
+    assert_eq!(lines.len(), 2, "{table}");
+    assert_eq!(lines[0].split_whitespace().collect::<Vec<_>>(), ["NAME", "VERSION", "LICENSE", "R"]);
+    assert_eq!(lines[1].split_whitespace().collect::<Vec<_>>(), ["rmod", "0.1.0", "MIT", ">=4.0.0"]);
+}
+
+#[test]
+fn list_refuses_an_empty_pattern_or_keyword() {
+    let lib = Scratch::new("empty-filter");
+
+    let assert = baler(lib.path()).args(["list", ""]).assert().failure();
+    assert!(stderr_of(&assert).contains("pattern is empty"));
+
+    let assert = baler(lib.path()).args(["list", "--keyword", ""]).assert().failure();
+    assert!(stderr_of(&assert).contains("--keyword is empty"));
+}
+
 #[test]
 fn show_for_a_module_that_is_not_installed_fails_clearly() {
     let lib = Scratch::new("show-missing");
