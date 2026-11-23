@@ -266,7 +266,7 @@ A bare positional argument is a registry name and is never treated as a path or 
 `baler list` and `baler show` read what `{baler}` kept when it installed each module: the `baler.toml` in its `.dist-info` folder next to the module. They only read, so they are safe to run anywhere.
 
 ``` bash
-baler list
+baler list [<pattern>] [-k <keyword>[,<keyword>...]] [--names-only]
 baler show <name>
 ```
 
@@ -278,6 +278,38 @@ rmod  0.2.0    MIT      >=4.0.0
 ```
 
 With nothing installed it says so and names the install directory. Modules that are in the directory but were not installed by `{baler}` have no record, so they are not listed. A module whose record cannot be read is reported on stderr, and the others are still listed.
+
+### Narrow down the list {#list-filters}
+
+| Argument | Description |
+|---|---|
+| `<pattern>` | Only the modules whose whole name matches. `*` stands for any run of characters, including none, and `?` for exactly one character. Case is ignored. |
+| `-k`, `--keyword <keyword>` | Only the modules that list this keyword under `keywords` in their `baler.toml`. Separate several with commas, or repeat the flag, and a module then needs all of them: `-k stats,plots` is the same as `-k stats -k plots`. Case is ignored, and the keyword has to match whole, so `stat` does not find a module tagged `statistics`. `--tag` is the same flag. |
+| `--names-only` | Print the module names alone, one for each line, with no header and no other columns. |
+
+``` bash
+baler list 'conv*'
+baler list -k stats,plots
+baler list '*calc*' --names-only
+```
+
+The pattern is matched against the whole name, so `conv` finds only a module called `conv`, and `conv*` finds `convert` too. Put it in quotes. Without them the shell may expand the `*` against the files in the current directory before `{baler}` sees it.
+
+When the pattern and `--keyword` are both given, a module has to satisfy both. If nothing matches, `baler list` says which filters found nothing and exits successfully:
+
+``` text
+No installed modules match the pattern 'conv*' and the keyword 'stats'.
+```
+
+With `--names-only` nothing is printed in that case, so a script reading the names gets no lines and no sentence to trip over:
+
+``` bash
+for name in $(baler list --keyword stats --names-only); do
+    baler show "$name"
+done
+```
+
+Without a pattern, `--keyword` or `--names-only`, `baler list` prints every installed module in the table above, exactly as it always has. An empty pattern or keyword, such as a shell variable that expanded to nothing, is an error and not an empty list. A module whose record cannot be read is reported only when the pattern selects it, so a broken module you did not ask about stays quiet. The keywords live in the record, so a module that cannot be read cannot be matched by `--keyword`.
 
 ### Show one module {#show}
 

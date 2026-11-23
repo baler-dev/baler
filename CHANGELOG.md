@@ -2,6 +2,18 @@
 
 # Development version
 
+## What's new
+
+-  `baler list` can now be narrowed down.
+
+    -   `baler list <pattern>` shows only the modules whose name matches, with `*` for any run of characters and `?` for any one, ignoring case.
+
+    -   `baler list -k <keyword>` (or `--keyword`, or `--tag`) shows only the modules that list that keyword in their `baler.toml`. `-k stats,plots` or a repeated flag requires all of them.
+
+    -   `baler list --names-only` prints just the names, one for each line, for scripts. It prints nothing when no module matches.
+
+    -   They can be combined. An empty pattern or keyword is an error. Plain `baler list` still prints every module in the same table.
+
 # v0.2.0
 
 ## What's new
