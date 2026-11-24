@@ -216,7 +216,7 @@ enum Commands {
         remove: bool,
     },
 
-    /// List the modules installed by baler: name, version, license and
+    /// List the `box-bale` modules installed by baler: name, version, license and
     /// the R version each asks for. Give a PATTERN, --keyword or both to
     /// list only the modules that match.
     List {
@@ -226,7 +226,7 @@ enum Commands {
         /// is ignored. Quote it, or the shell may expand the `*` first.
         pattern: Option<String>,
 
-        /// Only the modules that list this keyword in their baler.toml.
+        /// Only `box-bale` modules that list this keyword in their baler.toml.
         /// Give several, separated by commas or by repeating the flag, and
         /// a module must have all of them: `-k stats,plots` is the same as
         /// `-k stats -k plots`. Case is ignored.
@@ -242,7 +242,7 @@ enum Commands {
     /// Show what one installed module declared: description, license,
     /// authors, dependencies, and where its files and metadata are.
     Show {
-        /// Name of the installed module, as `baler list` shows it
+        /// Name of the installed `box-bale` module, as `baler list` shows it
         name: String,
     },
 

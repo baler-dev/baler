@@ -2,6 +2,8 @@
 
 # Development version
 
+# v0.2.1
+
 ## What's new
 
 -  `baler list` can now be narrowed down.
