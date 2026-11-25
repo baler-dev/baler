@@ -32,6 +32,9 @@ impl Drop for Scratch {
 fn baler(lib: &Path) -> Command {
     let mut cmd = Command::cargo_bin("baler").expect("baler binary should be built by `cargo test`");
     cmd.env_remove("RUST_BACKTRACE");
+    let no_home = std::env::temp_dir().join("baler-tests-no-home");
+    cmd.env("HOME", &no_home);
+    cmd.env("USERPROFILE", &no_home);
     cmd.env("BALER_LIB", lib);
     cmd
 }
