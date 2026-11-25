@@ -93,16 +93,20 @@ Which files are included:
 
 ## Path resolution
 
-Two directories matter at runtime, and both follow an environment-variable-first, sensible-default-second pattern.
+Two directories matter at runtime. The module install directory is read through the layered settings of `settings.rs`, and the R library follows an environment-variable-first, sensible-default-second pattern.
 
 ::: panel-tabset
 
 ### Module install directory
 
-Under `paths::resolve_install_dir()`:
+Under `paths::resolve_install_dir()`, which returns the `lib` setting of `settings::current()`:
 
-1. `BALER_LIB`, if set and non-empty.
-2. `~/.baler/modules`.
+1. The `--lib` flag.
+2. `BALER_LIB`, if set and non-empty.
+3. `lib` in `~/.baler/config.toml`.
+4. `~/.baler/modules`.
+
+The CLI builds the settings once, in `run()`, from the flags it was given. Code below it never reads these variables or the file itself. Without that call, as in library use and tests, `settings::current()` builds them from the environment and the config file on each call. See [Settings](../reference/settings.qmd).
 
 ### R user library directory
 

@@ -1,0 +1,42 @@
+---
+title: "Settings"
+---
+
+One setting belongs to your machine, not to a module: where installed modules live (`lib`). It is not part of `baler.toml`, which is a module's manifest and is shipped inside its bundle.
+
+| Setting | Flag | Environment variable | Config file key | Default |
+|---|---|---|---|---|
+| Install directory | `--lib <dir>` | `BALER_LIB` | `lib` | `~/.baler/modules` |
+
+## Which one wins
+
+Each setting is looked up in this order, and the first layer that sets it decides:
+
+1. The command line flag.
+2. The environment variable.
+3. The config file, `~/.baler/config.toml`.
+4. The default.
+
+A layer decides only what it sets, so a layer that does not name `lib` leaves it to the layers below it.
+
+This is the same idea as `.libPaths()`, `R_LIBS_USER` and `.Renviron` in R. Put what is specific to a machine in the config file, and use the environment variable or the flag for a single run, such as CI.
+
+## The config file
+
+`~/.baler/config.toml` sits next to the default install directory.
+
+``` toml
+lib = "~/R/baler-modules"
+```
+
+-   A path must be absolute. A leading `~/` stands for your home directory. A relative path is an error, since a config file has no current directory to be relative to.
+-   An unknown key is an error, so a misspelled key such as `libs = "/mods"` is reported instead of being ignored.
+-   A missing file is the same as an empty one.
+
+Flags and environment variables take relative paths too, relative to the directory you run `baler` in.
+
+## What they do not change
+
+`lib` changes where files go. It never changes what `baler lock` writes, so the same `baler.lock` comes out whichever `lib` is set.
+
+`--lib` is for the modules directory only. The R package library has its own variables, described in [Architecture](../internals/architecture.qmd#path-resolution).
