@@ -1,7 +1,9 @@
 pub mod commands; 
 
 use anyhow::Result;
+use baler_core::settings::{self, SettingsLayer};
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 use commands::{
     box_pkg::{BoxInstallArgs, BoxStatusArgs},
@@ -20,6 +22,12 @@ use commands::{
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "A bundler and package manager for box modules")]
 struct Cli {
+    /// Directory modules are installed into and read from. Beats the
+    /// BALER_LIB environment variable and `lib` in ~/.baler/config.toml.
+    /// Defaults to ~/.baler/modules.
+    #[arg(long, global = true, value_name = "DIR")]
+    lib: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -293,8 +301,21 @@ enum BoxCommands {
     },
 }
 
+fn load_settings(cli: &Cli) -> Result<&'static settings::Settings> {
+    let lib = match &cli.lib {
+        Some(path) => Some(settings::absolute(path)?),
+        None => None,
+    };
+    settings::init(SettingsLayer { install_deps: None, lib })
+}
+
 pub fn run() {
     let cli = Cli::parse();
+
+    if let Err(e) = load_settings(&cli) {
+        eprintln!("error: {e:?}");
+        std::process::exit(1);
+    }
 
     let result: Result<()> = match cli.command {
         Commands::Init { name, dir_name, module_name, src, native, backend, license } => {
