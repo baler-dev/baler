@@ -1,22 +1,29 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-const BALER_LIB_ENV: &str = "BALER_LIB";
 const BALER_R_LIB_ENV: &str = "BALER_R_LIB";
 const BALER_DIR: &str = ".baler";
 const MODULES_DIR: &str = "modules";
 
+pub(crate) fn home_dir() -> Result<PathBuf> {
+    dirs::home_dir().context("Cannot find home directory")
+}
+
+/// `~/.baler`, which holds the installed modules and the config file.
+pub fn baler_home_dir() -> Result<PathBuf> {
+    Ok(home_dir()?.join(BALER_DIR))
+}
+
+/// `~/.baler/modules`, used when no setting names another directory.
+pub fn default_install_dir() -> Result<PathBuf> {
+    Ok(baler_home_dir()?.join(MODULES_DIR))
+}
+
+/// The directory modules are installed into, from the first of
+/// `BALER_LIB`, `lib` in `~/.baler/config.toml`, or the default.
+/// See [`crate::settings`].
 pub fn resolve_install_dir() -> Result<PathBuf> {
-    if let Ok(lib) = std::env::var(BALER_LIB_ENV) {
-        if !lib.is_empty() {
-            return Ok(PathBuf::from(lib));
-        }
-    }
-    let global = dirs::home_dir()
-        .context("Cannot find home directory")?
-        .join(BALER_DIR)
-        .join(MODULES_DIR);
-    Ok(global)
+    Ok(crate::settings::current()?.lib.value)
 }
 
 pub struct RPlatform {

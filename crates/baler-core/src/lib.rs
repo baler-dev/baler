@@ -7,6 +7,7 @@ pub mod paths;
 pub mod project_files;
 pub mod ops;
 pub mod resolver;
+pub mod settings;
 pub mod ver;
 pub mod version;
 pub mod lockfile;
