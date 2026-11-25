@@ -2,6 +2,12 @@
 
 # Development version
 
+## What's new
+
+## What's new
+
+-  `--lib <dir>` sets the directory modules are installed into and read from, for one run. `BALER_LIB` does the same for a shell, and `lib = "..."` in `~/.baler/config.toml` for the whole machine, in that order of priority. The default is still `~/.baler/modules`, and it never changes what `baler lock` writes.
+
 # v0.2.1
 
 ## What's new
