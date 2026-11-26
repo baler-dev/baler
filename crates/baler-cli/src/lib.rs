@@ -8,6 +8,7 @@ use commands::{
     box_pkg::{BoxInstallArgs, BoxStatusArgs},
     bundle::BundleArgs,
     compile::CompileArgs,
+    config::ConfigArgs,
     init::InitArgs,
     install::InstallArgs,
     list::ListArgs,
@@ -251,6 +252,30 @@ enum Commands {
         names_only: bool,
     },
 
+    /// Read and change the machine settings in ~/.baler/config.toml. With
+    /// only a KEY, print its value. With a KEY and a VALUE, set it. With
+    /// neither, list every setting. The settings are `install-deps` (on or
+    /// off: whether `baler install` also installs dependencies) and `lib`
+    /// (where modules are installed; also written to ~/.Renviron as
+    /// BALER_LIB, which {box} reads).
+    Config {
+        /// `install-deps` or `lib`
+        key: Option<String>,
+
+        /// The new value for KEY
+        #[arg(requires = "key", conflicts_with_all = ["unset", "show_origin"])]
+        value: Option<String>,
+
+        /// Remove KEY from the config file, so the layers below it decide again
+        #[arg(long, requires = "key", conflicts_with_all = ["value", "show_origin"])]
+        unset: bool,
+
+        /// With no KEY, say which layer each value comes from: an
+        /// environment variable, the config file or the default
+        #[arg(long, conflicts_with_all = ["key", "value", "unset"])]
+        show_origin: bool,
+    },
+
     /// Show what one installed module declared: description, license,
     /// authors, dependencies, and where its files and metadata are.
     Show {
@@ -367,6 +392,9 @@ pub fn run() {
         }
         Commands::List { pattern, keyword, names_only } => {
             commands::list::run(ListArgs { pattern, keyword, names_only })
+        }
+        Commands::Config { key, value, unset, show_origin } => {
+            commands::config::run(ConfigArgs { key, value, unset, show_origin })
         }
         Commands::Show { name } => commands::show::run(ShowArgs { name }),
         Commands::Remove { name, force } => {
