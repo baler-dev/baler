@@ -26,6 +26,8 @@ website:
                     text: baler.toml
                   - href: reference/baler-lock.qmd
                     text: baler.lock
+                  - href: reference/settings.qmd
+                    text: Settings
                   - href: reference/module-structure.qmd
                     text: Module Structure
                   - href: reference/native-code.qmd
@@ -51,6 +53,7 @@ website:
               - reference/cli.qmd
               - reference/baler-toml.qmd
               - reference/baler-lock.qmd
+              - reference/settings.qmd
               - reference/module-structure.qmd
               - reference/native-code.qmd
         - title: Internals

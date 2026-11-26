@@ -1,0 +1,52 @@
+---
+title: "Settings"
+---
+
+Two settings belong to your machine, not to a module: where installed modules live (`lib`), and whether `baler install` also installs dependencies (`install-deps`). They are not part of `baler.toml`, which is a module's manifest and is shipped inside its bundle.
+
+| Setting | Flag | Environment variable | Config file key | Default |
+|---|---|---|---|---|
+| Install directory | none | `BALER_LIB` | `lib` | `~/.baler/modules` |
+| Install dependencies | `--install-deps` / `--no-install-deps` | `BALER_INSTALL_DEPS` | `install-deps` | off |
+
+## Which one wins
+
+Each setting is looked up in this order, and the first layer that sets it decides:
+
+1.  The command line flag.
+2.  The environment variable.
+3.  The config file, `~/.baler/config.toml`.
+4.  The default.
+
+A layer decides only what it sets, so a config file that sets `lib` leaves `install-deps` to the layers below it. If both `--install-deps` and `--no-install-deps` are given, the last one wins.
+
+This is the same idea as `.libPaths()`, `R_LIBS_USER` and `.Renviron` in R. Put what is specific to a machine in the config file, and use the environment variable or the flag for a single run, such as CI.
+
+## The config file
+
+`~/.baler/config.toml` sits next to the default install directory. You can edit it by hand, or let `baler config` do it, which keeps your comments (see [Machine settings](cli.qmd#config)). `baler config --show-origin` shows which layer each value comes from.
+
+``` toml
+install-deps = true
+lib = "~/R/baler-modules"
+```
+
+-   A path must be absolute. A leading `~/` stands for your home directory. A relative path is an error, since a config file has no current directory to be relative to.
+-   An unknown key is an error, so `install-dep = true` is reported instead of being ignored.
+-   A missing file is the same as an empty one.
+
+`BALER_LIB` takes a relative path too, relative to the directory you run `baler` in.
+
+## Making `{box}` see the install directory
+
+`{box}` finds modules through `BALER_LIB`, not through the config file. Setting `lib` with `baler config lib <path>` therefore also writes `BALER_LIB` into `~/.Renviron`, which R reads at startup. If you edit the config file by hand instead, set `BALER_LIB` in `~/.Renviron` yourself. Details are in [Machine settings](cli.qmd#config).
+
+## Values
+
+`BALER_INSTALL_DEPS` takes `true`, `1`, `yes` or `on` for on, and `false`, `0`, `no` or `off` for off. An empty value counts as unset, and anything else is an error. This is checked by every command, not only `install`.
+
+## What they do not change
+
+These settings change where files go and what gets fetched. They never change what `baler lock` writes, so the same `baler.lock` comes out whichever `lib` is set.
+
+`lib` is for the modules directory only. The R package library has its own variables, described in [Architecture](../internals/architecture.qmd#path-resolution).
