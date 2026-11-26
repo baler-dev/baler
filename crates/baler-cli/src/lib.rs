@@ -1,6 +1,7 @@
 pub mod commands; 
 
 use anyhow::Result;
+use baler_core::settings::{self, SettingsLayer};
 use clap::{Parser, Subcommand};
 
 use commands::{
@@ -123,13 +124,24 @@ enum Commands {
         #[arg(conflicts_with_all = ["path", "git", "url"])]
         source: Option<String>,
 
-        #[arg(long, help = "Automatically install R package dependencies from CRAN")]
+        #[arg(
+            long,
+            overrides_with = "no_install_deps",
+            help = "Automatically install R package dependencies from CRAN. Off by default, see `baler config install-deps`"
+        )]
         install_deps: bool,
 
         #[arg(
             long,
-            requires = "install_deps",
-            help = "Also install the module's [extras] R packages (test frameworks, dev tooling). Needs --install-deps"
+            overrides_with = "install_deps",
+            help = "Do not install dependencies, even when `baler config install-deps` is on"
+        )]
+        no_install_deps: bool,
+
+        #[arg(
+            long,
+            conflicts_with = "no_install_deps",
+            help = "Also install the module's [extras] R packages (test frameworks, dev tooling). Needs --install-deps, or `baler config install-deps on`"
         )]
         extras: bool,
 
@@ -293,8 +305,36 @@ enum BoxCommands {
     },
 }
 
+/// What the install flags say, if they were given. When both are given,
+/// clap keeps only the last one, so at most one of them is true here.
+fn install_deps_flag(command: &Commands) -> Option<bool> {
+    match command {
+        Commands::Install { install_deps, no_install_deps, .. } => {
+            if *no_install_deps {
+                Some(false)
+            } else if *install_deps {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 pub fn run() {
     let cli = Cli::parse();
+
+    let loaded = match settings::init(SettingsLayer {
+        install_deps: install_deps_flag(&cli.command),
+        lib: None,
+    }) {
+        Ok(loaded) => loaded,
+        Err(e) => {
+            eprintln!("error: {e:?}");
+            std::process::exit(1);
+        }
+    };
 
     let result: Result<()> = match cli.command {
         Commands::Init { name, dir_name, module_name, src, native, backend, license } => {
@@ -306,9 +346,20 @@ pub fn run() {
         Commands::Bundle { path, locked, merge } => {
             commands::bundle::run(BundleArgs { path, locked, merge })
         }
-        Commands::Install { source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir } => {
+        Commands::Install { source, extras, repo, version, path, git, branch, tag, rev, url, module_dir, .. } => {
             commands::install::run(InstallArgs {
-                source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir,
+                source,
+                install_deps: loaded.install_deps.value,
+                extras,
+                repo,
+                version,
+                path,
+                git,
+                branch,
+                tag,
+                rev,
+                url,
+                module_dir,
             })
         }
         Commands::Lock { path, update, with_rver, check, remove } => {

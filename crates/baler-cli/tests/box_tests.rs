@@ -187,7 +187,12 @@ fn baler(lib: &Path, api: &str) -> Command {
         fake_r_dir().display(),
         std::env::var("PATH").unwrap_or_default()
     );
+    let no_home = std::env::temp_dir().join("baler-tests-no-home");
     cmd.env_remove("RUST_BACKTRACE")
+        .env("HOME", &no_home)
+        .env("USERPROFILE", &no_home)
+        .env_remove("BALER_LIB")
+        .env_remove("BALER_INSTALL_DEPS")
         .env_remove("BALER_R_LIB")
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_TOKEN")
