@@ -2,6 +2,14 @@
 
 # Development version
 
+## What's new
+
+-  `baler config` lets you reads and changes the settings of your machine through a configuration, and kept in `~/.baler/config.toml`. More details: 
+
+    -   `baler config` lists them, `baler config <key>` prints one, `baler config <key> <value>` sets one and `baler config --unset <key>` removes one. Add `--show-origin` to the list to see where each value comes from.
+    -   `install-deps` turns `baler install --install-deps` on for every run. `--no-install-deps` turns it off again for one run, and `BALER_INSTALL_DEPS` sets it for a shell.
+    -   `lib` sets where modules are installed, and writes `BALER_LIB` into `~/.Renviron` so that `{box}` finds them.
+
 # v0.2.1
 
 ## What's new
