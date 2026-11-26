@@ -188,11 +188,11 @@ Use exactly one of `<name>`, `--path`, `--git`, or `--url` to say where to insta
 | `--url <tarball>` | Installs directly from an already-bundled archive URL, such as a GitHub Release asset from `baler bundle`. Must end in `.tar.gz`, checked up front. |
 | `--repo <url>` | Looks up `<name>` in a module registry at `<url>`. Registries aren't built yet, so this currently just fails with a clear "not implemented" error. Add `--version <constraint>` once registries exist. |
 
-The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether R packages (from CRAN by default, from another CRAN-like repository with `repo`, or from GitHub with `git`) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything. Installing a module that's already installed under the same name replaces the old copy.
+The extra parameter, `--install-deps`, downloads and installs the module's dependencies, whether R packages (from CRAN by default, from another CRAN-like repository with `repo`, or from GitHub with `git`) or `box-bale` modules. Without it, `{baler}` still shows what it would install, but doesn't fetch anything, unless you turned it on for every run with `baler config install-deps on` (then `--no-install-deps` turns it off for one run). Installing a module that's already installed under the same name replaces the old copy.
 
 Modules are installed from the source their entry declares under `[dependencies.baler]`, at the commit `baler.lock` pins when it has one for that source. A module that is already installed is left alone. Before installing one, `{baler}` checks that the source is the module the entry names and that the version it declares satisfies the entry's constraint, and stops with an error if either is wrong.
 
-`--extras` also installs the R packages (and `{box}` modules) the module declares under `[extras]`, such as test frameworks or development tooling. It only works together with `--install-deps`, since extras are R packages installed from CRAN, and passing it alone is an error. If the module declares nothing under `[extras]`, `{baler}` says so and installs nothing extra. When the module has a `baler.lock`, the extras are installed at the versions pinned there, transitive packages included, and a missing or outdated extras pin is an error telling you to run `baler lock`. Without a lock, `[extras]` is resolved together with the regular dependencies, and a package declared in both with different version constraints is an error. Without `--extras`, extras-only pins are never installed.
+`--extras` also installs the R packages, as well as the `box-bale` modules, the module declared under `[extras]`, such as test frameworks or development tooling. It only works when install-deps is on (`--install-deps`, or the setting), since extras are R packages installed from CRAN, and passing it otherwise is currently an error.^[This can be changed in the future updates.] If the module declares nothing under `[extras]`, `{baler}` says so and installs nothing extra. When the module has a `baler.lock`, the extras are installed at the versions pinned there, transitive packages included, and a missing or outdated extras pin is an error telling you to run `baler lock`. Without a lock, `[extras]` is resolved together with the regular dependencies, and a package declared in both with different version constraints is an error. Without `--extras`, extras-only pins are never installed.
 
 `baler install` never writes `baler.lock`. If the lock doesn't match `baler.toml`, the install fails and points you to `baler lock`. On the other hand, with no lock at all, it resolves fresh.
 
@@ -357,3 +357,38 @@ baler remove <name> [--force]
 The name has to be one plain name. `.`, `..` and anything with a `/` in it are refused, so a typo such as `baler remove .` cannot point at the install directory and delete every module.
 
 Fails if no module with that name is currently installed, there's nothing to accidentally remove twice.
+
+## Machine settings {#config}
+
+As of now, the location of the installed `box-bale` modules and whether `baler install` installs dependencies are settings of your machine, not of a module, and you can configure them. `baler config` reads and changes them in `~/.baler/config.toml`.^[There are more to be added, so stay tuned.] The layers they come from are on the [Settings](settings.qmd) page.
+
+``` bash
+baler config [--show-origin]
+baler config <key>
+baler config <key> <value>
+baler config --unset <key>
+```
+
+| Command | What it does |
+|---|---|
+| `baler config` | Prints every setting with the value it has now. `--show-origin` adds where the value comes from: an environment variable, the config file, or the default. |
+| `baler config <key>` | Prints only the value, so a script can use it: `baler config lib`. |
+| `baler config <key> <value>` | Writes the setting to the config file. The file and `~/.baler` are created when they are missing, and the comments and other keys already in the file are kept. |
+| `baler config --unset <key>` | Removes the setting from the config file, so the layers below it decide again. A comment directly above the key is removed with it. |
+
+The keys are `install-deps` and `lib`.
+
+-   `install-deps` takes `on` or `off` (`true`, `false`, `1`, `0`, `yes` and `no` also work). It is off by default.
+-   `lib` takes a path. It is stored as an absolute path, relative to where you run the command, unless it starts with `~/`, which is stored as typed so the file works on another machine.
+
+::: {.callout-tip title="Rationale" collapse="true"}
+The reason of this is because the [forked `{box}` version](https://github.com/joshuamarie/box/blob/feature/baler-support/R/paths.r#L275) relies on the `BALER_LIB` environment variable, which locates the installed `box-bale` modules, and a program cannot change the environment of an R session that is already running. So `baler config lib <path>` also writes `BALER_LIB="<path>"` into your `~/.Renviron`, between two comment lines marking what `{baler}` wrote, and `baler config --unset lib` removes just that block. Restart R to pick it up. R reads `R_ENVIRON_USER` if it is set, and otherwise a `.Renviron` in the working directory instead of the one in your home directory, so a project with its own `.Renviron` needs the line there too.
+:::
+
+The file is replaced in one step, so an interrupted command cannot leave half a file. The command also refuses to touch a file that is already invalid, and tells you which key is wrong. An environment variable beats the file, so when one is set the command still writes the file, then warns that the value that applies has not changed.
+
+``` bash
+baler config install-deps on
+baler config lib ~/R/baler-modules
+baler config --show-origin
+```

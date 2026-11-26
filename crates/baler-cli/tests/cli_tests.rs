@@ -41,6 +41,13 @@ fn baler_cmd() -> Command {
     let mut cmd = Command::cargo_bin("baler").expect("baler binary should be built by `cargo test`");
     // Strip RUST_BACKTRACE so stderr assertions stay deterministic.
     cmd.env_remove("RUST_BACKTRACE");
+    // A developer's own ~/.baler/config.toml and BALER_* variables must not
+    // change what a test sees.
+    let no_home = std::env::temp_dir().join("baler-tests-no-home");
+    cmd.env("HOME", &no_home);
+    cmd.env("USERPROFILE", &no_home);
+    cmd.env_remove("BALER_LIB");
+    cmd.env_remove("BALER_INSTALL_DEPS");
     cmd
 }
 

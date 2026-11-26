@@ -1,12 +1,14 @@
 pub mod commands; 
 
 use anyhow::Result;
+use baler_core::settings::{self, SettingsLayer};
 use clap::{Parser, Subcommand};
 
 use commands::{
     box_pkg::{BoxInstallArgs, BoxStatusArgs},
     bundle::BundleArgs,
     compile::CompileArgs,
+    config::ConfigArgs,
     init::InitArgs,
     install::InstallArgs,
     list::ListArgs,
@@ -123,13 +125,24 @@ enum Commands {
         #[arg(conflicts_with_all = ["path", "git", "url"])]
         source: Option<String>,
 
-        #[arg(long, help = "Automatically install R package dependencies from CRAN")]
+        #[arg(
+            long,
+            overrides_with = "no_install_deps",
+            help = "Automatically install R package dependencies from CRAN. Off by default, see `baler config install-deps`"
+        )]
         install_deps: bool,
 
         #[arg(
             long,
-            requires = "install_deps",
-            help = "Also install the module's [extras] R packages (test frameworks, dev tooling). Needs --install-deps"
+            overrides_with = "install_deps",
+            help = "Do not install dependencies, even when `baler config install-deps` is on"
+        )]
+        no_install_deps: bool,
+
+        #[arg(
+            long,
+            conflicts_with = "no_install_deps",
+            help = "Also install the module's [extras] R packages (test frameworks, dev tooling). Needs --install-deps, or `baler config install-deps on`"
         )]
         extras: bool,
 
@@ -239,6 +252,30 @@ enum Commands {
         names_only: bool,
     },
 
+    /// Read and change the machine settings in ~/.baler/config.toml. With
+    /// only a KEY, print its value. With a KEY and a VALUE, set it. With
+    /// neither, list every setting. The settings are `install-deps` (on or
+    /// off: whether `baler install` also installs dependencies) and `lib`
+    /// (where modules are installed; also written to ~/.Renviron as
+    /// BALER_LIB, which {box} reads).
+    Config {
+        /// `install-deps` or `lib`
+        key: Option<String>,
+
+        /// The new value for KEY
+        #[arg(requires = "key", conflicts_with_all = ["unset", "show_origin"])]
+        value: Option<String>,
+
+        /// Remove KEY from the config file, so the layers below it decide again
+        #[arg(long, requires = "key", conflicts_with_all = ["value", "show_origin"])]
+        unset: bool,
+
+        /// With no KEY, say which layer each value comes from: an
+        /// environment variable, the config file or the default
+        #[arg(long, conflicts_with_all = ["key", "value", "unset"])]
+        show_origin: bool,
+    },
+
     /// Show what one installed module declared: description, license,
     /// authors, dependencies, and where its files and metadata are.
     Show {
@@ -293,8 +330,36 @@ enum BoxCommands {
     },
 }
 
+/// What the install flags say, if they were given. When both are given,
+/// clap keeps only the last one, so at most one of them is true here.
+fn install_deps_flag(command: &Commands) -> Option<bool> {
+    match command {
+        Commands::Install { install_deps, no_install_deps, .. } => {
+            if *no_install_deps {
+                Some(false)
+            } else if *install_deps {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 pub fn run() {
     let cli = Cli::parse();
+
+    let loaded = match settings::init(SettingsLayer {
+        install_deps: install_deps_flag(&cli.command),
+        lib: None,
+    }) {
+        Ok(loaded) => loaded,
+        Err(e) => {
+            eprintln!("error: {e:?}");
+            std::process::exit(1);
+        }
+    };
 
     let result: Result<()> = match cli.command {
         Commands::Init { name, dir_name, module_name, src, native, backend, license } => {
@@ -306,9 +371,20 @@ pub fn run() {
         Commands::Bundle { path, locked, merge } => {
             commands::bundle::run(BundleArgs { path, locked, merge })
         }
-        Commands::Install { source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir } => {
+        Commands::Install { source, extras, repo, version, path, git, branch, tag, rev, url, module_dir, .. } => {
             commands::install::run(InstallArgs {
-                source, install_deps, extras, repo, version, path, git, branch, tag, rev, url, module_dir,
+                source,
+                install_deps: loaded.install_deps.value,
+                extras,
+                repo,
+                version,
+                path,
+                git,
+                branch,
+                tag,
+                rev,
+                url,
+                module_dir,
             })
         }
         Commands::Lock { path, update, with_rver, check, remove } => {
@@ -316,6 +392,9 @@ pub fn run() {
         }
         Commands::List { pattern, keyword, names_only } => {
             commands::list::run(ListArgs { pattern, keyword, names_only })
+        }
+        Commands::Config { key, value, unset, show_origin } => {
+            commands::config::run(ConfigArgs { key, value, unset, show_origin })
         }
         Commands::Show { name } => commands::show::run(ShowArgs { name }),
         Commands::Remove { name, force } => {
