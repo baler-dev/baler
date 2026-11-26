@@ -5,7 +5,16 @@ const BALER_R_LIB_ENV: &str = "BALER_R_LIB";
 const BALER_DIR: &str = ".baler";
 const MODULES_DIR: &str = "modules";
 
+/// The home directory. `USERPROFILE` and then `HOME` come first, the same
+/// two variables `{box}` uses to find `~/.baler`, so both agree. Only when
+/// neither is set is the system asked. On Windows that matters, since the
+/// system lookup ignores both variables.
 pub(crate) fn home_dir() -> Result<PathBuf> {
+    for name in ["USERPROFILE", "HOME"] {
+        if let Some(value) = std::env::var_os(name).filter(|value| !value.is_empty()) {
+            return Ok(PathBuf::from(value));
+        }
+    }
     dirs::home_dir().context("Cannot find home directory")
 }
 
