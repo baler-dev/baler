@@ -314,11 +314,18 @@ fn set_leaves_no_temporary_file_behind() {
     assert_eq!(file_names(path.parent().unwrap()), vec!["config.toml".to_owned()]);
 }
 
+/// A `lib` line with a path that is absolute on every platform. `/tmp/mods`
+/// is not absolute on Windows, which has no drive letter in it.
+fn lib_line() -> String {
+    format!("lib = '{}'\n", std::env::temp_dir().join("mods").display())
+}
+
 #[test]
 fn unset_removes_the_key_and_keeps_the_rest() {
-    let (_dir, path) = write_config(
-        "# where modules go\nlib = '/tmp/mods'\n# CI has no network\ninstall-deps = false\n",
-    );
+    let (_dir, path) = write_config(&format!(
+        "# where modules go\n{}# CI has no network\ninstall-deps = false\n",
+        lib_line()
+    ));
 
     assert!(unset_in_file(&path, "install-deps").unwrap());
 
@@ -332,11 +339,12 @@ fn unset_removes_the_key_and_keeps_the_rest() {
 
 #[test]
 fn unset_of_a_key_that_is_not_there_changes_nothing() {
-    let (_dir, path) = write_config("lib = '/tmp/mods'\n");
+    let text = lib_line();
+    let (_dir, path) = write_config(&text);
 
     assert!(!unset_in_file(&path, "install-deps").unwrap());
 
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "lib = '/tmp/mods'\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
 }
 
 #[test]
